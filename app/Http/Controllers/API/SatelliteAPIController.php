@@ -21,7 +21,7 @@ class SatelliteAPIController extends Controller
         }
 
         // Fetch user with favorite satellites (BelongsToMany)
-        $userWithFavorites = $user->load('favoriteSatellites.category');
+        $userWithFavorites = $user->load('favoriteSatellites');
 
         return response()->json([
             'favorites' => $userWithFavorites->favoriteSatellites
