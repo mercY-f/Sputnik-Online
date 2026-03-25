@@ -28,6 +28,17 @@ defineProps({
 
         <div class="py-12">
             <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+
+                <!-- Quick Actions -->
+                <div class="p-4 sm:p-6 bg-white shadow sm:rounded-lg flex items-center justify-between">
+                    <h3 class="text-lg font-medium text-gray-900">Admin Actions</h3>
+                    <div class="flex gap-3">
+                        <Link :href="route('admin.satellites.index')" class="inline-flex items-center px-4 py-2 bg-indigo-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-indigo-700 focus:bg-indigo-700 active:bg-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150">
+                            🛰️ Manage Satellites
+                        </Link>
+                    </div>
+                </div>
+
                 <!-- Roles Section -->
                 <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
                     <h3 class="text-lg font-medium text-gray-900 mb-4">Roles & Users Count</h3>

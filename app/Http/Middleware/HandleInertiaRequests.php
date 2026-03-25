@@ -35,6 +35,8 @@ class HandleInertiaRequests extends Middleware
                 'user' => $request->user() ? array_merge($request->user()->toArray(), [
                     'role' => $request->user()->load('role.privileges')->role,
                     'privileges' => $request->user()->role ? $request->user()->role->privileges->pluck('name') : [],
+                    'telegram_id' => $request->user()->telegram_id,
+                    'telegram_link_token' => $request->user()->telegram_link_token,
                 ]) : null,
             ],
         ];

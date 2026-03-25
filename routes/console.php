@@ -11,3 +11,6 @@ Artisan::command('inspire', function () {
 
 // Fetch TLE satellite data twice a day
 Schedule::command('satellites:fetch')->twiceDaily(1, 13);
+
+// Check satellite proximity alerts every minute
+Schedule::command('satellites:check-alerts')->everyMinute();

@@ -43,4 +43,9 @@ class Satellite extends Model implements CacheableInterface
     {
         \Illuminate\Support\Facades\Cache::forget($this->getCacheKey());
     }
+
+    public function alertRules()
+    {
+        return $this->hasMany(AlertRule::class);
+    }
 }

@@ -23,6 +23,8 @@ class User extends Authenticatable implements RoleInterface
         'name',
         'email',
         'password',
+        'telegram_id',
+        'telegram_link_token',
     ];
 
     /**
@@ -61,5 +63,10 @@ class User extends Authenticatable implements RoleInterface
     public function favoriteSatellites()
     {
         return $this->belongsToMany(Satellite::class , 'user_satellite');
+    }
+
+    public function alertRules()
+    {
+        return $this->hasMany(AlertRule::class);
     }
 }

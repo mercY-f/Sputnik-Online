@@ -65,6 +65,12 @@ class DatabaseSeeder extends Seeder
             'role_id' => $guestRole->id,
         ]);
 
+        \App\Models\UserProfile::create([
+            'user_id'  => $guestUser->id,
+            'bio'      => 'Guest',
+            'timezone' => 'UTC',
+        ]);
+
         // Create Default Categories
         $categories = ['ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGATION', 'WEATHER', 'OTHER', 'Communication'];
         foreach ($categories as $cat) {

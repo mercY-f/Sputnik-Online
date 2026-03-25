@@ -5,6 +5,18 @@ import { createInertiaApp } from '@inertiajs/vue3';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createApp, h } from 'vue';
 import { ZiggyVue } from '../../vendor/tightenco/ziggy';
+import { registerSW } from 'virtual:pwa-register';
+
+// Register PWA Service Worker
+const updateSW = registerSW({
+  onNeedRefresh() {
+    // Optionally trigger a silent update or show a prompt to user
+    console.log('New content available, please refresh.');
+  },
+  onOfflineReady() {
+    console.log('App is ready to work offline.');
+  },
+});
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 

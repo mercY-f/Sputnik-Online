@@ -5,6 +5,7 @@ import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
 import NavLink from '@/Components/NavLink.vue';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink.vue';
+import InstallPrompt from '@/Components/InstallPrompt.vue';
 import { Link } from '@inertiajs/vue3';
 
 const showingNavigationDropdown = ref(false);
@@ -38,6 +39,12 @@ const showingNavigationDropdown = ref(false);
                                     :active="route().current('dashboard')"
                                 >
                                     Dashboard
+                                </NavLink>
+                                <NavLink
+                                    :href="route('alert-rules.index')"
+                                    :active="route().current('alert-rules.*')"
+                                >
+                                    My Alerts
                                 </NavLink>
                                 <NavLink
                                     v-if="$page.props.auth.user.role?.name === 'admin'"
@@ -154,6 +161,12 @@ const showingNavigationDropdown = ref(false);
                             Dashboard
                         </ResponsiveNavLink>
                         <ResponsiveNavLink
+                            :href="route('alert-rules.index')"
+                            :active="route().current('alert-rules.*')"
+                        >
+                            My Alerts
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
                             v-if="$page.props.auth.user.role?.name === 'admin'"
                             :href="route('admin.satellites.index')"
                             :active="route().current('admin.satellites.*')"
@@ -208,5 +221,6 @@ const showingNavigationDropdown = ref(false);
                 <slot />
             </main>
         </div>
+        <InstallPrompt />
     </div>
 </template>

@@ -42,6 +42,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class , 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class , 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class , 'destroy'])->name('profile.destroy');
+    
+    Route::post('/profile/telegram/token', [\App\Http\Controllers\Profile\TelegramController::class, 'generateToken'])->name('profile.telegram.token');
+    Route::delete('/profile/telegram/disconnect', [\App\Http\Controllers\Profile\TelegramController::class, 'disconnect'])->name('profile.telegram.disconnect');
+
+    // Geographic Alerts
+    Route::resource('alert-rules', \App\Http\Controllers\AlertRuleController::class)->except(['show', 'edit', 'create']);
 });
 
 require __DIR__ . '/auth.php';

@@ -13,7 +13,7 @@ class FetchSatellites extends Command
 
     // Паттерны для определения категорий спутников
     private array $categoryPatterns = [
-        'ISS' => ['ISS', 'ZARYA'],
+        'ISS' => ['ZARYA'], // Только главный модуль, чтобы МКС не троилась
         'STARLINK' => ['STARLINK'],
         'ONEWEB' => ['ONEWEB'],
         'IRIDIUM' => ['IRIDIUM'],
@@ -79,7 +79,7 @@ class FetchSatellites extends Command
 
             $satellites[] = [
                 'name' => $name,
-                'catalog_number' => $catalogNumber . '_' . md5($name), // Исключаем дубли за счет хеша имени
+                'catalog_number' => $catalogNumber,
                 'category' => $this->detectCategory($name),
                 'tle1' => $tle1,
                 'tle2' => $tle2,
