@@ -4,6 +4,8 @@ import './bootstrap';
 import { createInertiaApp } from '@inertiajs/vue3';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createApp, h } from 'vue';
+import { createPinia } from 'pinia';
+import { MotionPlugin } from 'motion-v';
 import { ZiggyVue } from '../../vendor/tightenco/ziggy';
 import { registerSW } from 'virtual:pwa-register';
 
@@ -31,6 +33,8 @@ createInertiaApp({
         return createApp({ render: () => h(App, props) })
             .use(plugin)
             .use(ZiggyVue)
+            .use(createPinia())
+            .use(MotionPlugin)
             .mount(el);
     },
     progress: {
