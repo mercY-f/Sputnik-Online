@@ -1,105 +1,125 @@
 <template>
-  <div class="globe-wrapper">
-    <!-- Floating open button (when sidebar is closed) -->
-    <button
-      v-if="!sidebarOpen"
-      @click="sidebarOpen = true"
-      class="floating-btn"
-      title="Open Panel"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-    </button>
-
-    <!-- Sidebar Panel -->
-    <aside class="sidebar" :class="{ open: sidebarOpen }">
-      <div class="sidebar-header">
-        <h1>Earth Orbit Live</h1>
-        <button @click="sidebarOpen = false" class="close-btn" title="Close Panel">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-      </div>
-
-      <!-- Auth Navigation Overlay for Sidebar -->
-      <div class="auth-nav">
-        <template v-if="user">
-          <div class="user-greeting">Welcome, {{ user.name }}</div>
-          <div class="auth-links">
-            <Link :href="route('dashboard')" class="auth-btn">Dashboard</Link>
-            <Link v-if="user.role?.name === 'admin'" :href="route('admin.dashboard')" class="auth-btn">Admin</Link>
-            <Link :href="route('profile.edit')" class="auth-btn outline">Profile</Link>
-          </div>
-        </template>
-        <template v-else>
-          <div class="auth-links">
-            <Link :href="route('login')" class="auth-btn">Log in</Link>
-            <Link :href="route('register')" class="auth-btn outline">Register</Link>
-          </div>
-        </template>
-      </div>
-
-      <!-- Loading state -->
-      <div v-if="loading" class="loading-state">
-        <span class="spinner"></span>
-        <p>Acquiring satellite telemetry...</p>
-      </div>
-
-      <template v-else>
-        <!-- Stats -->
-        <div class="stats-block">
-          <div class="stat-row">
-            <span class="stat-label">Tracked Objects</span>
-            <span class="stat-value emerald">{{ satPositions.length.toLocaleString() }}</span>
-          </div>
-          <div class="stat-row mt-1">
-            <span class="stat-label">System Time</span>
-            <span class="stat-value mono">{{ utcTime }}</span>
-          </div>
+  <MissionShell :object-count="satPositions.length" class="h-screen overflow-hidden">
+    <div class="hero-main">
+      <div class="globe-area">
+        <!-- Focus indicator (glass overlay above the globe) -->
+        <div v-if="focusTarget" class="focus-indicator">
+          <span class="focus-dot"></span>
+          <span class="focus-label">◎ FOCUS — {{ focusTarget }}</span>
+          <button class="focus-close" title="Clear focus" @click="clearFocus">✕</button>
         </div>
 
-        <!-- Category filters -->
-        <div class="filter-block">
-          <span class="block-label">Filter Constellation</span>
-          <div class="category-tags">
-            <button
-              v-for="cat in availableCategories"
-              :key="cat"
-              @click="setFilter(cat)"
-              class="cat-tag"
-              :class="{ active: activeFilter === cat }"
-            >
-              {{ cat }}
+        <!-- Floating open button (when sidebar is closed) -->
+        <button
+          v-if="!sidebarOpen"
+          @click="sidebarOpen = true"
+          class="floating-btn"
+          title="Open Panel"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+
+        <!-- Sidebar Panel -->
+        <aside class="sidebar" :class="{ open: sidebarOpen }">
+          <div class="sidebar-header">
+            <h1>Earth Orbit Live</h1>
+            <button @click="sidebarOpen = false" class="close-btn" title="Close Panel">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
           </div>
-        </div>
 
-        <!-- Satellite List -->
-        <div class="sat-list-block">
-          <span class="block-label">Satellite List{{ satPositions.length > 100 ? ' (Top 100)' : '' }}</span>
-          <div class="sat-list">
-            <div
-              v-for="sat in satPositions.slice(0, 100)"
-              :key="sat.id || sat.name"
-              class="sat-row-container"
-            >
-              <button
-                @click="focusSatellite(sat)"
-                class="sat-row"
-              >
-                <span class="sat-dot" :style="{ backgroundColor: getCategoryColor(sat.category) }"></span>
-                <span class="sat-name">{{ sat.name }}</span>
-              </button>
-              <button v-if="user" @click="toggleFavorite(sat)" class="fav-btn" :class="{ isFav: isFavorite(sat) }" title="Toggle Favorite">
-                ★
-              </button>
-            </div>
+          <!-- Auth Navigation Overlay for Sidebar -->
+          <div class="auth-nav">
+            <template v-if="user">
+              <div class="user-greeting">Welcome, {{ user.name }}</div>
+              <div class="auth-links">
+                <Link :href="route('dashboard')" class="auth-btn">Dashboard</Link>
+                <Link v-if="user.role?.name === 'admin'" :href="route('admin.dashboard')" class="auth-btn">Admin</Link>
+                <Link :href="route('profile.edit')" class="auth-btn outline">Profile</Link>
+              </div>
+            </template>
+            <template v-else>
+              <div class="auth-links">
+                <Link :href="route('login')" class="auth-btn">Log in</Link>
+                <Link :href="route('register')" class="auth-btn outline">Register</Link>
+              </div>
+            </template>
           </div>
-        </div>
-      </template>
-    </aside>
 
-    <!-- Globe Container -->
-    <div ref="globeContainer" class="globe-container"></div>
-  </div>
+          <!-- Loading state -->
+          <div v-if="loading" class="loading-state">
+            <span class="spinner"></span>
+            <p>Acquiring satellite telemetry...</p>
+          </div>
+
+          <template v-else>
+            <!-- Stats -->
+            <div class="stats-block">
+              <div class="stat-row">
+                <span class="stat-label">Tracked Objects</span>
+                <span class="stat-value emerald">{{ satPositions.length.toLocaleString() }}</span>
+              </div>
+              <div class="stat-row mt-1">
+                <span class="stat-label">System Time</span>
+                <span class="stat-value mono">{{ utcTime }}</span>
+              </div>
+            </div>
+
+            <!-- Category filters -->
+            <div class="filter-block">
+              <span class="block-label">Filter Constellation</span>
+              <div class="category-tags">
+                <button
+                  v-for="cat in availableCategories"
+                  :key="cat"
+                  @click="setFilter(cat)"
+                  class="cat-tag"
+                  :class="{ active: activeFilter === cat }"
+                >
+                  {{ cat }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Satellite List -->
+            <div class="sat-list-block">
+              <span class="block-label">Satellite List{{ satPositions.length > 100 ? ' (Top 100)' : '' }}</span>
+              <div class="sat-list">
+                <div
+                  v-for="sat in satPositions.slice(0, 100)"
+                  :key="sat.id || sat.name"
+                  class="sat-row-container"
+                >
+                  <button
+                    @click="focusSatellite(sat)"
+                    class="sat-row"
+                  >
+                    <span class="sat-dot" :style="{ backgroundColor: getCategoryColor(sat.category) }"></span>
+                    <span class="sat-name">{{ sat.name }}</span>
+                  </button>
+                  <button v-if="user" @click="toggleFavorite(sat)" class="fav-btn" :class="{ isFav: isFavorite(sat) }" title="Toggle Favorite">
+                    ★
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </aside>
+
+        <!-- Globe Container -->
+        <div ref="globeContainer" class="globe-container"></div>
+      </div>
+
+      <section class="news-area">
+        <NewsFeed
+          :items="news"
+          max-height="100%"
+          class="h-full"
+          @focus="focusByCatalogNumber"
+        />
+      </section>
+    </div>
+  </MissionShell>
 </template>
 
 <script setup>
@@ -109,6 +129,8 @@ import axios from 'axios';
 import Globe from 'globe.gl';
 import * as satellite from 'satellite.js';
 import * as THREE from 'three';
+import { MissionShell, NewsFeed } from '@/components/mission';
+import { news } from '@/data/news';
 
 const page = usePage();
 const user = computed(() => page.props.auth.user);
@@ -416,18 +438,95 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* ---- Layout ---- */
-.globe-wrapper {
-  position: relative;
-  width: 100vw;
-  height: 100vh;
+.hero-main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
   background: #050505;
   overflow: hidden;
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
 
+.globe-area {
+  flex: 1 1 auto;
+  position: relative;
+  min-height: 0;
+  width: 100%;
+  background: #050505;
+  overflow: hidden;
+}
+
 .globe-container {
   position: absolute;
   inset: 0;
+}
+
+/* ---- News feed area ---- */
+.news-area {
+  height: 38vh;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.35);
+  padding: 14px 20px 18px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.news-area :deep(section) {
+  height: 100%;
+  min-height: 0;
+}
+
+/* ---- Focus indicator ---- */
+.focus-indicator {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px 7px 12px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: 999px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #d1d5db;
+  white-space: nowrap;
+}
+.focus-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
+  animation: focus-pulse 1.6s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.focus-label { color: #d1d5db; }
+.focus-close {
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 999px;
+  transition: color 0.15s, background 0.15s;
+}
+.focus-close:hover { color: #f87171; background: rgba(255, 255, 255, 0.08); }
+@keyframes focus-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 /* ---- Floating button ---- */
