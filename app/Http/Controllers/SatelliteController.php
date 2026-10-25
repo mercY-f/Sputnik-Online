@@ -33,7 +33,7 @@ class SatelliteController extends Controller
         $category = $request->query('category', 'ALL');
 
         $satellites = \Illuminate\Support\Facades\Cache::remember("satellites:api:{$category}", 3600, function () use ($category) {
-            $query = Satellite::select('id', 'name', 'tle1', 'tle2', 'category');
+            $query = Satellite::select('id', 'name', 'catalog_number', 'tle1', 'tle2', 'category');
             if ($category !== 'ALL') {
                 $query->where('category', $category);
             }

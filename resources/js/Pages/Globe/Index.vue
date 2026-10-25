@@ -148,6 +148,7 @@ const loading        = ref(true);
 const sidebarOpen    = ref(true);
 const activeFilter   = ref('ALL');
 const satPositions   = ref([]);
+const focusTarget    = ref(null);
 const utcTime        = ref('');
 const availableCategories = ref(['ALL']);
 const userFavorites  = ref([]);
@@ -185,7 +186,7 @@ async function fetchData() {
       .map(sat => {
         try {
           const satrec = satellite.twoline2satrec(sat.tle1, sat.tle2);
-          return { id: sat.id, name: sat.name, category: sat.category, satrec };
+          return { id: sat.id, name: sat.name, category: sat.category, catalogNumber: sat.catalog_number ?? null, satrec };
         } catch { return null; }
       })
       .filter(Boolean);
@@ -276,6 +277,7 @@ function startAnimation() {
           id:       sat.id,
           name:     sat.name,
           category: sat.category,
+          catalogNumber: sat.catalogNumber,
           lat:  satellite.degreesLat(gd.latitude),
           lng:  satellite.degreesLong(gd.longitude),
           alt:  gd.height / 6371,
@@ -366,6 +368,20 @@ function focusSatellite(sat) {
       1000
     );
   }
+}
+
+function focusByCatalogNumber(catalogNumber) {
+  const sat = satPositions.value.find(
+    p => p.catalogNumber != null && String(p.catalogNumber) === String(catalogNumber)
+  );
+  if (!sat) return;
+  focusTarget.value = sat.name;
+  focusSatellite(sat);
+}
+
+function clearFocus() {
+  focusTarget.value = null;
+  if (globeInstance) globeInstance.pointOfView({ altitude: 2.5 }, 1000);
 }
 
 // -----------------------------------------------------------------------
