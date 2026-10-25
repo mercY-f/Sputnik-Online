@@ -2,10 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\SendTelegramAlert;
 use App\Models\AlertRule;
 use App\Services\SatellitePositionCalculator;
 use Illuminate\Console\Command;
-use Telegram\Bot\Laravel\Facades\Telegram;
 
 class CheckSatelliteAlerts extends Command
 {
@@ -83,7 +83,8 @@ class CheckSatelliteAlerts extends Command
                 if ($this->option('test')) {
                     $this->info("  ⚡ TEST MODE: forcing notification regardless of distance.");
                 }
-                $this->sendTelegramAlert($rule, $satellite, $position, $distanceKm);
+                SendTelegramAlert::dispatch($rule->user->telegram_id, $this->buildAlertText($rule, $satellite, $position, $distanceKm));
+                $this->info("  📤 Queued Telegram alert for user #{$rule->user->id} ({$rule->user->name}) via Telegram!");
                 // Update last notified time
                 if (!$this->option('test')) {
                     $rule->update(['last_notified_at' => now()]);
@@ -94,16 +95,15 @@ class CheckSatelliteAlerts extends Command
         $this->info('Done.');
     }
 
-    private function sendTelegramAlert(AlertRule $rule, $satellite, array $position, float $distance): void
+    private function buildAlertText($rule, $satellite, $position, $distance): string
     {
-        $userName = $rule->user->name;
-        $satName  = htmlspecialchars($satellite->name);
-        $dist     = round($distance);
-        $lat      = $position['lat'];
-        $lng      = $position['lng'];
-        $alt      = $position['alt_km'];
+        $satName = htmlspecialchars($satellite->name);
+        $dist    = round($distance);
+        $lat     = $position['lat'];
+        $lng     = $position['lng'];
+        $alt     = $position['alt_km'];
 
-        $text = "🚨 <b>Спутник рядом!</b>\n\n"
+        return "🚨 <b>Спутник рядом!</b>\n\n"
             . "🛰️ <b>{$satName}</b> сейчас пролетает над вашей зоной наблюдения!\n\n"
             . "📍 Текущая позиция спутника:\n"
             . "  Широта: <b>{$lat}°</b>\n"
@@ -112,16 +112,5 @@ class CheckSatelliteAlerts extends Command
             . "📏 Расстояние до вашей точки: <b>{$dist} км</b>\n"
             . "🟢 Радиус вашей зоны: <b>{$rule->radius_km} км</b>\n\n"
             . "<i>Уведомление от Earth Orbit Live 🌍</i>";
-
-        try {
-            Telegram::sendMessage([
-                'chat_id'    => $rule->user->telegram_id,
-                'text'       => $text,
-                'parse_mode' => 'HTML',
-            ]);
-            $this->info("  ✅ Notification sent to user #{$rule->user->id} ({$userName}) via Telegram!");
-        } catch (\Exception $e) {
-            $this->error("  ❌ Failed to send Telegram message: " . $e->getMessage());
-        }
     }
 }
