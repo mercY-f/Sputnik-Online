@@ -147,4 +147,63 @@ class SatellitePositionCalculator
 
         return $R * 2.0 * asin(min(1.0, sqrt($a)));
     }
+
+    /**
+     * Calculate geographical positions in batch using satellite.js via Node.js subprocess.
+     */
+    public function getPositionsBatch(array $satellites, ?\DateTime $atTime = null): array
+    {
+        $script = base_path('scripts/satellite_position.cjs');
+        if (!file_exists($script)) {
+            return array_fill(0, count($satellites), null);
+        }
+
+        if (empty($satellites)) {
+            return [];
+        }
+
+        $payload = array_map(fn($s) => [
+            'tle1' => $s['tle1'],
+            'tle2' => $s['tle2'],
+            'ts'   => ($atTime?->getTimestamp() ?? time()),
+        ], $satellites);
+
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $process = proc_open('node ' . escapeshellarg($script) . ' --batch 2>&1', $descriptors, $pipes);
+        if (!is_resource($process)) {
+            return array_fill(0, count($satellites), null);
+        }
+
+        fwrite($pipes[0], json_encode($payload));
+        fclose($pipes[0]);
+
+        $out = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        if (isset($pipes[2]) && is_resource($pipes[2])) {
+            fclose($pipes[2]);
+        }
+
+        proc_close($process);
+
+        $data = json_decode(trim($out), true);
+        if (!is_array($data) || isset($data['error']) || count($data) !== count($satellites)) {
+            return array_fill(0, count($satellites), null);
+        }
+
+        return array_values(array_map(function ($d) {
+            if (is_array($d) && !isset($d['error'])) {
+                return [
+                    'lat'    => (float) $d['lat'],
+                    'lng'    => (float) $d['lng'],
+                    'alt_km' => (float) $d['alt_km'],
+                ];
+            }
+            return null;
+        }, $data));
+    }
 }

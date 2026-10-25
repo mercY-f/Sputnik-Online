@@ -32,6 +32,24 @@ class CheckSatelliteAlerts extends Command
 
         $this->info("Checking {$rules->count()} active alert rule(s)...");
 
+        $satellitesById = [];
+        foreach ($rules as $rule) {
+            $s = $rule->satellite;
+            if ($s && $s->tle1 && $s->tle2) {
+                $satellitesById[$s->id] = $s;
+            }
+        }
+
+        $positions = $calculator->getPositionsBatch(
+            array_map(fn($s) => ['tle1' => $s->tle1, 'tle2' => $s->tle2], array_values($satellitesById)),
+            $now
+        );
+
+        $positionById = [];
+        foreach (array_keys($satellitesById) as $index => $id) {
+            $positionById[$id] = $positions[$index] ?? null;
+        }
+
         foreach ($rules as $rule) {
             $satellite = $rule->satellite;
 
@@ -40,7 +58,7 @@ class CheckSatelliteAlerts extends Command
                 continue;
             }
 
-            $position = $calculator->getPosition($satellite->tle1, $satellite->tle2, $now);
+            $position = $positionById[$rule->satellite->id] ?? null;
 
             if (!$position) {
                 $this->warn("Could not compute position for satellite {$satellite->name}.");
