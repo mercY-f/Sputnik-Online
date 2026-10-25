@@ -41,15 +41,14 @@ class FetchSatellites extends Command
             $satellites = $this->parseTLE($response->body());
             $this->info('Parsed ' . count($satellites) . ' satellites. Saving to DB...');
 
-            $saved = 0;
-            foreach ($satellites as $sat) {
-                Satellite::updateOrCreate(
-                ['catalog_number' => $sat['catalog_number']],
-                    $sat
-                );
-                $saved++;
-            }
+            $now = now();
+            \Illuminate\Support\Facades\DB::transaction(function () use ($satellites) {
+                foreach (array_chunk($satellites, 1000) as $chunk) {
+                    Satellite::upsert($chunk, ['catalog_number'], ['name', 'category', 'tle1', 'tle2']);
+                }
+            });
 
+            $saved = count($satellites);
             $this->info("Done! Saved/updated {$saved} satellites.");
             return self::SUCCESS;
 
