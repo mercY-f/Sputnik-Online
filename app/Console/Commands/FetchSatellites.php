@@ -48,6 +48,8 @@ class FetchSatellites extends Command
                 }
             });
 
+            \Illuminate\Support\Facades\Cache::flush();
+
             $saved = count($satellites);
             $this->info("Done! Saved/updated {$saved} satellites.");
             return self::SUCCESS;

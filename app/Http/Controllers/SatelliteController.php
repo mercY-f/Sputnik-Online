@@ -32,14 +32,13 @@ class SatelliteController extends Controller
     {
         $category = $request->query('category', 'ALL');
 
-        $query = Satellite::select('id', 'name', 'tle1', 'tle2', 'category');
-
-        if ($category !== 'ALL') {
-            $query->where('category', $category);
-        }
-
-        // Ограничиваем количество для нормальной работы JS в браузере
-        $satellites = $query->limit(3000)->get();
+        $satellites = \Illuminate\Support\Facades\Cache::remember("satellites:api:{$category}", 3600, function () use ($category) {
+            $query = Satellite::select('id', 'name', 'tle1', 'tle2', 'category');
+            if ($category !== 'ALL') {
+                $query->where('category', $category);
+            }
+            return $query->limit(3000)->get();
+        });
 
         return response()->json($satellites);
     }
@@ -49,16 +48,18 @@ class SatelliteController extends Controller
      */
     public function categories()
     {
-        $categories = Satellite::selectRaw('category, COUNT(*) as count')
-            ->groupBy('category')
-            ->orderBy('count', 'desc')
-            ->pluck('count', 'category');
+        return response()->json(\Illuminate\Support\Facades\Cache::remember('satellites:categories', 3600, function () {
+            $categories = Satellite::selectRaw('category, COUNT(*) as count')
+                ->groupBy('category')
+                ->orderBy('count', 'desc')
+                ->pluck('count', 'category');
 
-        $allCount = Satellite::count();
+            $allCount = Satellite::count();
 
-        return response()->json([
-            'ALL' => $allCount,
-            ...$categories->toArray(),
-        ]);
+            return [
+                'ALL' => $allCount,
+                ...$categories->toArray(),
+            ];
+        }));
     }
 }
