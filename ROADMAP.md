@@ -17,11 +17,11 @@
 
 ### Спринт 0 — Фундамент и гигиена
 - [x] git: артефакты, executable-бит, имя пакета (`chore: normalize package name and executable bit`)
-- [ ] fix: `atTime` пробрасывается в Node SGP4 (сейчас игнорируется)
-- [ ] fix: логирование fallback (упрощённый SGP4) вместо молчаливой подмены
-- [ ] fix: `firstOrCreate` для привилегий/ролей в сидере (идемпотентный `db:seed`)
-- [ ] fix: нормализация категорий (убрать orphan «Communication»)
-- [ ] миграция SQLite → PostgreSQL + PostGIS
+- [x] fix: `atTime` пробрасывается в Node SGP4 (сейчас игнорируется)
+- [x] fix: логирование fallback (упрощённый SGP4) вместо молчаливой подмены
+- [x] fix: `firstOrCreate` для привилегий/ролей в сидере (идемпотентный `db:seed`)
+- [x] fix: нормализация категорий (убрать orphan «Communication»)
+- [x] миграция SQLite → PostgreSQL + PostGIS (нет пароля — подключение через unix-socket `/var/run/postgresql`, peer-auth; PostGIS 3.6.2)
 
 ### Спринт 1 — Бэкенд-производительность
 - батч-расчёт позиций (один Node на массив TLE) или сервис-процесс · дедуп по `satellite_id` · кэш Redis
