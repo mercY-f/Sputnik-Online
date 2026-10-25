@@ -30,14 +30,18 @@
 - [x] бонус-баг: изолировал тест-БД в sqlite `:memory:` (была закомментирована — `php artisan test` грохал dev-БД)
 - отложено: Redis (не установлен; database-кэша хватает — кэш позиций избыточен при дедупе). Вернуться при WebSocket/SSE в Спринте 5.
 
-### Спринт 2 — Дизайн-токены и компонентная база
-- CSS-переменные + `tailwind.config` extend + `darkMode`; подключение shadcn-vue / lucide / pinia / vue-sonner / motion-v / @vueuse
-- базовые примитивы: Button, Badge, Card/Panel, ScrollArea, Tooltip, Sheet, Command, Sonner
+### Спринт 2 — Дизайн-токены и компонентная база ✅
+- [x] `@`-алиас в Vite + Tailwind `darkMode`/color-токены/`fontFamily.mono`/`tailwindcss-animate` + CSS-переменные Mission Control (тёмное стекло, emerald-акцент)
+- [x] стек подключён: shadcn-vue (JS-режим) + reka-ui + lucide-vue-next + pinia + motion-v + @vueuse/core (+ cva/clsx/tailwind-merge)
+- [x] базовые компоненты (канон new-york, вручную через patch — CLI упал с «Invalid Version: main»): button, badge, card, sheet, scroll-area, tooltip
+- отложено: vue-sonner (тосты), Command (⌘K-палитра) — по надобности
 
-### Спринт 3 — Mission Control Shell + UI/HUD
-- MissionShell + топбар (⋮ UTC-часы · счётчик · индикатор соединения · ⌘K) + HUD-панели
-- **F1. Hero-режим + News Feed** (см. ниже)
-- миграция `Globe/Index.vue` и `AuthenticatedLayout`/Breeze на единый shell
+### Спринт 3 — Mission Control Shell + Hero ✅ (основа)
+- [x] MissionShell (топбар: UTC-часы · OBJ-счётчик · LIVE · ⌘K-поиск · аватар; слоты + footer) + NewsFeed/NewsCard (мок, «Найти на орбите» → emit `focus`)
+- [x] Hero-расклад: глобус сверху (flex-1) + лента 38vh снизу; фокус-индикатор «◎ FOCUS — имя»
+- [x] Focus: `catalog_number` в `/api/satellites` + `focusByCatalogNumber` → существующий `focusSatellite` (fly-to `pointOfView`)
+- [ ] F1 камера «купол/дуга сверху во всю ширину» (framing) — перенесено в Спринт 4
+- [ ] миграция AuthenticatedLayout/Breeze + остальных страниц (Admin/Dashboard/Profile/AlertRules) на единый shell
 
 ### Спринт 4 — 3D-модернизация
 - InstancedMesh/Points вместо 3000 `Mesh`/сек · интерполяция (propagate t/t+1, lerp в rAF) · Web Worker
