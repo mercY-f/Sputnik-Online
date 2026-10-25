@@ -13,27 +13,21 @@ const showingNavigationDropdown = ref(false);
 
 <template>
     <div>
-        <div class="min-h-screen bg-gray-100">
-            <nav
-                class="border-b border-gray-100 bg-white"
-            >
-                <!-- Primary Navigation Menu -->
-                <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-                    <div class="flex h-16 justify-between">
-                        <div class="flex">
-                            <!-- Logo -->
-                            <div class="flex shrink-0 items-center">
-                                <Link :href="route('dashboard')">
-                                    <ApplicationLogo
-                                        class="block h-9 w-auto fill-current text-gray-800"
-                                    />
+        <div class="app-layout">
+            <nav class="app-nav">
+                <div class="nav-container">
+                    <div class="nav-inner">
+                        <!-- Logo + Brand -->
+                        <div class="nav-left">
+                            <div class="nav-logo-wrap">
+                                <Link :href="route('dashboard')" class="nav-brand">
+                                    <ApplicationLogo class="nav-logo-icon" />
+                                    <span class="nav-brand-text">Orbit<span class="nav-brand-accent">Track</span></span>
                                 </Link>
                             </div>
 
-                            <!-- Navigation Links -->
-                            <div
-                                class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex"
-                            >
+                            <!-- Desktop Navigation Links -->
+                            <div class="nav-links">
                                 <NavLink
                                     :href="route('dashboard')"
                                     :active="route().current('dashboard')"
@@ -56,20 +50,25 @@ const showingNavigationDropdown = ref(false);
                             </div>
                         </div>
 
-                        <div class="hidden sm:ms-6 sm:flex sm:items-center">
+                        <!-- Right side -->
+                        <div class="nav-right">
                             <!-- Settings Dropdown -->
-                            <div class="relative ms-3">
+                            <div class="nav-user">
                                 <Dropdown align="right" width="48">
                                     <template #trigger>
                                         <span class="inline-flex rounded-md">
                                             <button
                                                 type="button"
-                                                class="inline-flex items-center rounded-md border border-transparent bg-white px-3 py-2 text-sm font-medium leading-4 text-gray-500 transition duration-150 ease-in-out hover:text-gray-700 focus:outline-none"
+                                                class="nav-user-btn"
                                             >
+                                                <!-- User avatar circle -->
+                                                <span class="nav-avatar">
+                                                    {{ $page.props.auth.user.name?.charAt(0)?.toUpperCase() }}
+                                                </span>
                                                 {{ $page.props.auth.user.name }}
 
                                                 <svg
-                                                    class="-me-0.5 ms-2 h-4 w-4"
+                                                    class="ms-2 h-4 w-4 opacity-60"
                                                     xmlns="http://www.w3.org/2000/svg"
                                                     viewBox="0 0 20 20"
                                                     fill="currentColor"
@@ -85,9 +84,7 @@ const showingNavigationDropdown = ref(false);
                                     </template>
 
                                     <template #content>
-                                        <DropdownLink
-                                            :href="route('profile.edit')"
-                                        >
+                                        <DropdownLink :href="route('profile.edit')">
                                             Profile
                                         </DropdownLink>
                                         <DropdownLink
@@ -102,14 +99,11 @@ const showingNavigationDropdown = ref(false);
                             </div>
                         </div>
 
-                        <!-- Hamburger -->
-                        <div class="-me-2 flex items-center sm:hidden">
+                        <!-- Hamburger (mobile) -->
+                        <div class="nav-hamburger">
                             <button
-                                @click="
-                                    showingNavigationDropdown =
-                                        !showingNavigationDropdown
-                                "
-                                class="inline-flex items-center justify-center rounded-md p-2 text-gray-400 transition duration-150 ease-in-out hover:bg-gray-100 hover:text-gray-500 focus:bg-gray-100 focus:text-gray-500 focus:outline-none"
+                                @click="showingNavigationDropdown = !showingNavigationDropdown"
+                                class="hamburger-btn"
                             >
                                 <svg
                                     class="h-6 w-6"
@@ -120,8 +114,7 @@ const showingNavigationDropdown = ref(false);
                                     <path
                                         :class="{
                                             hidden: showingNavigationDropdown,
-                                            'inline-flex':
-                                                !showingNavigationDropdown,
+                                            'inline-flex': !showingNavigationDropdown,
                                         }"
                                         stroke-linecap="round"
                                         stroke-linejoin="round"
@@ -131,8 +124,7 @@ const showingNavigationDropdown = ref(false);
                                     <path
                                         :class="{
                                             hidden: !showingNavigationDropdown,
-                                            'inline-flex':
-                                                showingNavigationDropdown,
+                                            'inline-flex': showingNavigationDropdown,
                                         }"
                                         stroke-linecap="round"
                                         stroke-linejoin="round"
@@ -151,7 +143,7 @@ const showingNavigationDropdown = ref(false);
                         block: showingNavigationDropdown,
                         hidden: !showingNavigationDropdown,
                     }"
-                    class="sm:hidden"
+                    class="sm:hidden nav-mobile-menu"
                 >
                     <div class="space-y-1 pb-3 pt-2">
                         <ResponsiveNavLink
@@ -176,16 +168,12 @@ const showingNavigationDropdown = ref(false);
                     </div>
 
                     <!-- Responsive Settings Options -->
-                    <div
-                        class="border-t border-gray-200 pb-1 pt-4"
-                    >
+                    <div class="border-t border-white/10 pb-1 pt-4">
                         <div class="px-4">
-                            <div
-                                class="text-base font-medium text-gray-800"
-                            >
+                            <div class="text-base font-medium text-gray-100">
                                 {{ $page.props.auth.user.name }}
                             </div>
-                            <div class="text-sm font-medium text-gray-500">
+                            <div class="text-sm font-medium text-gray-400">
                                 {{ $page.props.auth.user.email }}
                             </div>
                         </div>
@@ -208,10 +196,10 @@ const showingNavigationDropdown = ref(false);
 
             <!-- Page Heading -->
             <header
-                class="bg-white shadow"
+                class="app-page-header"
                 v-if="$slots.header"
             >
-                <div class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+                <div class="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
                     <slot name="header" />
                 </div>
             </header>
@@ -224,3 +212,186 @@ const showingNavigationDropdown = ref(false);
         <InstallPrompt />
     </div>
 </template>
+
+<style scoped>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* Layout */
+.app-layout {
+    min-height: 100vh;
+    background: #f1f5f9;
+    font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Navigation */
+.app-nav {
+    background: #0f172a;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 1px 20px rgba(0, 0, 0, 0.3);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.nav-container {
+    max-width: 80rem;
+    margin: 0 auto;
+    padding: 0 1rem;
+}
+@media (min-width: 640px) { .nav-container { padding: 0 1.5rem; } }
+@media (min-width: 1024px) { .nav-container { padding: 0 2rem; } }
+
+.nav-inner {
+    display: flex;
+    height: 4rem;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.nav-left {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+/* Brand / Logo */
+.nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    text-decoration: none;
+    margin-right: 2rem;
+    transition: opacity 0.2s;
+}
+.nav-brand:hover { opacity: 0.85; }
+
+.nav-logo-icon {
+    width: 28px;
+    height: 28px;
+    color: #60a5fa;
+}
+
+.nav-brand-text {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #f0f6ff;
+    letter-spacing: -0.3px;
+}
+.nav-brand-accent {
+    color: #60a5fa;
+}
+
+/* Desktop nav links */
+.nav-links {
+    display: none;
+    gap: 0.25rem;
+    align-items: center;
+    margin-left: 0.5rem;
+}
+@media (min-width: 640px) {
+    .nav-links { display: flex; }
+}
+
+/* Override NavLink styles for dark navbar */
+.nav-links :deep(a) {
+    color: #94a3b8;
+    border-bottom: 2px solid transparent;
+    padding: 0 0.75rem;
+    height: 4rem;
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: color 0.2s;
+    text-decoration: none;
+}
+.nav-links :deep(a:hover) {
+    color: #e2e8f0;
+    border-color: rgba(96, 165, 250, 0.4);
+}
+.nav-links :deep(a.border-indigo-400),
+.nav-links :deep(a[class*="border-indigo"]) {
+    color: #60a5fa;
+    border-color: #60a5fa;
+}
+
+/* Right side */
+.nav-right {
+    display: none;
+    align-items: center;
+}
+@media (min-width: 640px) {
+    .nav-right { display: flex; }
+}
+
+.nav-user-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 0.4rem 0.75rem;
+    color: #cbd5e1;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    font-family: inherit;
+}
+.nav-user-btn:hover {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.18);
+    color: #f0f6ff;
+}
+
+.nav-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #3b82f6, #6366f1);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Hamburger (mobile) */
+.nav-hamburger {
+    display: flex;
+    align-items: center;
+}
+@media (min-width: 640px) { .nav-hamburger { display: none; } }
+
+.hamburger-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    padding: 0.4rem;
+    color: #94a3b8;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+.hamburger-btn:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: #e2e8f0;
+}
+
+/* Mobile menu */
+.nav-mobile-menu {
+    background: #0f172a;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Page header */
+.app-page-header {
+    background: #fff;
+    border-bottom: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+</style>
