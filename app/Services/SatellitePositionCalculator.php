@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Log;
+
 /**
  * Accurate satellite position calculator using satellite.js via Node.js subprocess.
  * Falls back to built-in simplified SGP4 if Node.js is unavailable.
@@ -23,6 +25,7 @@ class SatellitePositionCalculator
         }
 
         // Fallback to PHP simplified SGP4 (less accurate)
+        Log::warning('SatellitePositionCalculator: node/satellite.js unavailable, using simplified SGP4 fallback (reduced accuracy).');
         return $this->getPositionFallback($tle1, $tle2, $atTime);
     }
 
