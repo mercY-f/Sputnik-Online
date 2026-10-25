@@ -17,7 +17,7 @@ class SatellitePositionCalculator
     public function getPosition(string $tle1, string $tle2, ?\DateTime $atTime = null): ?array
     {
         // Try accurate calculation via Node.js / satellite.js first
-        $result = $this->getPositionViaNode($tle1, $tle2);
+        $result = $this->getPositionViaNode($tle1, $tle2, $atTime);
         if ($result !== null) {
             return $result;
         }
@@ -29,7 +29,7 @@ class SatellitePositionCalculator
     /**
      * Use Node.js + satellite.js for accurate SGP4 propagation.
      */
-    private function getPositionViaNode(string $tle1, string $tle2): ?array
+    private function getPositionViaNode(string $tle1, string $tle2, ?\DateTime $atTime = null): ?array
     {
         $script = base_path('scripts/satellite_position.cjs');
         if (!file_exists($script)) {
@@ -40,7 +40,9 @@ class SatellitePositionCalculator
         $t1 = escapeshellarg($tle1);
         $t2 = escapeshellarg($tle2);
 
-        $output = shell_exec("node {$script} {$t1} {$t2} 2>&1");
+        $ts = $atTime?->getTimestamp() ?? time();
+
+        $output = shell_exec("node {$script} {$t1} {$t2} {$ts} 2>&1");
 
         if (!$output) {
             return null;

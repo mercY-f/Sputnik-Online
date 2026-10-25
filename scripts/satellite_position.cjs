@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * satellite_position.js
- * Usage: node satellite_position.js "<TLE_LINE1>" "<TLE_LINE2>"
+ * Usage: node satellite_position.js "<TLE_LINE1>" "<TLE_LINE2>" [unix_timestamp_seconds]
  * Outputs JSON: {"lat": float, "lng": float, "alt_km": float} or {"error": "..."}
  */
 
@@ -18,7 +18,8 @@ const tle2 = args[1];
 
 try {
     const satrec = satellite.twoline2satrec(tle1, tle2);
-    const now = new Date();
+    const ts = args.length >= 3 && args[2] ? parseInt(args[2], 10) * 1000 : Date.now();
+    const now = new Date(ts);
     const posVel = satellite.propagate(satrec, now);
 
     if (!posVel.position || posVel.position === false) {
