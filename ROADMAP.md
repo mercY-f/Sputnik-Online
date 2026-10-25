@@ -23,10 +23,12 @@
 - [x] fix: нормализация категорий (убрать orphan «Communication»)
 - [x] миграция SQLite → PostgreSQL + PostGIS (нет пароля — подключение через unix-socket `/var/run/postgresql`, peer-auth; PostGIS 3.6.2)
 
-### Спринт 1 — Бэкенд-производительность
-- батч-расчёт позиций (один Node на массив TLE) или сервис-процесс · дедуп по `satellite_id` · кэш Redis
-- `SendTelegramAlert` Job (ShouldQueue) + retry/backoff · `withoutOverlapping()` + `onOneServer()`
-- `FetchSatellites` → `upsert()` чанками · `/api/satellites` → response-cache + gzip
+### Спринт 1 — Бэкенд-производительность ✅
+- [x] батч SGP4: один Node-процесс на массив TLE (`.cjs --batch` через stdin, `getPositionsBatch()`) + дедуп по `satellite_id`
+- [x] `SendTelegramAlert` Job (ShouldQueue, tries/backoff) + `withoutOverlapping()`/`onOneServer()`
+- [x] `FetchSatellites` → `upsert()` чанками по 1000 (≈37.6 c → **5.3 c**) + кэш каталога (`Cache::remember`, database store) с `Cache::flush()` на fetch
+- [x] бонус-баг: изолировал тест-БД в sqlite `:memory:` (была закомментирована — `php artisan test` грохал dev-БД)
+- отложено: Redis (не установлен; database-кэша хватает — кэш позиций избыточен при дедупе). Вернуться при WebSocket/SSE в Спринте 5.
 
 ### Спринт 2 — Дизайн-токены и компонентная база
 - CSS-переменные + `tailwind.config` extend + `darkMode`; подключение shadcn-vue / lucide / pinia / vue-sonner / motion-v / @vueuse
