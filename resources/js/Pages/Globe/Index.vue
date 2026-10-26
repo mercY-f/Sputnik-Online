@@ -149,14 +149,6 @@ const CATEGORY_COLORS = {
 
 const CATEGORIES_ORDER = ['ALL', 'ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGATION', 'WEATHER', 'TELESCOPE', 'OTHER'];
 
-const SAT_GEOMETRY  = new THREE.SphereGeometry(0.08, 8, 8);
-const ISS_GEOMETRY  = new THREE.SphereGeometry(0.20, 16, 16);
-
-const makeMaterial = (color) => new THREE.MeshBasicMaterial({ color });
-const MATERIALS = Object.fromEntries(
-  Object.entries(CATEGORY_COLORS).map(([k, v]) => [k, makeMaterial(v)])
-);
-
 function getCategoryColor(cat) {
   return CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.OTHER;
 }
@@ -309,7 +301,7 @@ function startAnimation() {
     satPositions.value = positions;
 
     if (globeInstance) {
-      globeInstance.objectsData(positions);
+      globeInstance.pointsData(positions);
     }
   };
 
@@ -329,17 +321,14 @@ function initGlobe() {
     .globeImageUrl('/textures/earth-blue-marble.jpg')
     .bumpImageUrl('/textures/earth-topology.png')
     .backgroundImageUrl('/textures/night-sky.png')
-    .objectLat('lat')
-    .objectLng('lng')
-    .objectAltitude('alt')
-    .objectThreeObject(d => {
-      const isISS = d.category === 'ISS';
-      return new THREE.Mesh(
-        isISS ? ISS_GEOMETRY : SAT_GEOMETRY,
-        MATERIALS[d.category] ?? MATERIALS.OTHER
-      );
-    })
-    .objectLabel(d => `
+    .pointsData([])
+    .pointLat('lat')
+    .pointLng('lng')
+    .pointAltitude('alt')
+    .pointColor(d => getCategoryColor(d.category))
+    .pointRadius(d => (d.category === 'ISS' ? 0.12 : 0.05))
+    .pointResolution(24)
+    .pointLabel(d => `
       <div style="background:rgba(0,0,0,0.85);color:#fff;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);font-family:monospace;font-size:12px;backdrop-filter:blur(8px)">
         <div style="font-weight:700;font-size:13px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,0.1);color:${getCategoryColor(d.category)}">${d.name}</div>
         <div style="display:grid;grid-template-columns:auto auto;gap:2px 16px">
