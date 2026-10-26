@@ -170,7 +170,11 @@ const userFavorites  = ref([]);
 let allSatellites    = [];
 let activeSats       = [];
 let globeInstance    = null;
-let animationFrame   = null;
+let refreshInterval  = null;
+let rafId            = null;
+let prevPositions    = [];
+let currPositions    = [];
+let lastRefreshTime  = 0;
 let clockInterval    = null;
 let resizeObserver   = null;
 
@@ -270,43 +274,87 @@ async function toggleFavorite(sat) {
 // -----------------------------------------------------------------------
 // Анимация и расчет координат (satellite.js)
 // -----------------------------------------------------------------------
+function computePositions(now) {
+  const positions = [];
+
+  for (const sat of allSatellites) {
+    try {
+      const pv   = satellite.propagate(sat.satrec, now);
+      const pos  = pv.position;
+      if (typeof pos === 'boolean') continue;
+
+      const gmst = satellite.gstime(now);
+      const gd   = satellite.eciToGeodetic(pos, gmst);
+
+      positions.push({
+        id:       sat.id,
+        name:     sat.name,
+        category: sat.category,
+        catalogNumber: sat.catalogNumber,
+        lat:  satellite.degreesLat(gd.latitude),
+        lng:  satellite.degreesLong(gd.longitude),
+        alt:  gd.height / 6371,
+      });
+    } catch {}
+  }
+
+  return positions;
+}
+
+function lerpAngle(a, b, t) {
+  let d = b - a;
+  if (d > 180) d -= 360;
+  if (d < -180) d += 360;
+  return a + d * t;
+}
+
+function interpolatePositions(prev, curr, t) {
+  if (t <= 0 || !prev.length) return curr;
+
+  const prevById = new Map(prev.map(p => [p.id, p]));
+
+  return curr.map(p => {
+    const pp = prevById.get(p.id);
+    if (!pp) return p;
+    return {
+      ...p,
+      lat: pp.lat + (p.lat - pp.lat) * t,
+      lng: lerpAngle(pp.lng, p.lng, t),
+      alt: pp.alt + (p.alt - pp.alt) * t,
+    };
+  });
+}
+
+function refreshPositions() {
+  const now = new Date();
+
+  if (currPositions.length) prevPositions = currPositions;
+  currPositions = computePositions(now);
+  if (!prevPositions.length) prevPositions = currPositions;
+
+  lastRefreshTime = now.getTime();
+  satPositions.value = currPositions;
+}
+
+function renderFrame() {
+  const t = Math.min(1, (Date.now() - lastRefreshTime) / 1000);
+
+  if (globeInstance) {
+    globeInstance.pointsData(interpolatePositions(prevPositions, currPositions, t));
+  }
+
+  rafId = requestAnimationFrame(renderFrame);
+}
+
 function startAnimation() {
-  if (animationFrame) clearInterval(animationFrame);
+  if (refreshInterval) clearInterval(refreshInterval);
+  if (rafId) cancelAnimationFrame(rafId);
 
-  const tick = () => {
-    const now = new Date();
-    const positions = [];
+  refreshPositions();
+  lastRefreshTime = Date.now();
 
-    for (const sat of allSatellites) {
-      try {
-        const pv   = satellite.propagate(sat.satrec, now);
-        const pos  = pv.position;
-        if (typeof pos === 'boolean') continue;
-
-        const gmst = satellite.gstime(now);
-        const gd   = satellite.eciToGeodetic(pos, gmst);
-
-        positions.push({
-          id:       sat.id,
-          name:     sat.name,
-          category: sat.category,
-          catalogNumber: sat.catalogNumber,
-          lat:  satellite.degreesLat(gd.latitude),
-          lng:  satellite.degreesLong(gd.longitude),
-          alt:  gd.height / 6371,
-        });
-      } catch {}
-    }
-
-    satPositions.value = positions;
-
-    if (globeInstance) {
-      globeInstance.pointsData(positions);
-    }
-  };
-
-  animationFrame = setInterval(tick, 1000);
-  tick();
+  refreshInterval = setInterval(refreshPositions, 1000);
+  rafId = requestAnimationFrame(renderFrame);
 }
 
 // -----------------------------------------------------------------------
@@ -414,7 +462,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.body.style.overflow = '';
-  if (animationFrame) clearInterval(animationFrame);
+  if (refreshInterval) clearInterval(refreshInterval);
+  if (rafId)          cancelAnimationFrame(rafId);
   if (clockInterval)  clearInterval(clockInterval);
   if (resizeObserver) resizeObserver.disconnect();
   if (globeInstance) {
