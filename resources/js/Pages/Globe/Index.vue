@@ -326,9 +326,9 @@ function initGlobe() {
   globeInstance = Globe()(globeContainer.value);
 
   globeInstance
-    .globeImageUrl('//unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
-    .bumpImageUrl('//unpkg.com/three-globe/example/img/earth-topology.png')
-    .backgroundImageUrl('//unpkg.com/three-globe/example/img/night-sky.png')
+    .globeImageUrl('/textures/earth-blue-marble.jpg')
+    .bumpImageUrl('/textures/earth-topology.png')
+    .backgroundImageUrl('/textures/night-sky.png')
     .objectLat('lat')
     .objectLng('lng')
     .objectAltitude('alt')
