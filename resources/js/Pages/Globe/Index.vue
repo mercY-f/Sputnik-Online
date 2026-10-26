@@ -179,6 +179,104 @@ let clockInterval    = null;
 let resizeObserver   = null;
 
 // -----------------------------------------------------------------------
+// InstancedMesh-слой спутников
+// -----------------------------------------------------------------------
+// three-globe строит Points как «пины» (CylinderGeometry) на поверхности и
+// масштабирует их по scale.z = pointAltitude * GLOBE_RADIUS. Т.е. pointAltitude —
+// высота пина, а НЕ радиальная высота. Поэтому спутники рисуем своим
+// THREE.InstancedMesh и позиционируем через globeInstance.getCoords(lat, lng, alt),
+// где alt — доля радиуса (km / 6371): r = 100 * (1 + alt).
+const SAT_SPHERE_RADIUS = 0.45; // мировые единицы (радиус глобуса = 100)
+const SAT_ISS_SCALE     = 1.35;
+
+let satMesh          = null;
+let satMeshGroup     = null;  // вращающаяся группа three-globe (родитель земного шара)
+let satMeshCapacity  = -1;
+let satColorCache    = [];
+let satColorScratch  = null;
+const satDummy       = new THREE.Object3D();
+
+// Ищем группу, в которой живут маркеры three-globe: объект с __globeObjType === 'globe'
+// (это группа земного шара), берём его .parent. Именно эта система координат
+// совпадает с getCoords(); scene() — мировая сцена, там спутники не вращались бы с глобусом.
+function resolveSatMeshGroup() {
+  if (!globeInstance) return null;
+  let globeObj = null;
+  globeInstance.scene().traverse(o => {
+    if (!globeObj && o.__globeObjType === 'globe') globeObj = o;
+  });
+  return globeObj ? globeObj.parent : null;
+}
+
+function disposeSatelliteMesh() {
+  if (!satMesh) { satMeshCapacity = -1; satColorCache = []; return; }
+  if (satMesh.parent) satMesh.parent.remove(satMesh);
+  if (typeof satMesh.dispose === 'function') satMesh.dispose(); // instance-буферы
+  if (satMesh.geometry) satMesh.geometry.dispose();
+  if (satMesh.material) satMesh.material.dispose();
+  satMesh = null;
+  satMeshCapacity = -1;
+  satColorCache = [];
+}
+
+// Пересоздаём меш только при изменении числа спутников (фильтры категорий).
+function ensureSatelliteMesh(count) {
+  if (satMesh && count === satMeshCapacity) return satMesh;
+
+  disposeSatelliteMesh();
+
+  if (count <= 0) { satMeshCapacity = 0; return null; }
+
+  if (!satMeshGroup) satMeshGroup = resolveSatMeshGroup();
+  if (!satMeshGroup) return null; // глобус ещё не готов — повторим на следующем кадре
+
+  const geometry = new THREE.SphereGeometry(SAT_SPHERE_RADIUS, 12, 8);
+  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+
+  satMesh = new THREE.InstancedMesh(geometry, material, count);
+  satMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  satMesh.frustumCulled = false; // матрицы меняются каждый кадр, bbox не пересчитываем
+  satMeshGroup.add(satMesh);
+
+  satMeshCapacity = count;
+  satColorCache = new Array(count).fill(null);
+  satColorScratch = satColorScratch || new THREE.Color();
+
+  return satMesh;
+}
+
+function updateSatelliteMesh(sats) {
+  const mesh = ensureSatelliteMesh(sats.length);
+  if (!mesh) return;
+
+  satColorScratch = satColorScratch || new THREE.Color();
+  let colorsDirty = false;
+
+  for (let i = 0; i < sats.length; i++) {
+    const sat = sats[i];
+
+    // Истинная радиальная высота: alt — доля радиуса Земли (gd.height / 6371)
+    const pos = globeInstance.getCoords(sat.lat, sat.lng, sat.alt);
+    satDummy.position.set(pos.x, pos.y, pos.z);
+    satDummy.scale.setScalar(sat.category === 'ISS' ? SAT_ISS_SCALE : 1);
+    satDummy.updateMatrix();
+    mesh.setMatrixAt(i, satDummy.matrix);
+
+    const hex = getCategoryColor(sat.category);
+    if (satColorCache[i] !== hex) {
+      satColorScratch.set(hex);
+      mesh.setColorAt(i, satColorScratch);
+      satColorCache[i] = hex;
+      colorsDirty = true;
+    }
+  }
+
+  mesh.count = sats.length;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (colorsDirty && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+}
+
+// -----------------------------------------------------------------------
 // Загрузка данных о спутниках
 // -----------------------------------------------------------------------
 async function fetchData() {
@@ -340,7 +438,9 @@ function renderFrame() {
   const t = Math.min(1, (Date.now() - lastRefreshTime) / 1000);
 
   if (globeInstance) {
-    globeInstance.pointsData(interpolatePositions(prevPositions, currPositions, t));
+    // TODO: hover tooltip (раньше — .pointLabel с ALT/LAT/LNG); отложено, чтобы не
+    // тащить в PR raycasting/HTML-overlay. Данные (name/alt/lat/lng) уже есть в sats.
+    updateSatelliteMesh(interpolatePositions(prevPositions, currPositions, t));
   }
 
   rafId = requestAnimationFrame(renderFrame);
@@ -369,24 +469,12 @@ function initGlobe() {
     .globeImageUrl('/textures/earth-blue-marble.jpg')
     .bumpImageUrl('/textures/earth-topology.png')
     .backgroundImageUrl('/textures/night-sky.png')
-    .pointsData([])
-    .pointsTransitionDuration(0) // своя rAF-интерполяция уже даёт плавность; отключаем встроенный 1с-tween (иначе дёрганье)
-    .pointLat('lat')
-    .pointLng('lng')
-    .pointAltitude(0.002) // three-globe: это ВЫСОТА пина (scale.z = alt*GLOBE_RADIUS), а не радиальная высота — держим ~0, чтобы точки были «дотами»; реальная высота в лейбле через d.alt
-    .pointColor(d => getCategoryColor(d.category))
-    .pointRadius(d => (d.category === 'ISS' ? 0.5 : 0.25))
-    .pointResolution(24)
-    .pointLabel(d => `
-      <div style="background:rgba(0,0,0,0.85);color:#fff;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);font-family:monospace;font-size:12px;backdrop-filter:blur(8px)">
-        <div style="font-weight:700;font-size:13px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,0.1);color:${getCategoryColor(d.category)}">${d.name}</div>
-        <div style="display:grid;grid-template-columns:auto auto;gap:2px 16px">
-          <span style="color:#9ca3af">ALT:</span><span>${(d.alt * 6371).toFixed(1)} km</span>
-          <span style="color:#9ca3af">LAT:</span><span>${d.lat.toFixed(4)}°</span>
-          <span style="color:#9ca3af">LNG:</span><span>${d.lng.toFixed(4)}°</span>
-        </div>
-      </div>
-    `);
+    // Слой Points three-globe больше не используется: спутники рисует
+    // собственный THREE.InstancedMesh на истинной радиальной высоте (см. updateSatelliteMesh).
+    .onGlobeReady(() => {
+      // Глобус готов: фиксируем группу, в которой живут маркеры (родитель земного шара).
+      satMeshGroup = resolveSatMeshGroup();
+    });
 
   // Отслеживаем изменение размера окна
   resizeObserver = new ResizeObserver(() => {
@@ -467,6 +555,8 @@ onBeforeUnmount(() => {
   if (rafId)          cancelAnimationFrame(rafId);
   if (clockInterval)  clearInterval(clockInterval);
   if (resizeObserver) resizeObserver.disconnect();
+  disposeSatelliteMesh(); // геометрия/материал/instance-буферы + отцепление от группы
+  satMeshGroup = null;
   if (globeInstance) {
     if (typeof globeInstance._destructor === 'function') globeInstance._destructor();
     if (globeContainer.value) globeContainer.value.innerHTML = '';
