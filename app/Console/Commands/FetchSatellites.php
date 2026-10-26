@@ -19,6 +19,7 @@ class FetchSatellites extends Command
         'IRIDIUM' => ['IRIDIUM'],
         'NAVIGATION' => ['NAVSTAR', 'GLONASS', 'GALILEO', 'BEIDOU'],
         'WEATHER' => ['NOAA', 'GOES', 'METEOR'],
+        'TELESCOPE' => ['HST', 'XMM-NEWTON', 'NUSTAR', 'CHEOPS', 'SWIFT'],
     ];
 
     public function handle(): int

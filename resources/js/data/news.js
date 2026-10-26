@@ -39,7 +39,7 @@ export const news = [
         satellite: {
             name: 'Hubble Space Telescope',
             catalogNumber: '20580',
-            category: 'SCIENCE',
+            category: 'TELESCOPE',
         },
     },
     {

@@ -143,10 +143,11 @@ const CATEGORY_COLORS = {
   IRIDIUM:    '#f59e0b',
   NAVIGATION: '#eab308',
   WEATHER:    '#06b6d4',
+  TELESCOPE:  '#ec4899',
   OTHER:      '#10b981',
 };
 
-const CATEGORIES_ORDER = ['ALL', 'ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGATION', 'WEATHER', 'OTHER'];
+const CATEGORIES_ORDER = ['ALL', 'ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGATION', 'WEATHER', 'TELESCOPE', 'OTHER'];
 
 const SAT_GEOMETRY  = new THREE.SphereGeometry(0.08, 8, 8);
 const ISS_GEOMETRY  = new THREE.SphereGeometry(0.20, 16, 16);

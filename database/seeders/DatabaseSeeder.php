@@ -72,7 +72,7 @@ class DatabaseSeeder extends Seeder
         ]);
 
         // Create Default Categories
-        $categories = ['ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGATION', 'WEATHER', 'OTHER'];
+        $categories = ['ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGATION', 'WEATHER', 'TELESCOPE', 'OTHER'];
         foreach ($categories as $cat) {
             \App\Models\SatelliteCategory::firstOrCreate(['name' => $cat]);
         }
