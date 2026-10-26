@@ -113,8 +113,6 @@
       <section class="news-area">
         <NewsFeed
           :items="news"
-          max-height="100%"
-          class="h-full"
           @focus="focusByCatalogNumber"
         />
       </section>
@@ -464,7 +462,6 @@ onBeforeUnmount(() => {
 
 /* ---- News feed area ---- */
 .news-area {
-  height: 38vh;
   flex-shrink: 0;
   overflow: hidden;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
