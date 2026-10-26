@@ -370,11 +370,12 @@ function initGlobe() {
     .bumpImageUrl('/textures/earth-topology.png')
     .backgroundImageUrl('/textures/night-sky.png')
     .pointsData([])
+    .pointsTransitionDuration(0) // своя rAF-интерполяция уже даёт плавность; отключаем встроенный 1с-tween (иначе дёрганье)
     .pointLat('lat')
     .pointLng('lng')
-    .pointAltitude('alt')
+    .pointAltitude(0.002) // three-globe: это ВЫСОТА пина (scale.z = alt*GLOBE_RADIUS), а не радиальная высота — держим ~0, чтобы точки были «дотами»; реальная высота в лейбле через d.alt
     .pointColor(d => getCategoryColor(d.category))
-    .pointRadius(d => (d.category === 'ISS' ? 0.12 : 0.05))
+    .pointRadius(d => (d.category === 'ISS' ? 0.5 : 0.25))
     .pointResolution(24)
     .pointLabel(d => `
       <div style="background:rgba(0,0,0,0.85);color:#fff;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);font-family:monospace;font-size:12px;backdrop-filter:blur(8px)">
