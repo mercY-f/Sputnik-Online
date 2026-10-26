@@ -26,11 +26,7 @@ export const news = [
             'Спектр транзита в инфракрасном диапазоне указывает на плотную оболочку из углекислого газа. Наблюдение потребовало восьми последовательных прохождений планеты по диску звезды.',
         source: 'NASA',
         publishedAt: '2026-10-22T18:40:00Z',
-        satellite: {
-            name: 'James Webb Space Telescope',
-            catalogNumber: '50463',
-            category: 'SCIENCE',
-        },
+        satellite: null,
     },
     {
         id: 'n3',
@@ -68,11 +64,7 @@ export const news = [
             'Двадцать три аппарата отделились на высоте 290 км и начнут подъём в течение недели. Первая ступень совершила посадку на морскую платформу.',
         source: 'SpaceX',
         publishedAt: '2026-10-17T03:51:00Z',
-        satellite: {
-            name: 'STARLINK-5601',
-            catalogNumber: '56013',
-            category: 'COMMUNICATION',
-        },
+        satellite: null,
     },
     {
         id: 'n6',
@@ -82,11 +74,7 @@ export const news = [
             'Пуск с Байконура прошёл по штатной схеме, разведение заняло три с половиной часа. Сеть широкополосного доступа расширяется в северных широтах.',
         source: 'ESA',
         publishedAt: '2026-10-14T21:08:00Z',
-        satellite: {
-            name: 'ONEWEB-0008',
-            catalogNumber: '44057',
-            category: 'COMMUNICATION',
-        },
+        satellite: null,
     },
 ];
 

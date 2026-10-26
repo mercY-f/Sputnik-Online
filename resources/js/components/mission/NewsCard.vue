@@ -46,6 +46,8 @@ const formattedTime = computed(() => {
 });
 
 function emitFocus() {
+    if (!props.item.satellite?.catalogNumber) return;
+
     emit('focus', props.item.satellite.catalogNumber);
 }
 </script>
@@ -91,6 +93,7 @@ function emitFocus() {
                 {{ item.source }}
             </span>
             <Button
+                v-if="item.satellite?.catalogNumber"
                 variant="outline"
                 size="sm"
                 class="gap-1.5 border-border/60 bg-transparent font-mono text-[11px] uppercase tracking-wider hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
