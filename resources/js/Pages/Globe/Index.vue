@@ -458,6 +458,220 @@ function startAnimation() {
 }
 
 // -----------------------------------------------------------------------
+// F2: астрономический терминатор + огни городов
+// -----------------------------------------------------------------------
+// Освещение глобуса привязано к реальному положению Солнца на текущий UTC-момент.
+// Считаем субсолнечную точку (широта = склонение Солнца, долгота = 15°·(UTC−12)),
+// переводим её в единичный вектор sunDirection в системе координат глобуса и
+// сравниваем его с нормалью в вершинном/фрагментном шейдере: день — Blue Marble,
+// ночь — Black Marble (огни городов) с мягкой полосой терминатора.
+const DAY_TEXTURE_URL   = '/textures/earth-blue-marble.jpg';
+const NIGHT_TEXTURE_URL = '/textures/earth-night.jpg';
+const BUMP_TEXTURE_URL  = '/textures/earth-topology.png';
+
+const TERMINATOR_SHARPNESS = 0.08;  // полуширина полосы терминатора (в единицах dot(n, sun))
+const SUN_REFRESH_MS       = 60 * 1000; // пересчёт sunDirection раз в минуту
+
+let globeDayNightMaterial = null;
+let sunInterval           = null;
+const sunDirScratch       = new THREE.Vector3();
+const sunMatrixScratch    = new THREE.Matrix4();
+const sunTextures         = { day: null, night: null, bump: null };
+
+const TERMINATOR_VERT = `
+varying vec2 vUv;
+varying vec3 vNormalObj;
+
+void main() {
+  vUv = uv;
+  vNormalObj = normal; // нормаль сферы в локальных координатах глобуса
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const TERMINATOR_FRAG = `
+uniform sampler2D dayMap;
+uniform sampler2D nightMap;
+uniform sampler2D bumpMap;
+uniform vec3  sunDirection;   // единичный вектор на Солнце в локальных координатах глобуса
+uniform float terminatorSharpness;
+uniform float bumpScale;
+uniform float nightIntensity;
+uniform vec2  bumpTexel;      // 1/размер текстуры рельефа
+
+varying vec2 vUv;
+varying vec3 vNormalObj;
+
+const vec3 UP = vec3(0.0, 1.0, 0.0);
+
+void main() {
+  vec3 n = normalize(vNormalObj);
+
+  // Касательный базис сферы: T — вдоль роста u (долгота), B — вдоль v (широта).
+  vec3 T = cross(UP, n);
+  float tLen = length(T);
+  T = tLen > 1e-4 ? T / tLen : vec3(1.0, 0.0, 0.0);
+  vec3 B = cross(n, T);
+
+  // Рельеф из bump-карты (earth-topology.png): центральные разности по UV.
+  float hL = texture2D(bumpMap, vUv - vec2(bumpTexel.x, 0.0)).r;
+  float hR = texture2D(bumpMap, vUv + vec2(bumpTexel.x, 0.0)).r;
+  float hD = texture2D(bumpMap, vUv - vec2(0.0, bumpTexel.y)).r;
+  float hU = texture2D(bumpMap, vUv + vec2(0.0, bumpTexel.y)).r;
+  vec3 nb = normalize(n + bumpScale * ((hL - hR) * T + (hD - hU) * B));
+
+  float sunDot = dot(nb, normalize(sunDirection));
+
+  // Мягкая полоса терминатора: 0 — глубокая ночь, 1 — полный день.
+  float dayAmount = smoothstep(-terminatorSharpness, terminatorSharpness, sunDot);
+
+  vec3 dayColor   = texture2D(dayMap,   vUv).rgb;
+  vec3 nightColor = texture2D(nightMap, vUv).rgb;
+
+  // День: диффуз с затенением к лимбу. Ночь: едва различимая суша + огни городов.
+  vec3 daySide   = dayColor * (0.22 + 0.88 * clamp(sunDot, 0.0, 1.0));
+  vec3 nightSide = dayColor * 0.03 + nightColor * nightColor * nightIntensity;
+
+  gl_FragColor = vec4(mix(nightSide, daySide, dayAmount), 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+// 1x1 заглушка: шейдер валиден сразу, реальные текстуры подставляются в onLoad.
+function solidTexture(r, g, b) {
+  const tex = new THREE.DataTexture(new Uint8Array([r, g, b, 255]), 1, 1);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// Меш земного шара three-globe (Group __globeObjType === 'globe' → дочерний Mesh).
+function findGlobeMesh() {
+  if (!globeInstance) return null;
+  let globeGroup = null;
+  globeInstance.scene().traverse(o => {
+    if (!globeGroup && o.__globeObjType === 'globe') globeGroup = o;
+  });
+  return globeGroup ? globeGroup.children.find(c => c.isMesh) || null : null;
+}
+
+// Субсолнечная точка по UTC: широта = δ, долгота = 15°·(UTC−12) с поправкой
+// уравнения времени (~±16 мин). Точность порядка 0.5° — для терминатора достаточно.
+function subsolarPoint(date) {
+  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1);
+  const dayOfYear = (Date.UTC(
+    date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()
+  ) - yearStart) / 86400000 + 1;
+
+  const utcHours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
+
+  const declination = -23.44 * Math.cos((2 * Math.PI / 365) * (dayOfYear + 10));
+
+  const b = (2 * Math.PI / 364) * (dayOfYear - 81);
+  const equationOfTime = 9.87 * Math.sin(2 * b) - 7.53 * Math.cos(b) - 1.5 * Math.sin(b);
+
+  let lng = 15 * (utcHours - 12) - equationOfTime / 4;
+  lng = ((lng + 180) % 360 + 360) % 360 - 180;
+
+  return { lat: declination, lng };
+}
+
+// (lat, lng) → единичный вектор в системе координат getCoords() three-globe.
+function sunDirectionFromGeo(lat, lng) {
+  const phi = (90 - lat) * Math.PI / 180;
+  const theta = (90 - lng) * Math.PI / 180;
+  const phiSin = Math.sin(phi);
+  return new THREE.Vector3(
+    phiSin * Math.cos(theta),
+    Math.cos(phi),
+    phiSin * Math.sin(theta)
+  );
+}
+
+function updateSunDirection() {
+  if (!globeInstance) return;
+
+  const { lat, lng } = subsolarPoint(new Date());
+  const dir = sunDirScratch.copy(sunDirectionFromGeo(lat, lng));
+
+  // getCoords() работает в координатах группы глобуса, а шейдер — в локальных
+  // координатах меша (globeObj повёрнут на -90° по Y). Переводим вектор туда.
+  const mesh = findGlobeMesh();
+  if (mesh) {
+    mesh.updateWorldMatrix(true, false);
+    if (mesh.parent) dir.transformDirection(mesh.parent.matrixWorld);
+    sunMatrixScratch.copy(mesh.matrixWorld).invert();
+    dir.transformDirection(sunMatrixScratch);
+  }
+
+  if (globeDayNightMaterial) {
+    globeDayNightMaterial.uniforms.sunDirection.value.copy(dir);
+  }
+}
+
+function initDayNightMaterial() {
+  if (!globeInstance || globeDayNightMaterial) return;
+
+  const uniforms = {
+    dayMap:              { value: solidTexture(18, 26, 44) },
+    nightMap:            { value: solidTexture(0, 0, 0) },
+    bumpMap:             { value: solidTexture(128, 128, 128) },
+    sunDirection:        { value: new THREE.Vector3(1, 0, 0) },
+    terminatorSharpness: { value: TERMINATOR_SHARPNESS },
+    bumpScale:           { value: 1.6 },
+    nightIntensity:      { value: 2.2 },
+    bumpTexel:           { value: new THREE.Vector2(1 / 2048, 1 / 1024) },
+  };
+
+  globeDayNightMaterial = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: TERMINATOR_VERT,
+    fragmentShader: TERMINATOR_FRAG,
+  });
+
+  if (typeof globeInstance.globeMaterial === 'function') {
+    globeInstance.globeMaterial(globeDayNightMaterial);
+  } else {
+    const mesh = findGlobeMesh();
+    if (mesh) mesh.material = globeDayNightMaterial;
+  }
+
+  // Текстуры грузим асинхронно — initGlobe не блокируется.
+  const loader = new THREE.TextureLoader();
+
+  loader.load(DAY_TEXTURE_URL, tex => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    sunTextures.day = tex;
+    uniforms.dayMap.value = tex;
+  });
+
+  loader.load(NIGHT_TEXTURE_URL, tex => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    sunTextures.night = tex;
+    uniforms.nightMap.value = tex;
+  });
+
+  loader.load(BUMP_TEXTURE_URL, tex => {
+    tex.colorSpace = THREE.NoColorSpace;
+    sunTextures.bump = tex;
+    uniforms.bumpMap.value = tex;
+    const img = tex.image;
+    if (img && img.width && img.height) {
+      uniforms.bumpTexel.value.set(1 / img.width, 1 / img.height);
+    }
+  });
+}
+
+function disposeDayNightMaterial() {
+  if (!globeDayNightMaterial) return;
+  globeDayNightMaterial.dispose();
+  Object.values(sunTextures).forEach(tex => { if (tex) tex.dispose(); });
+  sunTextures.day = sunTextures.night = sunTextures.bump = null;
+  globeDayNightMaterial = null;
+}
+
+// -----------------------------------------------------------------------
 // Инициализация глобуса
 // -----------------------------------------------------------------------
 function initGlobe() {
@@ -474,7 +688,14 @@ function initGlobe() {
     .onGlobeReady(() => {
       // Глобус готов: фиксируем группу, в которой живут маркеры (родитель земного шара).
       satMeshGroup = resolveSatMeshGroup();
+      updateSunDirection();
     });
+
+  // F2: подменяем дефолтный MeshPhongMaterial three-globe на дневной/ночной шейдер
+  // (dayMap = Blue Marble, nightMap = Black Marble) и сразу выставляем sunDirection.
+  initDayNightMaterial();
+  updateSunDirection();
+  sunInterval = setInterval(updateSunDirection, SUN_REFRESH_MS);
 
   // Отслеживаем изменение размера окна
   resizeObserver = new ResizeObserver(() => {
@@ -554,8 +775,10 @@ onBeforeUnmount(() => {
   if (refreshInterval) clearInterval(refreshInterval);
   if (rafId)          cancelAnimationFrame(rafId);
   if (clockInterval)  clearInterval(clockInterval);
+  if (sunInterval)    clearInterval(sunInterval);
   if (resizeObserver) resizeObserver.disconnect();
   disposeSatelliteMesh(); // геометрия/материал/instance-буферы + отцепление от группы
+  disposeDayNightMaterial();
   satMeshGroup = null;
   if (globeInstance) {
     if (typeof globeInstance._destructor === 'function') globeInstance._destructor();
