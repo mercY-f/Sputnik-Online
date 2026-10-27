@@ -702,6 +702,7 @@ function initGlobe() {
 
   bindCameraModeControls();
   bindHeroExitHandler();
+  bindFollowStartHandler();
 
   // Отслеживаем изменение размера окна
   resizeObserver = new ResizeObserver(() => {
@@ -756,9 +757,19 @@ const HERO_ROTATE_SPEED = 0.35;  // в hero altitude мал → штатный r
 const HERO_TWEEN_MS     = 1800;
 const HERO_CENTRE_MS    = 260;   // доворот взгляда на центр перед полётом к аппарату
 const FOLLOW_TWEEN_MS   = 1300;
-const TRACK_TWEEN_MS    = 1000;  // перекадровка за аппаратом раз в секунду
+const TRACK_TWEEN_MS    = 0;     // перекадровка за аппаратом раз в секунду — мгновенная:
+                                 // аппарат смещается на ~0.06°/с (глазом не видно), зато не
+                                 // остаётся висящего твина, который дрался бы с мышью
 const FOLLOW_ALT_PAD    = 0.12;  // запас над аппаратом (в радиусах Земли) ⇒ камера в 12 ед. от него
 const FOLLOW_MAX_ALT    = 12;    // предел зума в follow (GEO ≈ 5.6 радиуса)
+// В follow высота камеры мала (≈ 0.12 радиуса) и globe.gl на каждый 'change'
+// выставляет rotateSpeed = altitude * 0.3 ≈ 0.04, zoomSpeed = sqrt(alt)*0.5 —
+// вращение и зум мышью «залипают». Держим комфортные значения.
+const FOLLOW_ROTATE_SPEED = 0.35;
+const FOLLOW_ZOOM_SPEED   = 0.5;
+// В follow цель орбиты — сам аппарат (в 12 ед. от камеры), поэтому кламп
+// minDistance глобуса (≈ радиус Земли) оттолкнул бы камеру на 100 ед. — снимаем.
+const FOLLOW_MIN_DISTANCE = 2;
 
 const cameraMode  = ref(CAMERA_MODE_HERO);
 const followSatId = ref(null);
@@ -767,6 +778,9 @@ let cameraTweenId    = null;
 let heroIntroTimer   = null;
 let heroIntroActive  = true;      // стартовый заезд в «купол» ещё не отменён
 let cameraSettleUntil = 0;       // до этого момента авто-слежение не перебивает перелёт
+let followManual     = false;    // пользователь взял камеру мышью → авто-слежение уступает
+let followStartHandler = null;
+const followAnchor   = new THREE.Vector3(); // мировая позиция аппарата (цель орбиты в follow)
 
 const ZERO_POINT = { x: 0, y: 0, z: 0 };
 const cameraArcScratch = {
@@ -808,18 +822,70 @@ function restoreDistanceClamp() {
   if (controls && heroBaseMinDistance !== null) controls.minDistance = heroBaseMinDistance;
 }
 
+// В follow цель орбиты — аппарат, а не центр Земли: |камера − target| ≈ 12 ед.,
+// поэтому кламп minDistance глобуса (≈ 100) оттолкнул бы камеру на сотню единиц
+// в первый же кадр. На время follow ослабляем его, исходное значение помним.
+function enterFollowClamp() {
+  const controls = globeInstance && globeInstance.controls();
+  if (!controls) return;
+  if (heroBaseMinDistance === null && Number.isFinite(controls.minDistance)) {
+    heroBaseMinDistance = controls.minDistance;
+  }
+  controls.minDistance = FOLLOW_MIN_DISTANCE;
+}
+
 // globe.gl на каждое изменение камеры сбрасывает controls.target в центр Земли
-// (держит орбиту вокруг центра). В hero target смещён к горизонту, поэтому
-// «обнуление» глушим — но только пока активен hero-режим.
+// (держит орбиту вокруг центра). В hero target смещён к горизонту, в follow —
+// стоит на аппарате, поэтому «обнуление» глушим в обоих режимах.
 function holdCameraTarget(target) {
   if (!target || target.__heroHeld) return target;
   const nativeSetScalar = target.setScalar;
   target.setScalar = function (...args) {
-    if (cameraMode.value === CAMERA_MODE_HERO) return this;
+    if (cameraMode.value === CAMERA_MODE_HERO || cameraMode.value === CAMERA_MODE_FOLLOW) return this;
     return nativeSetScalar.apply(this, args);
   };
   target.__heroHeld = true;
   return target;
+}
+
+// Мировая позиция аппарата в фокусе: getCoords() даёт координаты группы глобуса,
+// а camera/controls.target живут в мировых — переводим через satMeshGroup.
+function followSatelliteWorldPos() {
+  if (!globeInstance || followSatId.value == null) return null;
+
+  const sat = currPositions.find(p => p.id === followSatId.value);
+  if (!sat) return null;
+
+  const c = globeInstance.getCoords(sat.lat, sat.lng, sat.alt);
+  followAnchor.set(c.x, c.y, c.z);
+  if (satMeshGroup) {
+    satMeshGroup.updateWorldMatrix(true, false);
+    satMeshGroup.localToWorld(followAnchor);
+  }
+  return followAnchor;
+}
+
+// Цель орбиты = аппарат. Тогда TrackballControls вращает камеру вокруг спутника:
+// он остаётся в центре кадра, а пользователь свободно вращает и зумит.
+// Двигаем только точку опоры — позицию камеры не трогаем, никакого перелёта.
+function applyFollowOrbitAnchor() {
+  if (!globeInstance || cameraMode.value !== CAMERA_MODE_FOLLOW) return;
+
+  const pos = followSatelliteWorldPos();
+  if (!pos) return;
+
+  const controls = globeInstance.controls();
+  if (!controls || !controls.target) return;
+
+  controls.target.set(pos.x, pos.y, pos.z);
+  holdCameraTarget(controls.target);
+}
+
+// globe.gl пересчитывает скорости контролов от высоты камеры на каждый 'change'
+// (см. FOLLOW_ROTATE_SPEED) — в follow возвращаем комфортные.
+function applyFollowControlSpeeds(controls) {
+  controls.rotateSpeed = FOLLOW_ROTATE_SPEED;
+  controls.zoomSpeed   = FOLLOW_ZOOM_SPEED;
 }
 
 function cameraPoseNow() {
@@ -934,15 +1000,24 @@ function heroCameraPose() {
 }
 
 // globe.gl считает rotateSpeed от высоты камеры (altitude * 0.3). В hero высота
-// мала (~0.4 радиуса), и вращение «залипает» — держим комфортную скорость.
+// мала (~0.4 радиуса), в follow ещё меньше (~0.12), и вращение «залипает» —
+// держим комфортную скорость в обоих режимах.
 let cameraChangeHandler = null;
 
 function bindCameraModeControls() {
   const controls = globeInstance && globeInstance.controls();
   if (!controls || cameraChangeHandler) return;
   cameraChangeHandler = () => {
-    if (cameraMode.value !== CAMERA_MODE_HERO) return;
-    controls.rotateSpeed = HERO_ROTATE_SPEED;
+    if (cameraMode.value === CAMERA_MODE_HERO) {
+      controls.rotateSpeed = HERO_ROTATE_SPEED;
+      return;
+    }
+    if (cameraMode.value === CAMERA_MODE_FOLLOW) {
+      applyFollowControlSpeeds(controls);
+      // globe.gl после своего обработчика делает target.setScalar(0) — в follow
+      // это уводило бы точку опоры с аппарата; держим её на спутнике.
+      if (followManual) applyFollowOrbitAnchor();
+    }
   };
   controls.addEventListener('change', cameraChangeHandler);
 }
@@ -1001,6 +1076,35 @@ function bindHeroExitHandler() {
   controls.addEventListener('start', heroExitHandler);
 }
 
+// -----------------------------------------------------------------------
+// Follow → ручное управление на первом взаимодействии мышью
+// -----------------------------------------------------------------------
+// В follow камеру каждую секунду подтягивал trackFocusedSatellite() через
+// pointOfView — то есть камера всегда была в принудительном полёте, и любое
+// вращение мышью отменялось следующим тиком («намертво прикреплена»).
+// Первый же жест (первый 'start' контролов: pointerdown / wheel / touchstart)
+// отдаёт камеру пользователю: авто-слежение выключается до следующего фокуса,
+// а цель орбиты переезжает на аппарат, чтобы он остался в центре кадра.
+function bindFollowStartHandler() {
+  const controls = globeInstance && globeInstance.controls();
+  if (!controls || followStartHandler) return;
+
+  followStartHandler = () => {
+    if (cameraMode.value !== CAMERA_MODE_FOLLOW) return;
+
+    if (!followManual) {
+      followManual = true;
+      stopCameraTween();
+      // цель орбиты — аппарат в 12 ед. от камеры: кламп глобуса здесь только мешает
+      enterFollowClamp();
+      applyFollowControlSpeeds(controls);
+    }
+    applyFollowOrbitAnchor();
+  };
+
+  controls.addEventListener('start', followStartHandler);
+}
+
 // pointOfView анимирует камеру своим tween-группом, который нам недоступен:
 // если запустить свой твин, пока предыдущий перелёт ещё идёт, две анимации
 // начнут драться за camera.position/target. Поэтому новые перелёты ставим в
@@ -1019,6 +1123,7 @@ function enterHeroMode(duration = HERO_TWEEN_MS) {
 
   // фокус снят: авто-слежение больше не перебивает камеру
   followSatId.value = null;
+  followManual = false;
   focusTarget.value = null;
 
   afterCameraSettle(() => {
@@ -1056,6 +1161,8 @@ function enterFollowMode(sat, duration = FOLLOW_TWEEN_MS) {
       if (!globeInstance) return;
       cameraMode.value  = CAMERA_MODE_FOLLOW;
       followSatId.value = sat.id ?? null;
+      // новый фокус = новый цикл авто-слежения: ручное управление сбрасывается
+      followManual      = false;
       cameraSettleUntil = performance.now() + duration;
 
       const controls = globeInstance.controls();
@@ -1083,10 +1190,19 @@ function enterFollowMode(sat, duration = FOLLOW_TWEEN_MS) {
 }
 
 // Слежение: раз в секунду (вместе с пересчётом позиций) подтягиваем камеру к
-// аппарату. Текущий зум пользователя сохраняем, но не приближаемся к спутнику.
+// аппарату — но ТОЛЬКО пока пользователь не взял управление. После первого жеста
+// камеру не трогаем совсем (никакого pointOfView): двигаем лишь цель орбиты,
+// чтобы спутник оставался в центре кадра при свободном вращении мышью.
 function trackFocusedSatellite() {
   if (!globeInstance || cameraMode.value !== CAMERA_MODE_FOLLOW) return;
-  if (followSatId.value == null || performance.now() < cameraSettleUntil) return;
+  if (followSatId.value == null) return;
+
+  if (followManual) {
+    applyFollowOrbitAnchor();
+    return;
+  }
+
+  if (performance.now() < cameraSettleUntil) return;
 
   const sat = currPositions.find(p => p.id === followSatId.value);
   if (!sat) return;
@@ -1164,6 +1280,11 @@ onBeforeUnmount(() => {
     if (controls) controls.removeEventListener('start', heroExitHandler);
   }
   heroExitHandler = null;
+  if (followStartHandler && globeInstance) {
+    const controls = globeInstance.controls();
+    if (controls) controls.removeEventListener('start', followStartHandler);
+  }
+  followStartHandler = null;
   if (refreshInterval) clearInterval(refreshInterval);
   if (rafId)          cancelAnimationFrame(rafId);
   if (clockInterval)  clearInterval(clockInterval);
