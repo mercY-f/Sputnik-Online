@@ -127,6 +127,9 @@ import axios from 'axios';
 import Globe from 'globe.gl';
 import * as satellite from 'satellite.js';
 import * as THREE from 'three';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { MissionShell, NewsFeed } from '@/components/mission';
 import { news } from '@/data/news';
 
@@ -277,6 +280,143 @@ function updateSatelliteMesh(sats) {
 }
 
 // -----------------------------------------------------------------------
+// F4: орбита и наземный трек сфокусированного спутника (Line2)
+// -----------------------------------------------------------------------
+// Орбиту и подспутниковую траекторию рисуем только для аппарата в фокусе:
+// 120 выборок за один виток от текущего момента (последняя точка замыкает
+// петлю). Координаты считаются той же связкой propagate → gstime → eciToGeodetic,
+// что и в computePositions, поэтому линия совпадает с движением маркера.
+// Линии живут в той же вращающейся группе, что и InstancedMesh спутников,
+// иначе при вращении глобуса они разъедутся с аппаратами.
+const ORBIT_SAMPLES          = 120;
+const ORBIT_REBUILD_MS       = 30000; // виток «уплывает» относительно вращающейся Земли
+const ORBIT_COLOR            = 0x34d399; // emerald-акцент Mission Control
+const ORBIT_LINEWIDTH        = 2;
+const ORBIT_OPACITY          = 0.9;
+const GROUND_TRACK_LINEWIDTH = 1;
+const GROUND_TRACK_OPACITY   = 0.4;
+const GROUND_TRACK_ALT       = 0.005; // чуть над поверхностью — защита от z-fighting
+
+let orbitLine         = null;
+let groundTrackLine   = null;
+let orbitRebuildTimer = null;
+let orbitFocusedId    = null;
+
+// LineMaterial рисует толщину в экранных пикселях, поэтому ему нужен размер
+// рендера в uniform resolution; без этого линия будет толщиной в один пиксель.
+function applyLineResolution(material) {
+  if (!material || !globeContainer.value) return;
+  material.resolution.set(
+    globeContainer.value.clientWidth  || 1,
+    globeContainer.value.clientHeight || 1
+  );
+}
+
+function createOrbitLine(points, linewidth, opacity) {
+  const flat = [];
+  for (const p of points) flat.push(p.x, p.y, p.z);
+
+  const geometry = new LineGeometry();
+  geometry.setPositions(flat);
+
+  const material = new LineMaterial({
+    color: ORBIT_COLOR,
+    linewidth,
+    transparent: true,
+    opacity,
+    worldUnits: false,
+    depthWrite: false,
+  });
+  applyLineResolution(material);
+
+  const line = new Line2(geometry, material);
+  line.computeLineDistances();
+  line.frustumCulled = false; // bbox не считаем: геометрия пересобирается раз в 30 с
+  return line;
+}
+
+// Выборка витка: N шагов по периоду (satrec.no — среднее движение, рад/мин).
+function sampleOrbit(sat, count) {
+  const satrec = sat.satrec;
+  if (!satrec || !satrec.no) return { orbit: [], ground: [] };
+
+  const periodMs = ((2 * Math.PI) / satrec.no) * 60 * 1000;
+  const stepMs   = periodMs / count;
+  const startMs  = Date.now();
+
+  const orbit  = [];
+  const ground = [];
+
+  for (let i = 0; i <= count; i++) { // i === count замыкает петлю
+    try {
+      const t   = new Date(startMs + i * stepMs);
+      const pv  = satellite.propagate(satrec, t);
+      const pos = pv.position;
+      if (!pos || typeof pos === 'boolean') continue;
+
+      const gmst = satellite.gstime(t);
+      const gd   = satellite.eciToGeodetic(pos, gmst);
+      const lat  = satellite.degreesLat(gd.latitude);
+      const lng  = satellite.degreesLong(gd.longitude);
+
+      orbit.push(globeInstance.getCoords(lat, lng, gd.height / 6371));
+      ground.push(globeInstance.getCoords(lat, lng, GROUND_TRACK_ALT));
+    } catch {}
+  }
+
+  return { orbit, ground };
+}
+
+function disposeOrbitLines() {
+  if (orbitRebuildTimer) { clearInterval(orbitRebuildTimer); orbitRebuildTimer = null; }
+
+  for (const line of [orbitLine, groundTrackLine]) {
+    if (!line) continue;
+    if (line.parent) line.parent.remove(line);
+    else if (satMeshGroup) satMeshGroup.remove(line);
+    if (line.geometry) line.geometry.dispose();
+    if (line.material) line.material.dispose();
+  }
+
+  orbitLine = null;
+  groundTrackLine = null;
+  orbitFocusedId = null;
+}
+
+// Перестроение линий для аппарата в фокусе (sat — позиция из currPositions
+// или запись из allSatellites).
+function buildOrbitLines(sat) {
+  disposeOrbitLines();
+  if (!globeInstance || !sat) return;
+
+  const source = allSatellites.find(s => s.id === sat.id)
+    || allSatellites.find(s => s.catalogNumber != null && String(s.catalogNumber) === String(sat.catalogNumber));
+  if (!source || !source.satrec) return;
+
+  if (!satMeshGroup) satMeshGroup = resolveSatMeshGroup();
+  if (!satMeshGroup) return;
+
+  const { orbit, ground } = sampleOrbit(source, ORBIT_SAMPLES);
+  if (orbit.length < 2 || ground.length < 2) return;
+
+  orbitLine       = createOrbitLine(orbit,  ORBIT_LINEWIDTH,        ORBIT_OPACITY);
+  groundTrackLine = createOrbitLine(ground, GROUND_TRACK_LINEWIDTH, GROUND_TRACK_OPACITY);
+
+  satMeshGroup.add(orbitLine);
+  satMeshGroup.add(groundTrackLine);
+
+  orbitFocusedId = sat.id;
+
+  // Пока фокус не снят — раз в 30 с пересобираем выборку.
+  orbitRebuildTimer = setInterval(() => {
+    if (focusTarget.value == null) { disposeOrbitLines(); return; }
+    const focused = allSatellites.find(s => s.id === orbitFocusedId);
+    if (!focused) { disposeOrbitLines(); return; }
+    buildOrbitLines(focused);
+  }, ORBIT_REBUILD_MS);
+}
+
+// -----------------------------------------------------------------------
 // Загрузка данных о спутниках
 // -----------------------------------------------------------------------
 async function fetchData() {
@@ -305,6 +445,13 @@ async function fetchData() {
         } catch { return null; }
       })
       .filter(Boolean);
+
+    // F4: satrec пересозданы — линии орбиты для текущего фокуса строим заново
+    if (orbitFocusedId != null) {
+      const focused = allSatellites.find(s => s.id === orbitFocusedId);
+      if (focused) buildOrbitLines(focused);
+      else disposeOrbitLines();
+    }
 
   } catch (e) {
     console.error('Failed to fetch satellites:', e);
@@ -949,6 +1096,9 @@ function initGlobe() {
     if (globeContainer.value && globeInstance) {
       globeInstance.width(globeContainer.value.clientWidth)
                    .height(globeContainer.value.clientHeight);
+      // F4: толщина Line2 задаётся в пикселях — обновляем resolution при ресайзе
+      applyLineResolution(orbitLine && orbitLine.material);
+      applyLineResolution(groundTrackLine && groundTrackLine.material);
     }
   });
   resizeObserver.observe(globeContainer.value);
@@ -1470,6 +1620,7 @@ function setFilter(cat) {
 function focusSatellite(sat) {
   if (!sat) return;
   focusTarget.value = sat.name || focusTarget.value;
+  buildOrbitLines(sat); // F4: орбита + наземный трек в фокусе
   enterFollowMode(sat);
 }
 
@@ -1484,6 +1635,7 @@ function focusByCatalogNumber(catalogNumber) {
 
 // Снятие фокуса — возврат в hero-режим («обзор»), тоже плавным твином.
 function clearFocus() {
+  disposeOrbitLines(); // F4: линии живут только пока есть фокус
   enterHeroMode();
 }
 
@@ -1530,6 +1682,7 @@ onBeforeUnmount(() => {
   if (clockInterval)  clearInterval(clockInterval);
   if (sunInterval)    clearInterval(sunInterval);
   if (resizeObserver) resizeObserver.disconnect();
+  disposeOrbitLines(); // F4: геометрия/материалы линий + таймер перестроения
   disposeSatelliteMesh(); // геометрия/материал/instance-буферы + отцепление от группы
   disposeDayNightMaterial();
   disposeStarfield();
