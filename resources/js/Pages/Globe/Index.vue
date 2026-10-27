@@ -295,7 +295,7 @@ const ORBIT_LINEWIDTH        = 2;
 const ORBIT_OPACITY          = 0.9;
 const GROUND_TRACK_LINEWIDTH = 1;
 const GROUND_TRACK_OPACITY   = 0.4;
-const GROUND_TRACK_ALT       = 0.005; // чуть над поверхностью — защита от z-fighting
+const GROUND_TRACK_ALT       = 0.02;  // 2 ед. над поверхностью (R=100): z-борьба с текстурой Земли
 
 let orbitLine         = null;
 let groundTrackLine   = null;
@@ -326,6 +326,7 @@ function createOrbitLine(points, linewidth, opacity) {
     opacity,
     worldUnits: false,
     depthWrite: false,
+    depthTest: true, // дальняя дуга прячется за глобусом (без этого — дубль на текстуре)
   });
   applyLineResolution(material);
 
@@ -1064,6 +1065,18 @@ function initGlobe() {
   if (!globeContainer.value) return;
 
   globeInstance = Globe()(globeContainer.value);
+
+  // F4-fix: у three-globe camera.near = 0.05 / far = 125000 (ratio 2.5M:1) —
+  // z-буфер на дистанции ~250 ед. неточен на единицы, дальняя дуга орбиты
+  // просвечивала сквозь текстуру Земли, а ground track «слипался» с поверхностью.
+  // Сжимаем диапазон: minDistance камеры 2 ед. (follow) ⇒ near = 1 безопасен,
+  // far покрывает звёзды (R = 20000) и фон-скайсферу (R = 50000) с запасом.
+  {
+    const cam = globeInstance.camera();
+    cam.near = 1;
+    cam.far  = 65000;
+    cam.updateProjectionMatrix();
+  }
 
   globeInstance
     .globeImageUrl('/textures/earth-blue-marble.jpg')
