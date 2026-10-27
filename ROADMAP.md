@@ -49,7 +49,8 @@
 - **F2. Терминатор + огни городов (Day/Night cycle)** (см. ниже) ✅ проверено в браузере 2026-10-27
 - **F3. Звёзды Points + fresnel-атмосфера** ✅ (`0f3bd4a`; проверить визуально в браузере)
 - локальные текстуры (Blue Marble 4K/8K, night-lights emissive, облака) + KTX2/AVIF · пост-обработка (bloom/FXAA/ACES)
-- орбиты (Line2 + ground track) · пикинг (Raycaster/GPU) · LOD/отсечение · dispose-контракт
+- **F4. Орбиты (Line2 + ground track)** ✅ (`171f3f3`; проверить визуально в браузере)
+- пикинг (Raycaster/GPU) · LOD/отсечение · dispose-контракт
 
 ### Спринт 5 — Полировка и дипломная упаковка
 - тесты · reduced-motion · WebGL-fallback · PWA-офлайн (Workbox cache текстур)
