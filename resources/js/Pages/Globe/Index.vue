@@ -697,13 +697,34 @@ const ATMOSPHERE_GAIN    = 1.35;    // общая яркость свечени�
 const ATMOSPHERE_NIGHT   = 0.32;    // доля яркости на ночной стороне
 
 const STAR_PALETTE = [
-  { color: new THREE.Color('#ffffff'), weight: 0.62 },  // белые
-  { color: new THREE.Color('#cfe3ff'), weight: 0.25 },  // голубоватые
-  { color: new THREE.Color('#ffe9c9'), weight: 0.13 },  // тёплые
+  { color: new THREE.Color('#ffffff'), weight: 0.55 },  // белые
+  { color: new THREE.Color('#9fc4ff'), weight: 0.28 },  // голубоватые
+  { color: new THREE.Color('#ffd2a0'), weight: 0.17 },  // тёплые
 ];
 
 let starfieldGroup = null;   // THREE.Group с двумя слоями THREE.Points
+let starTexture     = null;   // мягкая круглая текстура звезды (общая на слои)
 let atmosphereMesh = null;   // fresnel-оболочка вокруг глобуса (отдельный меш)
+
+// Мягкая круглая текстура звезды: яркое ядро + полупрозрачный ореол +
+// прозрачный край (2D-canvas). Без неё PointsMaterial рисует КВАДРАТНЫЕ
+// точки — «снег» вместо звёзд; с ней точки светятся и сцена не плоская.
+function makeStarTexture() {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0.0, 'rgba(255,255,255,1)');    // ядро
+  gradient.addColorStop(0.35, 'rgba(255,255,255,0.75)');// яркая часть
+  gradient.addColorStop(0.7, 'rgba(255,255,255,0.18)'); // ореол
+  gradient.addColorStop(1.0, 'rgba(255,255,255,0)');    // прозрачный край
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+
+  return new THREE.CanvasTexture(canvas);
+}
 
 // Один слой звёзд: равномерно по сфере радиуса radius с радиальным джиттером.
 // Размер в экранных пикселях (sizeAttenuation: false), поэтому с расстоянием
@@ -745,12 +766,13 @@ function makeStarLayer(count, sizePx, radius) {
   const material = new THREE.PointsMaterial({
     size: sizePx,
     sizeAttenuation: false,   // размер в пикселях, не в мировых единицах
-    vertexColors: true,
+    map: starTexture,         // мягкий круглый спрайт — иначе квадратные точки
+    vertexColors: true,       // цвет вершины задаёт оттенок И яркость звезды
     transparent: true,        // прозрачный проход — рисуется ПОСЛЕ непрозрачной
                               // skysphere three-globe, иначе фон перекрыл бы звёзды
     depthWrite: false,        // звёзды не пишут глубину и не заслоняют друг друга
     depthTest: true,          // но корректно прячутся за глобусом
-    opacity: 0.9,
+    opacity: 1.0,             // яркость регулируется цветом вершины (0.45…1.0)
     blending: THREE.AdditiveBlending,
   });
 
@@ -765,10 +787,13 @@ function makeStarLayer(count, sizePx, radius) {
 function initStarfield() {
   if (starfieldGroup || !globeInstance) return;
 
+  starTexture = makeStarTexture(); // общий спрайт на оба слоя
+
   starfieldGroup = new THREE.Group();
   starfieldGroup.name = 'starfield';
-  starfieldGroup.add(makeStarLayer(Math.round(STAR_COUNT * 0.78), 1.1, STARFIELD_RADIUS));
-  starfieldGroup.add(makeStarLayer(Math.round(STAR_COUNT * 0.22), 1.9, STARFIELD_RADIUS));
+  // Размеры с запасом под ореол спрайта: видимое ядро ≈ 40% бокса.
+  starfieldGroup.add(makeStarLayer(Math.round(STAR_COUNT * 0.78), 2.4, STARFIELD_RADIUS));
+  starfieldGroup.add(makeStarLayer(Math.round(STAR_COUNT * 0.22), 4.0, STARFIELD_RADIUS));
 
   globeInstance.scene().add(starfieldGroup);
 }
@@ -789,6 +814,12 @@ function disposeStarfield() {
       else obj.material.dispose();
     }
   });
+
+  // material.dispose() НЕ освобождает текстуры — делаем это сами (dispose-контракт).
+  if (starTexture) {
+    starTexture.dispose();
+    starTexture = null;
+  }
 
   starfieldGroup = null;
 }
