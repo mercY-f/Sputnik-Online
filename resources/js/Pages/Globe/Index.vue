@@ -602,6 +602,9 @@ function updateSunDirection() {
   if (mesh) {
     mesh.updateWorldMatrix(true, false);
     if (mesh.parent) dir.transformDirection(mesh.parent.matrixWorld);
+    // F3: атмосфера — отдельный меш в мировых координатах, ей нужен вектор на
+    // Солнце в мировом пространстве (до перевода в локальные координаты меша).
+    if (atmosphereMesh) atmosphereMesh.material.uniforms.sunDirection.value.copy(dir);
     sunMatrixScratch.copy(mesh.matrixWorld).invert();
     dir.transformDirection(sunMatrixScratch);
   }
@@ -675,6 +678,208 @@ function disposeDayNightMaterial() {
 }
 
 // -----------------------------------------------------------------------
+// F3: Звёздное поле и fresnel-атмосфера
+// -----------------------------------------------------------------------
+// Звёзды и атмосфера живут в мировой сцене (globeInstance.scene()), а НЕ в группе
+// вращения глобуса: иначе они крутились бы вместе с Землёй.
+// camera.near = 0.05, camera.far = skyRadius * 2.5 = 50000 * 2.5 = 125000, а
+// controls.maxDistance = 10000 (всё это выставляет globe.gl в своём init),
+// поэтому звёздная сфера R = 20000 всегда вокруг камеры, внутри far и внутри
+// skysphere-фона (R = 50000). Плоскости камеры не трогаем — глубина не страдает.
+const STAR_COUNT         = 2400;   // всего звёзд (два слоя: мелкие + яркие)
+const STARFIELD_RADIUS   = 20000;  // глобус = 100, camera.far = 125000, skysphere = 50000
+const STAR_RADIUS_JITTER = 0.08;   // радиальный джиттер, доля радиуса
+
+const ATMOSPHERE_RADIUS  = 104;     // глобус = 100: оболочка чуть больше
+const ATMOSPHERE_COLOR   = '#6db3ff';
+const ATMOSPHERE_POWER   = 3.0;     // показатель fresnel (2.5–4)
+const ATMOSPHERE_GAIN    = 1.35;    // общая яркость свечения
+const ATMOSPHERE_NIGHT   = 0.32;    // доля яркости на ночной стороне
+
+const STAR_PALETTE = [
+  { color: new THREE.Color('#ffffff'), weight: 0.62 },  // белые
+  { color: new THREE.Color('#cfe3ff'), weight: 0.25 },  // голубоватые
+  { color: new THREE.Color('#ffe9c9'), weight: 0.13 },  // тёплые
+];
+
+let starfieldGroup = null;   // THREE.Group с двумя слоями THREE.Points
+let atmosphereMesh = null;   // fresnel-оболочка вокруг глобуса (отдельный меш)
+
+// Один слой звёзд: равномерно по сфере радиуса radius с радиальным джиттером.
+// Размер в экранных пикселях (sizeAttenuation: false), поэтому с расстоянием
+// звёзды не «раздуваются». Яркость зашита в цвет вершины — так получается
+// вариативная прозрачность без отдельного атрибута alpha.
+function makeStarLayer(count, sizePx, radius) {
+  const positions = new Float32Array(count * 3);
+  const colors    = new Float32Array(count * 3);
+
+  for (let i = 0; i < count; i++) {
+    // Равномерное распределение по сфере (иначе точки липнут к полюсам).
+    const theta = 2 * Math.PI * Math.random();
+    const phi   = Math.acos(2 * Math.random() - 1);
+    const r     = radius * (1 + (Math.random() * 2 - 1) * STAR_RADIUS_JITTER);
+    const sinPhi = Math.sin(phi);
+
+    positions[i * 3]     = r * sinPhi * Math.cos(theta);
+    positions[i * 3 + 1] = r * Math.cos(phi);
+    positions[i * 3 + 2] = r * sinPhi * Math.sin(theta);
+
+    // Оттенок из палитры + случайная яркость 0.45…1.0.
+    const pick = Math.random();
+    const star = pick < STAR_PALETTE[0].weight
+      ? STAR_PALETTE[0]
+      : pick < STAR_PALETTE[0].weight + STAR_PALETTE[1].weight
+        ? STAR_PALETTE[1]
+        : STAR_PALETTE[2];
+    const brightness = 0.45 + Math.random() * 0.55;
+
+    colors[i * 3]     = star.color.r * brightness;
+    colors[i * 3 + 1] = star.color.g * brightness;
+    colors[i * 3 + 2] = star.color.b * brightness;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const material = new THREE.PointsMaterial({
+    size: sizePx,
+    sizeAttenuation: false,   // размер в пикселях, не в мировых единицах
+    vertexColors: true,
+    transparent: true,        // прозрачный проход — рисуется ПОСЛЕ непрозрачной
+                              // skysphere three-globe, иначе фон перекрыл бы звёзды
+    depthWrite: false,        // звёзды не пишут глубину и не заслоняют друг друга
+    depthTest: true,          // но корректно прячутся за глобусом
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const points = new THREE.Points(geometry, material);
+  points.renderOrder = 1;
+  points.frustumCulled = false; // сфера охватывает камеру — отсечение по bbox не нужно
+
+  return points;
+}
+
+// Статичные звёзды (без мерцания — reduced-motion-friendly).
+function initStarfield() {
+  if (starfieldGroup || !globeInstance) return;
+
+  starfieldGroup = new THREE.Group();
+  starfieldGroup.name = 'starfield';
+  starfieldGroup.add(makeStarLayer(Math.round(STAR_COUNT * 0.78), 1.1, STARFIELD_RADIUS));
+  starfieldGroup.add(makeStarLayer(Math.round(STAR_COUNT * 0.22), 1.9, STARFIELD_RADIUS));
+
+  globeInstance.scene().add(starfieldGroup);
+}
+
+function disposeStarfield() {
+  if (!starfieldGroup) return;
+
+  if (typeof starfieldGroup.removeFromParent === 'function') {
+    starfieldGroup.removeFromParent();
+  } else if (starfieldGroup.parent) {
+    starfieldGroup.parent.remove(starfieldGroup);
+  }
+
+  starfieldGroup.traverse(obj => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+      else obj.material.dispose();
+    }
+  });
+
+  starfieldGroup = null;
+}
+
+// Fresnel-оболочка: сфера чуть больше глобуса, рисуется изнутри (BackSide),
+// аддитивно, без записи глубины — остаётся только свечение у лимба и оно не
+// перекрывает ночные огни городов (в центре диска fresnel ≈ 0).
+const ATMOSPHERE_VERT = `
+varying vec3 vNormalView;
+varying vec3 vNormalWorld;
+varying vec3 vViewDir;
+
+void main() {
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  vNormalView  = normalize(normalMatrix * normal);
+  vNormalWorld = normalize(mat3(modelMatrix) * normal);
+  vViewDir     = normalize(-mvPosition.xyz);
+  gl_Position  = projectionMatrix * mvPosition;
+}
+`;
+
+const ATMOSPHERE_FRAG = `
+uniform vec3  glowColor;
+uniform vec3  sunDirection;   // на Солнце, в МИРОВЫХ координатах
+uniform float fresnelPower;
+uniform float glowIntensity;
+uniform float nightGlow;      // доля яркости на ночной стороне
+
+varying vec3 vNormalView;
+varying vec3 vNormalWorld;
+varying vec3 vViewDir;
+
+void main() {
+  // Классический fresnel по лимбу: в центре диска ~0, на краю ~1.
+  float rim = 1.0 - abs(dot(normalize(vNormalView), normalize(vViewDir)));
+  float f   = pow(clamp(rim, 0.0, 1.0), fresnelPower);
+
+  // Модуляция день/ночь: со стороны подсолнечной точки свечение ярче.
+  float dayAmount = smoothstep(-0.15, 0.35, dot(normalize(vNormalWorld), normalize(sunDirection)));
+  float gain      = mix(nightGlow, 1.0, dayAmount);
+
+  gl_FragColor = vec4(glowColor * f * glowIntensity * gain, f * gain);
+  #include <colorspace_fragment>
+}
+`;
+
+function initAtmosphere() {
+  if (atmosphereMesh || !globeInstance) return;
+
+  const geometry = new THREE.SphereGeometry(ATMOSPHERE_RADIUS, 64, 64);
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      glowColor:     { value: new THREE.Color(ATMOSPHERE_COLOR) },
+      sunDirection:  { value: new THREE.Vector3(1, 0, 0) },
+      fresnelPower:  { value: ATMOSPHERE_POWER },
+      glowIntensity: { value: ATMOSPHERE_GAIN },
+      nightGlow:     { value: ATMOSPHERE_NIGHT },
+    },
+    vertexShader:   ATMOSPHERE_VERT,
+    fragmentShader: ATMOSPHERE_FRAG,
+    transparent:    true,
+    blending:       THREE.AdditiveBlending,
+    depthWrite:     false,
+    depthTest:      true,
+    side:           THREE.BackSide,  // виден «изнутри» — свечение вокруг лимба
+  });
+
+  atmosphereMesh = new THREE.Mesh(geometry, material);
+  atmosphereMesh.name = 'atmosphere';
+  atmosphereMesh.renderOrder = 2;
+  atmosphereMesh.frustumCulled = false;
+
+  // Отдельный меш в мировой сцене: globeDayNightMaterial остаётся на меше глобуса.
+  globeInstance.scene().add(atmosphereMesh);
+}
+
+function disposeAtmosphere() {
+  if (!atmosphereMesh) return;
+
+  if (typeof atmosphereMesh.removeFromParent === 'function') {
+    atmosphereMesh.removeFromParent();
+  } else if (atmosphereMesh.parent) {
+    atmosphereMesh.parent.remove(atmosphereMesh);
+  }
+
+  if (atmosphereMesh.geometry) atmosphereMesh.geometry.dispose();
+  if (atmosphereMesh.material) atmosphereMesh.material.dispose();
+  atmosphereMesh = null;
+}
+
+// -----------------------------------------------------------------------
 // Инициализация глобуса
 // -----------------------------------------------------------------------
 function initGlobe() {
@@ -697,6 +902,10 @@ function initGlobe() {
   // F2: подменяем дефолтный MeshPhongMaterial three-globe на дневной/ночной шейдер
   // (dayMap = Blue Marble, nightMap = Black Marble) и сразу выставляем sunDirection.
   initDayNightMaterial();
+  // F3: звёздное поле и fresnel-атмосфера (до updateSunDirection — атмосфере
+  // нужен уже существующий меш, чтобы получить sunDirection на первом кадре)
+  initStarfield();
+  initAtmosphere();
   updateSunDirection();
   sunInterval = setInterval(updateSunDirection, SUN_REFRESH_MS);
 
@@ -1292,6 +1501,8 @@ onBeforeUnmount(() => {
   if (resizeObserver) resizeObserver.disconnect();
   disposeSatelliteMesh(); // геометрия/материал/instance-буферы + отцепление от группы
   disposeDayNightMaterial();
+  disposeStarfield();
+  disposeAtmosphere();
   satMeshGroup = null;
   if (globeInstance) {
     if (typeof globeInstance._destructor === 'function') globeInstance._destructor();
