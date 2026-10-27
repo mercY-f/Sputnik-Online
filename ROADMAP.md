@@ -40,13 +40,15 @@
 - [x] MissionShell (топбар: UTC-часы · OBJ-счётчик · LIVE · ⌘K-поиск · аватар; слоты + footer) + NewsFeed/NewsCard (мок, «Найти на орбите» → emit `focus`)
 - [x] Hero-расклад: глобус сверху (flex-1) + лента 38vh снизу; фокус-индикатор «◎ FOCUS — имя»
 - [x] Focus: `catalog_number` в `/api/satellites` + `focusByCatalogNumber` → существующий `focusSatellite` (fly-to `pointOfView`)
-- [ ] F1 камера «купол/дуга сверху во всю ширину» (framing) — перенесено в Спринт 4
+- [x] F1 камера «купол/дуга сверху во всю ширину» (framing) — режимы hero/free/follow (F1 + F1.1 + F1.2) реализованы, проверено в браузере 2026-10-27
 - [ ] миграция AuthenticatedLayout/Breeze + остальных страниц (Admin/Dashboard/Profile/AlertRules) на единый shell
 
 ### Спринт 4 — 3D-модернизация
-- InstancedMesh/Points вместо 3000 `Mesh`/сек · интерполяция (propagate t/t+1, lerp в rAF) · Web Worker
-- **F2. Терминатор + огни городов (Day/Night cycle)** (см. ниже)
-- локальные текстуры (Blue Marble 4K/8K, night-lights emissive, облака) + KTX2/AVIF · fresnel-атмосфера · звёзды Points · пост-обработка (bloom/FXAA/ACES)
+- [x] InstancedMesh/Points вместо 3000 `Mesh`/сек · интерполяция (propagate t/t+1, lerp в rAF) ✅ (`d32f531`, `4c03f75`, `63bad9a`)
+- [ ] Web Worker для SGP4 (расчёт позиций вне главного потока)
+- **F2. Терминатор + огни городов (Day/Night cycle)** (см. ниже) ✅ проверено в браузере 2026-10-27
+- **F3. Звёзды Points + fresnel-атмосфера** ✅ (`0f3bd4a`; проверить визуально в браузере)
+- локальные текстуры (Blue Marble 4K/8K, night-lights emissive, облака) + KTX2/AVIF · пост-обработка (bloom/FXAA/ACES)
 - орбиты (Line2 + ground track) · пикинг (Raycaster/GPU) · LOD/отсечение · dispose-контракт
 
 ### Спринт 5 — Полировка и дипломная упаковка
