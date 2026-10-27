@@ -701,6 +701,7 @@ function initGlobe() {
   sunInterval = setInterval(updateSunDirection, SUN_REFRESH_MS);
 
   bindCameraModeControls();
+  bindHeroExitHandler();
 
   // Отслеживаем изменение размера окна
   resizeObserver = new ResizeObserver(() => {
@@ -719,11 +720,13 @@ function initGlobe() {
   // F1: камера живёт в двух режимах — hero (обзор) и follow (слежение).
   // Старт всегда hero: сначала дальний кадр, затем плавный заезд в «купол».
   heroIntroTimer = setTimeout(() => {
-    if (!globeInstance) return;
+    if (!globeInstance || !heroIntroActive) return;
     const controls = globeInstance.controls();
     if (controls) controls.autoRotate = false;
     globeInstance.pointOfView({ lat: HERO_LAT, lng: HERO_LNG, altitude: 2.4 }, 0);
-    heroIntroTimer = setTimeout(() => enterHeroMode(2200), 300);
+    heroIntroTimer = setTimeout(() => {
+      if (heroIntroActive) enterHeroMode(2200);
+    }, 300);
   }, 500);
 }
 
@@ -740,6 +743,7 @@ function initGlobe() {
 // а follow — штатным pointOfView({lat,lng,altitude}, ms), в который камера
 // входит уже «прямо» (взгляд на центр), чтобы pointOfView не дёрнул ориентацию.
 const CAMERA_MODE_HERO   = 'hero';
+const CAMERA_MODE_FREE   = 'free';   // свободная орбита вокруг центра Земли
 const CAMERA_MODE_FOLLOW = 'follow';
 
 const GLOBE_RADIUS      = 100;   // радиус three-globe в мировых единицах
@@ -761,6 +765,7 @@ const followSatId = ref(null);
 
 let cameraTweenId    = null;
 let heroIntroTimer   = null;
+let heroIntroActive  = true;      // стартовый заезд в «купол» ещё не отменён
 let cameraSettleUntil = 0;       // до этого момента авто-слежение не перебивает перелёт
 
 const ZERO_POINT = { x: 0, y: 0, z: 0 };
@@ -942,6 +947,60 @@ function bindCameraModeControls() {
   controls.addEventListener('change', cameraChangeHandler);
 }
 
+// -----------------------------------------------------------------------
+// Hero → свободная орбита на первом взаимодействии мышью
+// -----------------------------------------------------------------------
+// В hero controls.target смещён от центра Земли к точке горизонта (это нужно
+// только самому кадру «купола»), а глушение setScalar его там удерживает.
+// Вращение мышью вокруг такой смещённой точки и даёт «мотыляние» вместо
+// вращения вокруг оси. Поэтому купол — только стартовый кадр и возврат через
+// clearFocus: первое же взаимодействие (pointerdown / wheel / touchstart, все
+// они у TrackballControls эмитят событие 'start') снимает наклон и отдаёт
+// управление обычной орбите вокруг центра.
+let heroExitHandler = null;
+
+function cancelHeroIntro() {
+  heroIntroActive = false;
+  if (heroIntroTimer) { clearTimeout(heroIntroTimer); heroIntroTimer = null; }
+}
+
+// Выход из hero в свободную орбиту. Позиция камеры не меняется — только цель
+// орбиты переезжает в центр Земли и взгляд доворачивается на него. Ориентацию
+// доворачиваем одним кадром, без анимации: TrackballControls на каждом
+// изменении сам делает camera.lookAt(controls.target), так что любой наш твин
+// взгляда дрался бы с ним и давал бы дрожание — а так это единственная мелкая
+// доводка в момент начала жеста, дальше камера полностью у контролов.
+function enterFreeOrbit() {
+  if (!globeInstance || cameraMode.value !== CAMERA_MODE_HERO) return;
+
+  stopCameraTween();
+  restoreDistanceClamp();
+
+  // режим меняем ДО правки target: holdCameraTarget глушит setScalar только
+  // в hero, после этого globe.gl снова сам держит target в центре
+  cameraMode.value = CAMERA_MODE_FREE;
+
+  const controls = globeInstance.controls();
+  if (controls) {
+    controls.zoomToCursor = true;           // штатное поведение globe.gl
+    if (controls.target) controls.target.set(0, 0, 0);
+  }
+  globeInstance.camera().lookAt(0, 0, 0);
+}
+
+function bindHeroExitHandler() {
+  const controls = globeInstance && globeInstance.controls();
+  if (!controls || heroExitHandler) return;
+  heroExitHandler = () => {
+    if (cameraMode.value !== CAMERA_MODE_HERO) return;
+    cancelHeroIntro();   // юзер перехватил камеру — стартовый заезд не нужен
+    enterFreeOrbit();
+  };
+  // 'start' TrackballControls шлёт на pointerdown, wheel и touchstart —
+  // этого достаточно, отдельные DOM-listener'ы не нужны.
+  controls.addEventListener('start', heroExitHandler);
+}
+
 // pointOfView анимирует камеру своим tween-группом, который нам недоступен:
 // если запустить свой твин, пока предыдущий перелёт ещё идёт, две анимации
 // начнут драться за camera.position/target. Поэтому новые перелёты ставим в
@@ -986,6 +1045,8 @@ function followAltitude(satAlt) {
 
 function enterFollowMode(sat, duration = FOLLOW_TWEEN_MS) {
   if (!globeInstance || !sat) return;
+
+  cancelHeroIntro();   // фокус на аппарате отменяет стартовый заезд в «купол»
 
   afterCameraSettle(() => {
     if (!globeInstance) return;
@@ -1098,6 +1159,11 @@ onBeforeUnmount(() => {
     if (controls) controls.removeEventListener('change', cameraChangeHandler);
   }
   cameraChangeHandler = null;
+  if (heroExitHandler && globeInstance) {
+    const controls = globeInstance.controls();
+    if (controls) controls.removeEventListener('start', heroExitHandler);
+  }
+  heroExitHandler = null;
   if (refreshInterval) clearInterval(refreshInterval);
   if (rafId)          cancelAnimationFrame(rafId);
   if (clockInterval)  clearInterval(clockInterval);
