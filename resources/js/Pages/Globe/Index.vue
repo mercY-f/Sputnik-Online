@@ -432,6 +432,9 @@ function refreshPositions() {
 
   lastRefreshTime = now.getTime();
   satPositions.value = currPositions;
+
+  // follow-режим: раз в секунду подтягиваем камеру к выбранному аппарату
+  trackFocusedSatellite();
 }
 
 function renderFrame() {
@@ -697,6 +700,8 @@ function initGlobe() {
   updateSunDirection();
   sunInterval = setInterval(updateSunDirection, SUN_REFRESH_MS);
 
+  bindCameraModeControls();
+
   // Отслеживаем изменение размера окна
   resizeObserver = new ResizeObserver(() => {
     if (globeContainer.value && globeInstance) {
@@ -711,12 +716,328 @@ function initGlobe() {
     .width(globeContainer.value.clientWidth)
     .height(globeContainer.value.clientHeight);
 
-  // Отключаем авто-вращение, устанавливаем камеру
-  setTimeout(() => {
+  // F1: камера живёт в двух режимах — hero (обзор) и follow (слежение).
+  // Старт всегда hero: сначала дальний кадр, затем плавный заезд в «купол».
+  heroIntroTimer = setTimeout(() => {
+    if (!globeInstance) return;
     const controls = globeInstance.controls();
     if (controls) controls.autoRotate = false;
-    globeInstance.pointOfView({ altitude: 2.5 });
+    globeInstance.pointOfView({ lat: HERO_LAT, lng: HERO_LNG, altitude: 2.4 }, 0);
+    heroIntroTimer = setTimeout(() => enterHeroMode(2200), 300);
   }, 500);
+}
+
+// -----------------------------------------------------------------------
+// F1: Hero-камера — режимы hero ⇄ follow
+// -----------------------------------------------------------------------
+// hero — «горизонт/купол»: камера висит над точкой (HERO_LAT, HERO_LNG) на
+// высоте HERO_ALTITUDE (доли радиуса Земли) и смотрит не в центр шара, как это
+// делает pointOfView, а вперёд-вниз. Тогда верхняя дуга (лимб) Земли ложится на
+// верхнюю часть кадра и занимает всю его ширину, а над ней остаётся полоса
+// космоса. pointOfView всегда целится в центр глобуса и наклона не умеет,
+// поэтому hero-переход делается твином camera.position + controls.target
+// (Cubic.InOut, камера идёт по дуге — без рывков и без пролёта сквозь Землю),
+// а follow — штатным pointOfView({lat,lng,altitude}, ms), в который камера
+// входит уже «прямо» (взгляд на центр), чтобы pointOfView не дёрнул ориентацию.
+const CAMERA_MODE_HERO   = 'hero';
+const CAMERA_MODE_FOLLOW = 'follow';
+
+const GLOBE_RADIUS      = 100;   // радиус three-globe в мировых единицах
+const HERO_LAT          = 22;    // Средиземноморье/Сахара — дневная сторона
+const HERO_LNG          = 12;
+const HERO_ALTITUDE     = 0.42;  // камера в 42 ед. над поверхностью (R = 100)
+const HERO_HORIZON_DEG  = 14;    // насколько лимб поднят над центром кадра
+const HERO_LOOK_DIST    = 0.9;   // длина вектора lookAt (в радиусах глобуса)
+const HERO_ROTATE_SPEED = 0.35;  // в hero altitude мал → штатный rotateSpeed «залипает»
+const HERO_TWEEN_MS     = 1800;
+const HERO_CENTRE_MS    = 260;   // доворот взгляда на центр перед полётом к аппарату
+const FOLLOW_TWEEN_MS   = 1300;
+const TRACK_TWEEN_MS    = 1000;  // перекадровка за аппаратом раз в секунду
+const FOLLOW_ALT_PAD    = 0.12;  // запас над аппаратом (в радиусах Земли) ⇒ камера в 12 ед. от него
+const FOLLOW_MAX_ALT    = 12;    // предел зума в follow (GEO ≈ 5.6 радиуса)
+
+const cameraMode  = ref(CAMERA_MODE_HERO);
+const followSatId = ref(null);
+
+let cameraTweenId    = null;
+let heroIntroTimer   = null;
+let cameraSettleUntil = 0;       // до этого момента авто-слежение не перебивает перелёт
+
+const ZERO_POINT = { x: 0, y: 0, z: 0 };
+const cameraArcScratch = {
+  fromPos:  new THREE.Vector3(),
+  toPos:    new THREE.Vector3(),
+  fromLook: new THREE.Vector3(),
+  toLook:   new THREE.Vector3(),
+  dir:      new THREE.Vector3(),
+  arc:      new THREE.Quaternion(),
+  eased:    new THREE.Quaternion(),
+  identity: new THREE.Quaternion(),
+};
+
+function cubicInOut(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function stopCameraTween() {
+  if (cameraTweenId) cancelAnimationFrame(cameraTweenId);
+  cameraTweenId = null;
+}
+
+// Пока идёт твин, |camera − target| может на время стать меньше
+// controls.minDistance (≈ радиус глобуса) — TrackballControls тогда оттолкнёт
+// камеру и кадр дёрнется. На время твина ограничение снимаем, в конце возвращаем.
+let heroBaseMinDistance = null;
+
+function releaseDistanceClamp() {
+  const controls = globeInstance && globeInstance.controls();
+  if (!controls) return;
+  if (heroBaseMinDistance === null && Number.isFinite(controls.minDistance)) {
+    heroBaseMinDistance = controls.minDistance;
+  }
+  controls.minDistance = 0.1;
+}
+
+function restoreDistanceClamp() {
+  const controls = globeInstance && globeInstance.controls();
+  if (controls && heroBaseMinDistance !== null) controls.minDistance = heroBaseMinDistance;
+}
+
+// globe.gl на каждое изменение камеры сбрасывает controls.target в центр Земли
+// (держит орбиту вокруг центра). В hero target смещён к горизонту, поэтому
+// «обнуление» глушим — но только пока активен hero-режим.
+function holdCameraTarget(target) {
+  if (!target || target.__heroHeld) return target;
+  const nativeSetScalar = target.setScalar;
+  target.setScalar = function (...args) {
+    if (cameraMode.value === CAMERA_MODE_HERO) return this;
+    return nativeSetScalar.apply(this, args);
+  };
+  target.__heroHeld = true;
+  return target;
+}
+
+function cameraPoseNow() {
+  const cam = globeInstance.camera();
+  const controls = globeInstance.controls();
+  const look = controls && controls.target ? controls.target : ZERO_POINT;
+  return {
+    pos:  { x: cam.position.x, y: cam.position.y, z: cam.position.z },
+    look: { x: look.x, y: look.y, z: look.z },
+  };
+}
+
+function applyCameraPose(pos, look) {
+  if (!globeInstance) return;
+  const cam = globeInstance.camera();
+  const controls = globeInstance.controls();
+  if (controls && controls.target) {
+    controls.target.set(look.x, look.y, look.z);
+    holdCameraTarget(controls.target);
+  }
+  cam.position.set(pos.x, pos.y, pos.z);
+  cam.lookAt(look.x, look.y, look.z);
+}
+
+// Твин камеры по дуге: направление интерполируем кватернионом (great circle),
+// радиус — линейно, lookAt — линейно. Так перелёт на другую сторону Земли
+// не проходит сквозь шар, а камера нигде не «дёргается».
+function tweenCameraTo(pos, look, duration = HERO_TWEEN_MS, onDone = null) {
+  if (!globeInstance) return;
+  stopCameraTween();
+
+  const s = cameraArcScratch;
+  const from = cameraPoseNow();
+  s.fromPos.set(from.pos.x, from.pos.y, from.pos.z);
+  s.toPos.set(pos.x, pos.y, pos.z);
+  s.fromLook.set(from.look.x, from.look.y, from.look.z);
+  s.toLook.set(look.x, look.y, look.z);
+
+  if (!duration) {
+    applyCameraPose(s.toPos, s.toLook);
+    if (onDone) onDone();
+    return;
+  }
+
+  releaseDistanceClamp();
+
+  const fromDir = s.fromPos.clone().normalize();
+  const toDir   = s.toPos.clone().normalize();
+  const fromR   = s.fromPos.length();
+  const toR     = s.toPos.length();
+  s.arc.setFromUnitVectors(fromDir, toDir);
+  s.identity.identity();
+
+  const start = performance.now();
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / duration);
+    const e = cubicInOut(t);
+
+    s.eased.slerpQuaternions(s.identity, s.arc, e);
+    s.dir.copy(fromDir).applyQuaternion(s.eased);
+    const radius = fromR + (toR - fromR) * e;
+
+    applyCameraPose(
+      { x: s.dir.x * radius, y: s.dir.y * radius, z: s.dir.z * radius },
+      s.fromLook.clone().lerp(s.toLook, e)
+    );
+
+    if (t < 1) {
+      cameraTweenId = requestAnimationFrame(step);
+      return;
+    }
+    cameraTweenId = null;
+    restoreDistanceClamp();
+    if (onDone) onDone();
+  };
+
+  cameraTweenId = requestAnimationFrame(step);
+}
+
+// Поза hero-кадра: точка стояния над (HERO_LAT, HERO_LNG), наклон вперёд-вниз
+// ровно настолько, чтобы лимб оказался на HERO_HORIZON_DEG выше центра кадра.
+function heroCameraPose() {
+  const surface = globeInstance.getCoords(HERO_LAT, HERO_LNG, 0);
+  const camPos  = globeInstance.getCoords(HERO_LAT, HERO_LNG, HERO_ALTITUDE);
+
+  const up = new THREE.Vector3(surface.x, surface.y, surface.z).normalize();
+  // тангенциальное направление «на север» в точке стояния
+  const north = globeInstance.getCoords(HERO_LAT + 1, HERO_LNG, 0);
+  const tangent = new THREE.Vector3(north.x - surface.x, north.y - surface.y, north.z - surface.z).normalize();
+
+  // депрессия лимба для данной высоты + желаемый подъём дуги над центром кадра
+  const dip   = THREE.MathUtils.radToDeg(Math.acos(1 / (1 + HERO_ALTITUDE)));
+  const pitch = THREE.MathUtils.degToRad(dip + HERO_HORIZON_DEG); // ниже горизонта
+  const theta = Math.PI / 2 - pitch;                              // и то же от надира
+
+  const forward = up.clone().multiplyScalar(-Math.cos(theta))
+    .add(tangent.multiplyScalar(Math.sin(theta)))
+    .normalize();
+
+  // controls.minDistance ≈ 100 (globeR + near): lookAt не должен оказаться ближе,
+  // иначе TrackballControls оттолкнёт камеру и кадр поедет.
+  const controls = globeInstance.controls();
+  const minDist = heroBaseMinDistance !== null
+    ? heroBaseMinDistance
+    : (controls && Number.isFinite(controls.minDistance) ? controls.minDistance : 0);
+  const lookDist = Math.max(GLOBE_RADIUS * HERO_LOOK_DIST, minDist + 2);
+
+  const look = new THREE.Vector3(camPos.x, camPos.y, camPos.z)
+    .add(forward.multiplyScalar(lookDist));
+
+  return { pos: camPos, look };
+}
+
+// globe.gl считает rotateSpeed от высоты камеры (altitude * 0.3). В hero высота
+// мала (~0.4 радиуса), и вращение «залипает» — держим комфортную скорость.
+let cameraChangeHandler = null;
+
+function bindCameraModeControls() {
+  const controls = globeInstance && globeInstance.controls();
+  if (!controls || cameraChangeHandler) return;
+  cameraChangeHandler = () => {
+    if (cameraMode.value !== CAMERA_MODE_HERO) return;
+    controls.rotateSpeed = HERO_ROTATE_SPEED;
+  };
+  controls.addEventListener('change', cameraChangeHandler);
+}
+
+// pointOfView анимирует камеру своим tween-группом, который нам недоступен:
+// если запустить свой твин, пока предыдущий перелёт ещё идёт, две анимации
+// начнут драться за camera.position/target. Поэтому новые перелёты ставим в
+// очередь «после текущего».
+let settleTimer = null;
+
+function afterCameraSettle(fn) {
+  const wait = Math.max(0, cameraSettleUntil - performance.now());
+  if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+  if (wait <= 0) { fn(); return; }
+  settleTimer = setTimeout(() => { settleTimer = null; fn(); }, wait + 20);
+}
+
+function enterHeroMode(duration = HERO_TWEEN_MS) {
+  if (!globeInstance) return;
+
+  // фокус снят: авто-слежение больше не перебивает камеру
+  followSatId.value = null;
+  focusTarget.value = null;
+
+  afterCameraSettle(() => {
+    if (!globeInstance) return;
+    cameraMode.value = CAMERA_MODE_HERO;
+
+    const controls = globeInstance.controls();
+    if (controls) {
+      controls.zoomToCursor = false; // иначе зум уводит target от горизонта
+      controls.rotateSpeed  = HERO_ROTATE_SPEED;
+    }
+
+    const { pos, look } = heroCameraPose();
+    tweenCameraTo(pos, look, duration);
+  });
+}
+
+// follow: камера встаёт над подспутниковой точкой на реальной высоте аппарата
+// (sat.alt — доля радиуса Земли из computePositions, LEO ≈ 0.1 … GEO ≈ 5.6).
+function followAltitude(satAlt) {
+  const a = Number.isFinite(satAlt) ? Math.max(satAlt, 0) : 0.1;
+  return a + FOLLOW_ALT_PAD;
+}
+
+function enterFollowMode(sat, duration = FOLLOW_TWEEN_MS) {
+  if (!globeInstance || !sat) return;
+
+  afterCameraSettle(() => {
+    if (!globeInstance) return;
+
+    // штатный перелёт к аппарату; камера приходит уже «прямо» (см. ниже)
+    const flyTo = () => {
+      if (!globeInstance) return;
+      cameraMode.value  = CAMERA_MODE_FOLLOW;
+      followSatId.value = sat.id ?? null;
+      cameraSettleUntil = performance.now() + duration;
+
+      const controls = globeInstance.controls();
+      if (controls) controls.zoomToCursor = true;
+
+      globeInstance.pointOfView(
+        { lat: sat.lat, lng: sat.lng, altitude: followAltitude(sat.alt) },
+        duration
+      );
+    };
+
+    // Из hero взгляд наклонён к горизонту, а pointOfView целится в центр Земли:
+    // сначала короткий доворот на центр (иначе в первом кадре будет рывок),
+    // затем сам перелёт к аппарату.
+    const { pos, look } = cameraPoseNow();
+    const centred = look.x === 0 && look.y === 0 && look.z === 0;
+    if (centred) {
+      flyTo();
+      return;
+    }
+
+    cameraSettleUntil = performance.now() + HERO_CENTRE_MS;
+    tweenCameraTo(pos, ZERO_POINT, HERO_CENTRE_MS, flyTo);
+  });
+}
+
+// Слежение: раз в секунду (вместе с пересчётом позиций) подтягиваем камеру к
+// аппарату. Текущий зум пользователя сохраняем, но не приближаемся к спутнику.
+function trackFocusedSatellite() {
+  if (!globeInstance || cameraMode.value !== CAMERA_MODE_FOLLOW) return;
+  if (followSatId.value == null || performance.now() < cameraSettleUntil) return;
+
+  const sat = currPositions.find(p => p.id === followSatId.value);
+  if (!sat) return;
+
+  const pov  = globeInstance.pointOfView();
+  const base = followAltitude(sat.alt);
+  const zoom = Number.isFinite(pov.altitude) ? Math.min(pov.altitude, FOLLOW_MAX_ALT) : base;
+
+  globeInstance.pointOfView(
+    { lat: sat.lat, lng: sat.lng, altitude: Math.max(base, zoom) },
+    TRACK_TWEEN_MS
+  );
 }
 
 // -----------------------------------------------------------------------
@@ -730,12 +1051,9 @@ function setFilter(cat) {
 }
 
 function focusSatellite(sat) {
-  if (globeInstance) {
-    globeInstance.pointOfView(
-      { lat: sat.lat, lng: sat.lng, altitude: sat.alt + 0.8 },
-      1000
-    );
-  }
+  if (!sat) return;
+  focusTarget.value = sat.name || focusTarget.value;
+  enterFollowMode(sat);
 }
 
 function focusByCatalogNumber(catalogNumber) {
@@ -747,9 +1065,9 @@ function focusByCatalogNumber(catalogNumber) {
   focusSatellite(sat);
 }
 
+// Снятие фокуса — возврат в hero-режим («обзор»), тоже плавным твином.
 function clearFocus() {
-  focusTarget.value = null;
-  if (globeInstance) globeInstance.pointOfView({ altitude: 2.5 }, 1000);
+  enterHeroMode();
 }
 
 // -----------------------------------------------------------------------
@@ -772,6 +1090,14 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.body.style.overflow = '';
+  stopCameraTween();
+  if (heroIntroTimer) clearTimeout(heroIntroTimer);
+  if (settleTimer) clearTimeout(settleTimer);
+  if (cameraChangeHandler && globeInstance) {
+    const controls = globeInstance.controls();
+    if (controls) controls.removeEventListener('change', cameraChangeHandler);
+  }
+  cameraChangeHandler = null;
   if (refreshInterval) clearInterval(refreshInterval);
   if (rafId)          cancelAnimationFrame(rafId);
   if (clockInterval)  clearInterval(clockInterval);
