@@ -132,6 +132,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { MissionShell, NewsFeed } from '@/components/mission';
 import { news } from '@/data/news';
+import { sgp4WorkerClient } from '@/lib/sgp4WorkerClient';
 
 const page = usePage();
 const user = computed(() => page.props.auth.user);
@@ -447,6 +448,9 @@ async function fetchData() {
       })
       .filter(Boolean);
 
+    // SGP4-расчёт вынесен в Web Worker: передаём ему актуальный набор satrec
+    sgp4WorkerClient.setSatellites(allSatellites);
+
     // F4: satrec пересозданы — линии орбиты для текущего фокуса строим заново
     if (orbitFocusedId != null) {
       const focused = allSatellites.find(s => s.id === orbitFocusedId);
@@ -520,32 +524,8 @@ async function toggleFavorite(sat) {
 // -----------------------------------------------------------------------
 // Анимация и расчет координат (satellite.js)
 // -----------------------------------------------------------------------
-function computePositions(now) {
-  const positions = [];
-
-  for (const sat of allSatellites) {
-    try {
-      const pv   = satellite.propagate(sat.satrec, now);
-      const pos  = pv.position;
-      if (typeof pos === 'boolean') continue;
-
-      const gmst = satellite.gstime(now);
-      const gd   = satellite.eciToGeodetic(pos, gmst);
-
-      positions.push({
-        id:       sat.id,
-        name:     sat.name,
-        category: sat.category,
-        catalogNumber: sat.catalogNumber,
-        lat:  satellite.degreesLat(gd.latitude),
-        lng:  satellite.degreesLong(gd.longitude),
-        alt:  gd.height / 6371,
-      });
-    } catch {}
-  }
-
-  return positions;
-}
+// Расчет координат: батч SGP4 выполняется в Web Worker (sgp4WorkerClient),
+// синхронный fallback — computePositionsFromSatrecs из lib/sgp4Core.
 
 function lerpAngle(a, b, t) {
   let d = b - a;
@@ -571,18 +551,37 @@ function interpolatePositions(prev, curr, t) {
   });
 }
 
-function refreshPositions() {
+// Защита от наложения тиков: пока воркер считает — следующий не запускаем
+let refreshInFlight = false;
+
+async function refreshPositions() {
+  if (refreshInFlight) return;
+  refreshInFlight = true;
+
   const now = new Date();
+  const timeMs = now.getTime();
 
-  if (currPositions.length) prevPositions = currPositions;
-  currPositions = computePositions(now);
-  if (!prevPositions.length) prevPositions = currPositions;
+  try {
+    const positions = await sgp4WorkerClient.computePositions(now);
 
-  lastRefreshTime = now.getTime();
-  satPositions.value = currPositions;
+    // null — расчёт отброшен/устарел (или список ещё не загружен): оставляем прежние
+    if (!positions) return;
 
-  // follow-режим: раз в секунду подтягиваем камеру к выбранному аппарату
-  trackFocusedSatellite();
+    if (currPositions.length) prevPositions = currPositions;
+    currPositions = positions;
+    if (!prevPositions.length) prevPositions = currPositions;
+
+    // База интерполяции — момент запроса, а не прихода ответа из воркера
+    lastRefreshTime = timeMs;
+    satPositions.value = currPositions;
+
+    // follow-режим: раз в секунду подтягиваем камеру к выбранному аппарату
+    trackFocusedSatellite();
+  } catch (e) {
+    console.error('Failed to refresh positions:', e);
+  } finally {
+    refreshInFlight = false;
+  }
 }
 
 function renderFrame() {
@@ -1696,6 +1695,7 @@ onBeforeUnmount(() => {
   if (sunInterval)    clearInterval(sunInterval);
   if (resizeObserver) resizeObserver.disconnect();
   disposeOrbitLines(); // F4: геометрия/материалы линий + таймер перестроения
+  sgp4WorkerClient.dispose(); // SGP4-воркер: terminate + снятие ожидающих расчётов
   disposeSatelliteMesh(); // геометрия/материал/instance-буферы + отцепление от группы
   disposeDayNightMaterial();
   disposeStarfield();
