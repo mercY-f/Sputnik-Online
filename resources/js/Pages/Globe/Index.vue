@@ -133,6 +133,7 @@ import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { MissionShell, NewsFeed } from '@/components/mission';
 import { news } from '@/data/news';
 import { sgp4WorkerClient } from '@/lib/sgp4WorkerClient';
+import { createPostProcessing } from '@/lib/postProcessing';
 
 const page = usePage();
 const user = computed(() => page.props.auth.user);
@@ -181,6 +182,7 @@ let currPositions    = [];
 let lastRefreshTime  = 0;
 let clockInterval    = null;
 let resizeObserver   = null;
+let postProcessing   = null; // Спринт 4: UnrealBloom + FXAA + ACES (EffectComposer)
 
 // -----------------------------------------------------------------------
 // InstancedMesh-слой спутников
@@ -1058,6 +1060,16 @@ function disposeAtmosphere() {
 }
 
 // -----------------------------------------------------------------------
+// Спринт 4: пост-обработка (UnrealBloom + FXAA + ACES tone mapping)
+// -----------------------------------------------------------------------
+// three-render-objects рендерит кадр через свой EffectComposer, поэтому
+// достаточно дополнить его пассами — renderer.render() не патчим.
+function initPostProcessing() {
+  if (!globeInstance || postProcessing) return;
+  postProcessing = createPostProcessing(globeInstance);
+}
+
+// -----------------------------------------------------------------------
 // Инициализация глобуса
 // -----------------------------------------------------------------------
 function initGlobe() {
@@ -1111,6 +1123,15 @@ function initGlobe() {
       // F4: толщина Line2 задаётся в пикселях — обновляем resolution при ресайзе
       applyLineResolution(orbitLine && orbitLine.material);
       applyLineResolution(groundTrackLine && groundTrackLine.material);
+      // F4-fix (Спринт 4): composer.setSize() уже сделал three-render-objects,
+      // здесь обновляем только uniform resolution у FXAA (DPR-пиксели).
+      if (postProcessing) {
+        postProcessing.updateSize(
+          globeContainer.value.clientWidth,
+          globeContainer.value.clientHeight,
+          globeInstance.renderer().getPixelRatio(),
+        );
+      }
     }
   });
   resizeObserver.observe(globeContainer.value);
@@ -1119,6 +1140,9 @@ function initGlobe() {
   globeInstance
     .width(globeContainer.value.clientWidth)
     .height(globeContainer.value.clientHeight);
+
+  // Спринт 4: пассы пост-обработки — после первичного размера (до heroIntroTimer).
+  initPostProcessing();
 
   // F1: камера живёт в двух режимах — hero (обзор) и follow (слежение).
   // Старт всегда hero: сначала дальний кадр, затем плавный заезд в «купол».
@@ -1695,6 +1719,13 @@ onBeforeUnmount(() => {
   if (sunInterval)    clearInterval(sunInterval);
   if (resizeObserver) resizeObserver.disconnect();
   disposeOrbitLines(); // F4: геометрия/материалы линий + таймер перестроения
+  // Спринт 4: снимаем пассы пост-обработки и освобождаем render target'ы.
+  // Аксессор postProcessingComposer() в globe.gl — read-only (d.ts:131),
+  // поэтому "снять хук" нельзя: просто dispose'им добавленные пассы.
+  if (postProcessing) {
+    postProcessing.dispose();
+    postProcessing = null;
+  }
   sgp4WorkerClient.dispose(); // SGP4-воркер: terminate + снятие ожидающих расчётов
   disposeSatelliteMesh(); // геометрия/материал/instance-буферы + отцепление от группы
   disposeDayNightMaterial();
