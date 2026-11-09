@@ -9,6 +9,17 @@
           <button class="focus-close" title="Clear focus" @click="clearFocus">✕</button>
         </div>
 
+        <!-- Hover HUD: имя аппарата под курсором (пикинг, Спринт 4) -->
+        <div
+          v-if="hoverSat"
+          class="hover-label"
+          :style="{
+            left: hoverSat.x + 'px',
+            top: hoverSat.y + 'px',
+            transform: hoverSat.flip ? 'translate(-100%, -50%)' : 'translate(0, -50%)',
+          }"
+        >◎ {{ hoverSat.name }}</div>
+
         <!-- Floating open button (when sidebar is closed) -->
         <button
           v-if="!sidebarOpen"
@@ -194,12 +205,16 @@ let postProcessing   = null; // Спринт 4: UnrealBloom + FXAA + ACES (Effec
 // где alt — доля радиуса (km / 6371): r = 100 * (1 + alt).
 const SAT_SPHERE_RADIUS = 0.45; // мировые единицы (радиус глобуса = 100)
 const SAT_ISS_SCALE     = 1.35;
+const SAT_HOVER_SCALE   = 1.9;  // подсветка наведения: во сколько раз крупнее инстанс
 
 let satMesh          = null;
 let satMeshGroup     = null;  // вращающаяся группа three-globe (родитель земного шара)
 let satMeshCapacity  = -1;
 let satColorCache    = [];
 let satColorScratch  = null;
+let lastMeshSats     = [];    // массив, поданный в updateSatelliteMesh в этом кадре
+let hoveredSatId     = null;  // id аппарата под курсором (для подсветки инстанса)
+let hoveredIndex     = -1;    // его индекс в lastMeshSats
 const satDummy       = new THREE.Object3D();
 
 // Ищем группу, в которой живут маркеры three-globe: объект с __globeObjType === 'globe'
@@ -215,7 +230,7 @@ function resolveSatMeshGroup() {
 }
 
 function disposeSatelliteMesh() {
-  if (!satMesh) { satMeshCapacity = -1; satColorCache = []; return; }
+  if (!satMesh) { satMeshCapacity = -1; satColorCache = []; lastMeshSats = []; return; }
   if (satMesh.parent) satMesh.parent.remove(satMesh);
   if (typeof satMesh.dispose === 'function') satMesh.dispose(); // instance-буферы
   if (satMesh.geometry) satMesh.geometry.dispose();
@@ -223,6 +238,7 @@ function disposeSatelliteMesh() {
   satMesh = null;
   satMeshCapacity = -1;
   satColorCache = [];
+  lastMeshSats = [];
 }
 
 // Пересоздаём меш только при изменении числа спутников (фильтры категорий).
@@ -253,7 +269,19 @@ function ensureSatelliteMesh(count) {
 
 function updateSatelliteMesh(sats) {
   const mesh = ensureSatelliteMesh(sats.length);
-  if (!mesh) return;
+  if (!mesh) { lastMeshSats = []; return; }
+
+  // instanceId = позиция в этом массиве: по нему пикинг переводит попадание
+  // в satellite_id (см. раздел «Пикинг спутников»).
+  lastMeshSats = sats;
+
+  // Порядок мог измениться (смена фильтра/набора TLE) — подсветка по индексу
+  // тогда указывала бы на чужой аппарат. Снимаем, пока курсор не двинется.
+  if (hoveredIndex >= 0 && sats[hoveredIndex]?.id !== hoveredSatId) {
+    hoveredIndex = -1;
+    hoveredSatId = null;
+    hoverSat.value = null;
+  }
 
   satColorScratch = satColorScratch || new THREE.Color();
   let colorsDirty = false;
@@ -264,7 +292,9 @@ function updateSatelliteMesh(sats) {
     // Истинная радиальная высота: alt — доля радиуса Земли (gd.height / 6371)
     const pos = globeInstance.getCoords(sat.lat, sat.lng, sat.alt);
     satDummy.position.set(pos.x, pos.y, pos.z);
-    satDummy.scale.setScalar(sat.category === 'ISS' ? SAT_ISS_SCALE : 1);
+    const baseScale = sat.category === 'ISS' ? SAT_ISS_SCALE : 1;
+    const hovered = hoveredSatId !== null && i === hoveredIndex;
+    satDummy.scale.setScalar(hovered ? baseScale * SAT_HOVER_SCALE : baseScale);
     satDummy.updateMatrix();
     mesh.setMatrixAt(i, satDummy.matrix);
 
@@ -280,6 +310,239 @@ function updateSatelliteMesh(sats) {
   mesh.count = sats.length;
   mesh.instanceMatrix.needsUpdate = true;
   if (colorsDirty && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+}
+
+// -----------------------------------------------------------------------
+// Пикинг спутников (Спринт 4): Raycaster по InstancedMesh → instanceId → id
+// -----------------------------------------------------------------------
+// Сцену рендерит EffectComposer (см. lib/postProcessing.js), но камера у пассов
+// та же, что отдаёт globeInstance.camera(), поэтому Raycaster.setFromCamera()
+// строит корректный луч без знания о цепочке пассов.
+//
+// Спутники на экране крошечные (сфера R = 0.45 при дистанции камеры 100–600 ед.
+// — это единицы пикселей), точное попадание лучом в них практически недостижимо.
+// Поэтому два уровня:
+//   1) точный raycast по satMesh — берём первый видимый instanceId;
+//   2) порог: ближайшая к курсору проекция центра инстанса в радиусе PICK_RADIUS_PX.
+// Отдельно отсекаем аппараты за лимбом Земли: их проекция попадает под курсор,
+// хотя сами они скрыты планетой.
+const PICK_RADIUS_PX    = 16;   // порог захвата вокруг проекции центра
+const CLICK_MAX_MOVE_PX = 6;    // сдвиг больше — это вращение камеры, а не клик
+const CLICK_MAX_MS      = 500;  // долгий жест — тоже не клик
+const CLICK_DEBOUNCE_MS = 350;  // защита от двойного срабатывания
+
+const hoverSat = ref(null); // HUD-подпись под курсором: { name, x, y, flip }
+
+const pickRaycaster  = new THREE.Raycaster();
+const pickNdc        = new THREE.Vector2();
+const pickMatrix     = new THREE.Matrix4();
+const pickVec        = new THREE.Vector3();
+const pickHitPoint   = new THREE.Vector3();
+const pickRay        = new THREE.Ray();
+let   pickGlobeSphere = null;
+
+let pickPointer     = null;  // последняя позиция курсора (client-координаты)
+let pickHoverRaf    = 0;     // троттлинг наведения до одного пика за кадр
+let pickGesture     = null;  // pointerdown: база для отличения клика от драга
+let pickLastClickAt = 0;
+const pickBindings  = { bound: false };
+
+// Сфера Земли для теста перекрытия: чуть меньше радиуса глобуса, чтобы
+// аппарат на нулевой высоте не считался «за планетой» из-за погрешности матриц.
+function ensureGlobePickSphere() {
+  if (!pickGlobeSphere) {
+    pickGlobeSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), GLOBE_RADIUS * 0.995);
+  }
+  return pickGlobeSphere;
+}
+
+// Точка скрыта глобусом? Сравниваем дистанцию входа луча в сферу Земли с
+// дистанцией до аппарата: если Земля ближе — аппарат на обратной стороне.
+function isBehindGlobe(cameraPos, point, distance) {
+  pickRay.origin.copy(cameraPos);
+  pickRay.direction.copy(point).sub(cameraPos);
+  const len = pickRay.direction.length();
+  if (len < 1e-6) return false;
+  pickRay.direction.divideScalar(len);
+
+  const enter = pickRay.intersectSphere(ensureGlobePickSphere(), pickHitPoint);
+  return !!enter && enter.distanceTo(cameraPos) < distance - 1;
+}
+
+/**
+ * Пикинг спутника по экранной точке.
+ * @returns {{sat: object, index: number}|null} — sat из lastMeshSats,
+ *          index = instanceId в satMesh.
+ */
+function pickSatelliteAt(clientX, clientY) {
+  if (!globeInstance || !satMesh || satMesh.count === 0 || !lastMeshSats.length) return null;
+
+  const el = globeContainer.value;
+  if (!el) return null;
+
+  const rect = el.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+
+  pickNdc.set(
+    ((clientX - rect.left) / rect.width)  * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1,
+  );
+
+  const camera = globeInstance.camera();
+  camera.updateMatrixWorld();              // + matrixWorldInverse для project()
+  satMesh.updateWorldMatrix(true, false);  // satMeshGroup вращается вместе с глобусом
+
+  const camPos = camera.position;
+
+  // 1) точное попадание лучом в сферу инстанса
+  pickRaycaster.setFromCamera(pickNdc, camera);
+  const hits = pickRaycaster.intersectObject(satMesh, false);
+  for (const hit of hits) {
+    if (hit.instanceId == null) continue;
+    if (isBehindGlobe(camPos, hit.point, hit.distance)) continue;
+    const sat = lastMeshSats[hit.instanceId];
+    if (sat) return { sat, index: hit.instanceId };
+  }
+
+  // 2) порог: ближайшая к курсору проекция центра в пределах PICK_RADIUS_PX
+  let bestIndex = -1;
+  let bestDistPx = PICK_RADIUS_PX;
+  const px = clientX - rect.left;
+  const py = clientY - rect.top;
+
+  for (let i = 0; i < satMesh.count; i++) {
+    satMesh.getMatrixAt(i, pickMatrix);
+    pickVec.setFromMatrixPosition(pickMatrix).applyMatrix4(satMesh.matrixWorld);
+
+    if (isBehindGlobe(camPos, pickVec, pickVec.distanceTo(camPos))) continue;
+
+    pickVec.project(camera);
+    if (pickVec.z > 1 || pickVec.z < -1) continue; // вне near/far
+    const sx = (pickVec.x * 0.5 + 0.5) * rect.width;
+    const sy = (-pickVec.y * 0.5 + 0.5) * rect.height;
+    const d = Math.hypot(sx - px, sy - py);
+    if (d < bestDistPx) { bestDistPx = d; bestIndex = i; }
+  }
+
+  if (bestIndex < 0) return null;
+  const sat = lastMeshSats[bestIndex];
+  return sat ? { sat, index: bestIndex } : null;
+}
+
+function refreshHover() {
+  if (!pickPointer) return;
+
+  const el = globeContainer.value;
+  const hit = pickSatelliteAt(pickPointer.x, pickPointer.y);
+
+  hoveredSatId = hit ? (hit.sat.id ?? null) : null;
+  hoveredIndex = hit ? hit.index : -1;
+
+  if (!hit || !el) {
+    hoverSat.value = null;
+    if (el) el.style.cursor = '';
+    return;
+  }
+
+  const rect = el.getBoundingClientRect();
+  const x = pickPointer.x - rect.left;
+  const y = pickPointer.y - rect.top;
+  const flip = x > rect.width - 180; // у правого края подпись уходит влево
+  hoverSat.value = {
+    name: hit.sat.name || 'UNKNOWN',
+    x: x + (flip ? -14 : 14),
+    y,
+    flip,
+  };
+  el.style.cursor = 'pointer';
+}
+
+function onGlobePointerMove(event) {
+  pickPointer = { x: event.clientX, y: event.clientY };
+
+  // Во время вращения камеры (жест со сдвигом) подпись только мешает и
+  // заставляет пикать 3000 инстансов на каждый кадр драга.
+  if (pickGesture &&
+      Math.hypot(event.clientX - pickGesture.x, event.clientY - pickGesture.y) > CLICK_MAX_MOVE_PX) {
+    if (hoveredSatId !== null || hoverSat.value) clearHoverState();
+    return;
+  }
+
+  if (pickHoverRaf) return; // не чаще одного пика за кадр
+  pickHoverRaf = requestAnimationFrame(() => {
+    pickHoverRaf = 0;
+    refreshHover();
+  });
+}
+
+function clearHoverState() {
+  hoveredSatId = null;
+  hoveredIndex = -1;
+  hoverSat.value = null;
+  if (globeContainer.value) globeContainer.value.style.cursor = '';
+}
+
+function onGlobePointerLeave() {
+  pickPointer = null;
+  pickGesture  = null;
+  if (pickHoverRaf) { cancelAnimationFrame(pickHoverRaf); pickHoverRaf = 0; }
+  clearHoverState();
+}
+
+function onGlobePointerDown(event) {
+  // правый/средний кнопкой камеру вращают — это не клик по аппарату
+  pickGesture = event.button === 0 || event.pointerType !== 'mouse'
+    ? { x: event.clientX, y: event.clientY, at: performance.now() }
+    : null;
+}
+
+function onGlobePointerUp(event) {
+  const gesture = pickGesture;
+  pickGesture = null;
+  if (!gesture) return;
+
+  const moved = Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y);
+  const held  = performance.now() - gesture.at;
+  // поворот/зум камеры (или долгое удержание) — кликом не считаем
+  if (moved > CLICK_MAX_MOVE_PX || held > CLICK_MAX_MS) return;
+  if (performance.now() - pickLastClickAt < CLICK_DEBOUNCE_MS) return;
+
+  const hit = pickSatelliteAt(event.clientX, event.clientY);
+  if (!hit) return; // клик по пустому глобусу — не трогаем камеру
+
+  pickLastClickAt = performance.now();
+  clearHoverState();     // подпись убираем: камера сейчас уедет к аппарату
+  focusSatellite(hit.sat); // существующий путь: орбита + follow-камера
+}
+
+function bindSatellitePicking() {
+  const el = globeContainer.value;
+  if (!el || pickBindings.bound) return;
+  el.addEventListener('pointermove',   onGlobePointerMove);
+  el.addEventListener('pointerdown',   onGlobePointerDown);
+  el.addEventListener('pointerup',     onGlobePointerUp);
+  el.addEventListener('pointerleave',  onGlobePointerLeave);
+  el.addEventListener('pointercancel', onGlobePointerLeave);
+  pickBindings.bound = true;
+}
+
+function unbindSatellitePicking() {
+  const el = globeContainer.value;
+  if (el) {
+    el.removeEventListener('pointermove',   onGlobePointerMove);
+    el.removeEventListener('pointerdown',   onGlobePointerDown);
+    el.removeEventListener('pointerup',     onGlobePointerUp);
+    el.removeEventListener('pointerleave',  onGlobePointerLeave);
+    el.removeEventListener('pointercancel', onGlobePointerLeave);
+  }
+  if (pickHoverRaf) { cancelAnimationFrame(pickHoverRaf); pickHoverRaf = 0; }
+  pickBindings.bound = false;
+  pickPointer  = null;
+  pickGesture  = null;
+  hoveredSatId = null;
+  hoveredIndex = -1;
+  hoverSat.value = null;
+  pickGlobeSphere = null;
 }
 
 // -----------------------------------------------------------------------
@@ -590,8 +853,8 @@ function renderFrame() {
   const t = Math.min(1, (Date.now() - lastRefreshTime) / 1000);
 
   if (globeInstance) {
-    // TODO: hover tooltip (раньше — .pointLabel с ALT/LAT/LNG); отложено, чтобы не
-    // тащить в PR raycasting/HTML-overlay. Данные (name/alt/lat/lng) уже есть в sats.
+    // Подпись под курсором (hover) обновляется пикингом по pointermove — см.
+    // раздел «Пикинг спутников»; здесь только интерполированные матрицы.
     updateSatelliteMesh(interpolatePositions(prevPositions, currPositions, t));
   }
 
@@ -1125,6 +1388,7 @@ function initGlobe() {
   bindCameraModeControls();
   bindHeroExitHandler();
   bindFollowStartHandler();
+  bindSatellitePicking(); // Спринт 4: hover/клик по аппаратам (Raycaster по InstancedMesh)
 
   // Отслеживаем изменение размера окна
   resizeObserver = new ResizeObserver(() => {
@@ -1724,6 +1988,7 @@ onBeforeUnmount(() => {
     if (controls) controls.removeEventListener('start', followStartHandler);
   }
   followStartHandler = null;
+  unbindSatellitePicking(); // Спринт 4: снять pointer-обработчики пикинга и hover-состояние
   if (refreshInterval) clearInterval(refreshInterval);
   if (rafId)          cancelAnimationFrame(rafId);
   if (clockInterval)  clearInterval(clockInterval);
@@ -1840,6 +2105,24 @@ onBeforeUnmount(() => {
 @keyframes focus-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
+}
+
+/* ---- Hover HUD (пикинг спутников) ---- */
+.hover-label {
+  position: absolute;
+  z-index: 45;
+  pointer-events: none;
+  padding: 5px 9px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #e5e7eb;
+  white-space: nowrap;
 }
 
 /* ---- Floating button ---- */

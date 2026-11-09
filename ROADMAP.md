@@ -51,9 +51,10 @@
 - локальные текстуры (Blue Marble 4K/8K, night-lights emissive, облака) + KTX2/AVIF
 - **Пост-обработка: bloom/FXAA/ACES** ✅ (`bd60551` — EffectComposer через штатный хук `postProcessingComposer`: RenderPass → UnrealBloom → OutputPass (ACES+sRGB) → FXAA; сборка зелёная 2026-11-09)
 - **F4. Орбиты (Line2 + ground track)** ✅ (`171f3f3`, z-фикс `83b200c`; принято пользователем 2026-10-27 — траектория + наземный трек без дубля на текстуре)
-- пикинг (Raycaster/GPU) · LOD/отсечение · dispose-контракт
+- **Пикинг спутников (Raycaster по InstancedMesh)** ✅ (hover `◎ имя` + подсветка инстанса, клик → существующий `focusSatellite`/follow; порог 16 px, дебаунс клика, отсечение за лимбом, dispose pointer-обработчиков; сборка зелёная 2026-11-09)
+- LOD/отсечение · dispose-контракт для остальных слоёв
 
-> **Следующий шаг (свежая сессия)**: пикинг (Raycaster), затем LOD/отсечение. Визуальные фиксы глобуса закрывают F1–F4; работаем в `refactor/modernization`, визуальную проверку WebGL пользователь делает в Windows-браузере.
+> **Следующий шаг (свежая сессия)**: LOD/отсечение, затем dispose-контракт. Визуальные фиксы глобуса закрывают F1–F4; работаем в `refactor/modernization`, визуальную проверку WebGL пользователь делает в Windows-браузере.
 
 ### Спринт 5 — Полировка и дипломная упаковка
 - тесты · reduced-motion · WebGL-fallback · PWA-офлайн (Workbox cache текстур)
