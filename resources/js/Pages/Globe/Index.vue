@@ -20,6 +20,16 @@
           }"
         >◎ {{ hoverSat.name }}</div>
 
+        <!-- Debug HUD спутникового слоя: ?debug=1 (FPS + реально отрисованные инстансы) -->
+        <div v-if="debugStats" class="debug-hud">
+          <div class="debug-row"><span>FPS</span><b>{{ debugStats.fps }}</b></div>
+          <div class="debug-row"><span>DRAWN</span><b>{{ debugStats.drawn }} / {{ debugStats.total }}</b></div>
+          <div class="debug-row"><span>SPHERES</span><b>{{ debugStats.near }}</b></div>
+          <div class="debug-row"><span>POINTS</span><b>{{ debugStats.points }}</b></div>
+          <div class="debug-row"><span>CULL FRUSTUM</span><b>{{ debugStats.frustum }}</b></div>
+          <div class="debug-row"><span>CULL LIMB</span><b>{{ debugStats.limb }}</b></div>
+        </div>
+
         <!-- Floating open button (when sidebar is closed) -->
         <button
           v-if="!sidebarOpen"
@@ -207,15 +217,47 @@ const SAT_SPHERE_RADIUS = 0.45; // мировые единицы (радиус �
 const SAT_ISS_SCALE     = 1.35;
 const SAT_HOVER_SCALE   = 1.9;  // подсветка наведения: во сколько раз крупнее инстанс
 
+// --- LOD/отсечение (Спринт 4) -------------------------------------------
+// Слой спутников = два представления в одной вращающейся группе:
+//   • satMesh   — InstancedMesh полноценных сфер (близкие/крупные на экране);
+//   • satPoints — THREE.Points из одного вершинного фрагмента на аппарат
+//                 (далёкие/мелкие: ~2 px вместо 192 треугольников сферы).
+// Оба массива lastMeshSats/lastPointSats — «то, что реально отрисовано»,
+// поэтому instanceId = индекс в lastMeshSats, а пикинг физически не видит
+// отсечённые аппараты (они не попадают ни в один из слоёв).
+const SAT_LOD_MIN_PX    = 1.2;   // экранный радиус сферы (css px), ниже — Points
+const SAT_CULL_RADIUS   = SAT_SPHERE_RADIUS * SAT_HOVER_SCALE + 2.0; // запас пирамиды: подсветка + лаг матрицы группы
+const SAT_POINT_SIZE    = 2.6;   // размер точки в мировых единицах (sizeAttenuation)
+
 let satMesh          = null;
 let satMeshGroup     = null;  // вращающаяся группа three-globe (родитель земного шара)
 let satMeshCapacity  = -1;
 let satColorCache    = [];
 let satColorScratch  = null;
-let lastMeshSats     = [];    // массив, поданный в updateSatelliteMesh в этом кадре
+let lastMeshSats     = [];    // сферы этого кадра: index === instanceId
+let lastPointSats    = [];    // Points-слой этого кадра: index === индекс в буфере
+// Переиспользуемые списки кадра (без аллокации 2×3000 ссылок каждый кадр)
+const satNearList    = [];
+const satPointList   = [];
 let hoveredSatId     = null;  // id аппарата под курсором (для подсветки инстанса)
-let hoveredIndex     = -1;    // его индекс в lastMeshSats
 const satDummy       = new THREE.Object3D();
+
+// Points-слой (далёкие спутники)
+let satPoints         = null;
+let satPointsCapacity = -1;
+let satPointTexture   = null;
+const satPointPositions = { array: null };
+const satPointColors    = { array: null };
+
+// Счётчики кадра под debug-HUD (?debug=1)
+const satStats = { total: 0, near: 0, points: 0, culledFrustum: 0, culledLimb: 0 };
+
+// Скрэтчи отсечения: пирамида камеры и камера в локальных координатах группы
+const satFrustum    = new THREE.Frustum();
+const satClipMatrix = new THREE.Matrix4();
+const satInvGroup   = new THREE.Matrix4();
+const satCamLocal   = new THREE.Vector3();
+
 
 // Ищем группу, в которой живут маркеры three-globe: объект с __globeObjType === 'globe'
 // (это группа земного шара), берём его .parent. Именно эта система координат
@@ -229,7 +271,46 @@ function resolveSatMeshGroup() {
   return globeObj ? globeObj.parent : null;
 }
 
+// Спрайт точки: кружок с мягким краем (canvas → CanvasTexture, 32×32).
+// Создаётся вместе с Points-слоем и dispose'ится вместе с ним — новых зависимостей нет.
+function createSatPointTexture() {
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const r = size / 2;
+    const grad = ctx.createRadialGradient(r, r, 0, r, r, r);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.55, 'rgba(255,255,255,0.9)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function disposeSatPointCloud() {
+  if (satPoints) {
+    if (satPoints.parent) satPoints.parent.remove(satPoints);
+    if (satPoints.geometry) satPoints.geometry.dispose();
+    if (satPoints.material) {
+      if (satPoints.material.map) satPoints.material.map.dispose();
+      satPoints.material.dispose();
+    }
+    satPoints = null;
+  }
+  satPointsCapacity = -1;
+  satPointTexture = null;
+  satPointPositions.array = null;
+  satPointColors.array = null;
+  lastPointSats = [];
+}
+
 function disposeSatelliteMesh() {
+  disposeSatPointCloud();
   if (!satMesh) { satMeshCapacity = -1; satColorCache = []; lastMeshSats = []; return; }
   if (satMesh.parent) satMesh.parent.remove(satMesh);
   if (typeof satMesh.dispose === 'function') satMesh.dispose(); // instance-буферы
@@ -239,6 +320,50 @@ function disposeSatelliteMesh() {
   satMeshCapacity = -1;
   satColorCache = [];
   lastMeshSats = [];
+}
+
+// Points-слой для далёких аппаратов: одна вершина на спутник, размер экрана
+// задаёт sizeAttenuation — стоить кадр это почти ничего.
+function ensureSatPointCloud(count) {
+  if (satPoints && count === satPointsCapacity) return satPoints;
+
+  disposeSatPointCloud();
+  if (count <= 0) { satPointsCapacity = 0; return null; }
+
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+
+  const geometry = new THREE.BufferGeometry();
+  const posAttr = new THREE.BufferAttribute(positions, 3);
+  posAttr.setUsage(THREE.DynamicDrawUsage);
+  const colAttr = new THREE.BufferAttribute(colors, 3);
+  colAttr.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('position', posAttr);
+  geometry.setAttribute('color', colAttr);
+  geometry.setDrawRange(0, 0);
+
+  satPointTexture = satPointTexture || createSatPointTexture();
+  const material = new THREE.PointsMaterial({
+    size: SAT_POINT_SIZE,
+    sizeAttenuation: true,
+    vertexColors: true,
+    map: satPointTexture,
+    transparent: true,
+    depthWrite: false,
+    alphaTest: 0.05,
+    toneMapped: false,
+  });
+
+  satPoints = new THREE.Points(geometry, material);
+  satPoints.frustumCulled = false; // отсекаем сами, bbox пересчитывать каждый кадр дороже
+  satPoints.renderOrder = -1;      // точки — до сфер, чтобы подсветка была сверху
+  satMeshGroup.add(satPoints);
+
+  satPointsCapacity = count;
+  satPointPositions.array = positions;
+  satPointColors.array = colors;
+
+  return satPoints;
 }
 
 // Пересоздаём меш только при изменении числа спутников (фильтры категорий).
@@ -258,58 +383,194 @@ function ensureSatelliteMesh(count) {
   satMesh = new THREE.InstancedMesh(geometry, material, count);
   satMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   satMesh.frustumCulled = false; // матрицы меняются каждый кадр, bbox не пересчитываем
+  // Ручная ограничивающая сфера: instancы компактно переписываются каждый кадр,
+  // авторасчёт по this.count кэшировался бы по первому (случайному) набору и
+  // мог бы отсечь валидный луч в пикинге. Радиус с запасом перекрывает орбиты.
+  satMesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), GLOBE_RADIUS * 2.5);
   satMeshGroup.add(satMesh);
 
   satMeshCapacity = count;
   satColorCache = new Array(count).fill(null);
   satColorScratch = satColorScratch || new THREE.Color();
 
+  ensureSatPointCloud(count);
+
   return satMesh;
+}
+
+// Пирамида видимости в локальных координатах группы спутников (6 плоскостей
+// на кадр). Возвращает false, если точка гарантированно вне экрана.
+function isInsideSatFrustum(x, y, z, radius) {
+  const planes = satFrustum.planes;
+  for (let k = 0; k < 6; k++) {
+    const pl = planes[k];
+    if (pl.normal.x * x + pl.normal.y * y + pl.normal.z * z + pl.constant < -radius) return false;
+  }
+  return true;
+}
+
+// Аппарат за лимбом Земли? Консервативный тест отрезка «камера → спутник» со
+// сферой Земли в локальных координатах группы: без Raycaster на 3000 сфер.
+function isBehindEarthLimb(x, y, z, cam) {
+  const vx = x - cam.x, vy = y - cam.y, vz = z - cam.z;
+  const vv = vx * vx + vy * vy + vz * vz;
+  if (vv < 1e-9) return false;
+
+  // параметр ближайшей к центру Земли точки отрезка
+  const t = -(cam.x * vx + cam.y * vy + cam.z * vz) / vv;
+  if (t <= 0 || t >= 1) return false; // Земля ближе камеры или дальше аппарата
+
+  const cx = cam.x + vx * t, cy = cam.y + vy * t, cz = cam.z + vz * t;
+  return cx * cx + cy * cy + cz * cz < SAT_EARTH_LIMB_R2;
 }
 
 function updateSatelliteMesh(sats) {
   const mesh = ensureSatelliteMesh(sats.length);
-  if (!mesh) { lastMeshSats = []; return; }
+  satStats.total = sats.length;
 
-  // instanceId = позиция в этом массиве: по нему пикинг переводит попадание
-  // в satellite_id (см. раздел «Пикинг спутников»).
-  lastMeshSats = sats;
-
-  // Порядок мог измениться (смена фильтра/набора TLE) — подсветка по индексу
-  // тогда указывала бы на чужой аппарат. Снимаем, пока курсор не двинется.
-  if (hoveredIndex >= 0 && sats[hoveredIndex]?.id !== hoveredSatId) {
-    hoveredIndex = -1;
-    hoveredSatId = null;
-    hoverSat.value = null;
+  if (!mesh) {
+    lastMeshSats = [];
+    lastPointSats = [];
+    satStats.near = 0;
+    satStats.points = 0;
+    satStats.culledFrustum = 0;
+    satStats.culledLimb = 0;
+    return;
   }
+
+  const camera = globeInstance.camera();
+  const el = globeContainer.value;
+  const viewH = (el && el.clientHeight) || 1;
+
+  // Спутники живут во вращающейся группе глобуса: и пирамиду, и камеру
+  // переводим в её локальные координаты — тест не зависит от поворота.
+  satMesh.updateWorldMatrix(true, false);
+  camera.updateMatrixWorld();
+
+  satInvGroup.copy(satMesh.matrixWorld).invert();
+  satCamLocal.copy(camera.position).applyMatrix4(satInvGroup);
+
+  satClipMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  satFrustum.setFromProjectionMatrix(satClipMatrix);
+  for (let k = 0; k < 6; k++) {
+    satFrustum.planes[k].applyMatrix4(satInvGroup); // нормализует нормаль + constant
+  }
+
+  // Экранный радиус сферы: r_px = SAT_SPHERE_RADIUS * (H/2)/tan(fov/2) / dist
+  const pxFactor = camera.isPerspectiveCamera
+    ? (viewH * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5)
+    : viewH * 0.5;
+
+  const nearSats = satNearList;
+  const pointSats = satPointList;
+  nearSats.length = 0;
+  pointSats.length = 0;
+  const pointPositions = satPointPositions.array;
+  const pointColors = satPointColors.array;
 
   satColorScratch = satColorScratch || new THREE.Color();
   let colorsDirty = false;
+  let nearCount = 0;
+  let pointCount = 0;
+  let culledFrustum = 0;
+  let culledLimb = 0;
+  let hoveredSeen = false;
 
   for (let i = 0; i < sats.length; i++) {
     const sat = sats[i];
 
     // Истинная радиальная высота: alt — доля радиуса Земли (gd.height / 6371)
     const pos = globeInstance.getCoords(sat.lat, sat.lng, sat.alt);
-    satDummy.position.set(pos.x, pos.y, pos.z);
-    const baseScale = sat.category === 'ISS' ? SAT_ISS_SCALE : 1;
-    const hovered = hoveredSatId !== null && i === hoveredIndex;
-    satDummy.scale.setScalar(hovered ? baseScale * SAT_HOVER_SCALE : baseScale);
-    satDummy.updateMatrix();
-    mesh.setMatrixAt(i, satDummy.matrix);
+
+    // 1) вне пирамиды камеры — не пишем ни матрицу, ни точку
+    if (!isInsideSatFrustum(pos.x, pos.y, pos.z, SAT_CULL_RADIUS)) { culledFrustum++; continue; }
+    // 2) за лимбом Земли — планету перекрывает сама Земля
+    if (isBehindEarthLimb(pos.x, pos.y, pos.z, satCamLocal)) { culledLimb++; continue; }
+
+    const hovered = hoveredSatId !== null && sat.id === hoveredSatId;
+    if (hovered) hoveredSeen = true;
 
     const hex = getCategoryColor(sat.category);
-    if (satColorCache[i] !== hex) {
+    const dx = pos.x - satCamLocal.x;
+    const dy = pos.y - satCamLocal.y;
+    const dz = pos.z - satCamLocal.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const radiusPx = dist > 1e-6 ? (SAT_SPHERE_RADIUS * pxFactor) / dist : Infinity;
+
+    if (hovered || !pointPositions || radiusPx >= SAT_LOD_MIN_PX) {
+      // LOD 0: полноценная сфера; instanceId = индекс в lastMeshSats
+      satDummy.position.set(pos.x, pos.y, pos.z);
+      const baseScale = sat.category === 'ISS' ? SAT_ISS_SCALE : 1;
+      satDummy.scale.setScalar(hovered ? baseScale * SAT_HOVER_SCALE : baseScale);
+      satDummy.updateMatrix();
+      mesh.setMatrixAt(nearCount, satDummy.matrix);
+
+      if (satColorCache[nearCount] !== hex) {
+        satColorScratch.set(hex);
+        mesh.setColorAt(nearCount, satColorScratch);
+        satColorCache[nearCount] = hex;
+        colorsDirty = true;
+      }
+      nearSats.push(sat);
+      nearCount++;
+    } else {
+      // LOD 1: точка ~2 px — дешевле сферы в сотни раз
+      const o = pointCount * 3;
+      pointPositions[o]     = pos.x;
+      pointPositions[o + 1] = pos.y;
+      pointPositions[o + 2] = pos.z;
       satColorScratch.set(hex);
-      mesh.setColorAt(i, satColorScratch);
-      satColorCache[i] = hex;
-      colorsDirty = true;
+      pointColors[o]     = satColorScratch.r;
+      pointColors[o + 1] = satColorScratch.g;
+      pointColors[o + 2] = satColorScratch.b;
+      pointSats.push(sat);
+      pointCount++;
     }
   }
 
-  mesh.count = sats.length;
-  mesh.instanceMatrix.needsUpdate = true;
-  if (colorsDirty && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  // instanceId ↔ lastMeshSats: сферы компактно с 0, отсечённых в массиве нет
+  lastMeshSats = nearSats;
+  lastPointSats = pointSats;
+
+  mesh.count = nearCount;
+  // Грузим в GPU только записанный префикс буфера (instancы компактно с 0),
+  // а не все capacity×16 float каждый кадр.
+  const matAttr = mesh.instanceMatrix;
+  matAttr.clearUpdateRanges();
+  if (nearCount > 0) matAttr.addUpdateRange(0, nearCount * 16);
+  matAttr.needsUpdate = true;
+  if (colorsDirty && mesh.instanceColor) {
+    const colAttr = mesh.instanceColor;
+    colAttr.clearUpdateRanges();
+    colAttr.addUpdateRange(0, nearCount * 3);
+    colAttr.needsUpdate = true;
+  }
+
+  if (satPoints) {
+    satPoints.visible = pointCount > 0;
+    satPoints.geometry.setDrawRange(0, pointCount);
+    if (pointCount > 0) {
+      for (const name of ['position', 'color']) {
+        const attr = satPoints.geometry.getAttribute(name);
+        if (!attr) continue;
+        attr.clearUpdateRanges();
+        attr.addUpdateRange(0, pointCount * 3);
+        attr.needsUpdate = true;
+      }
+    }
+  }
+
+  // Подсветка живёт по id, а не по индексу: состав слоя меняется каждый кадр.
+  // Если аппарат ушёл за лимб/за экран — снимаем подпись, пока курсор не двинется.
+  if (hoveredSatId !== null && !hoveredSeen) {
+    hoveredSatId = null;
+    hoverSat.value = null;
+  }
+
+  satStats.near = nearCount;
+  satStats.points = pointCount;
+  satStats.culledFrustum = culledFrustum;
+  satStats.culledLimb = culledLimb;
 }
 
 // -----------------------------------------------------------------------
@@ -323,9 +584,11 @@ function updateSatelliteMesh(sats) {
 // — это единицы пикселей), точное попадание лучом в них практически недостижимо.
 // Поэтому два уровня:
 //   1) точный raycast по satMesh — берём первый видимый instanceId;
-//   2) порог: ближайшая к курсору проекция центра инстанса в радиусе PICK_RADIUS_PX.
-// Отдельно отсекаем аппараты за лимбом Земли: их проекция попадает под курсор,
-// хотя сами они скрыты планетой.
+//   2) порог: ближайшая к курсору проекция центра в радиусе PICK_RADIUS_PX
+//      по обоим LOD-слоям (сферы и точки).
+// Отсечение за лимбом/фрустумом уже сделано в updateSatelliteMesh: отсечённые
+// аппараты физически отсутствуют в lastMeshSats/lastPointSats, поэтому зацепить
+// их по ошибке нельзя.
 const PICK_RADIUS_PX    = 16;   // порог захвата вокруг проекции центра
 const CLICK_MAX_MOVE_PX = 6;    // сдвиг больше — это вращение камеры, а не клик
 const CLICK_MAX_MS      = 500;  // долгий жест — тоже не клик
@@ -371,11 +634,14 @@ function isBehindGlobe(cameraPos, point, distance) {
 
 /**
  * Пикинг спутника по экранной точке.
- * @returns {{sat: object, index: number}|null} — sat из lastMeshSats,
- *          index = instanceId в satMesh.
+ * Ищем только в том, что реально отрисовано: сферы (lastMeshSats, index =
+ * instanceId) и точки дальнего слоя (lastPointSats). Отсечённые фрустумом/лимбом
+ * аппараты в этих массивах отсутствуют — их нельзя зацепить по ошибке.
+ * @returns {{sat: object}|null}
  */
 function pickSatelliteAt(clientX, clientY) {
-  if (!globeInstance || !satMesh || satMesh.count === 0 || !lastMeshSats.length) return null;
+  if (!globeInstance || !satMesh) return null;
+  if (!lastMeshSats.length && !lastPointSats.length) return null;
 
   const el = globeContainer.value;
   if (!el) return null;
@@ -394,39 +660,49 @@ function pickSatelliteAt(clientX, clientY) {
 
   const camPos = camera.position;
 
-  // 1) точное попадание лучом в сферу инстанса
+  // 1) точное попадание лучом в сферу инстанса (ближний LOD-слой)
   pickRaycaster.setFromCamera(pickNdc, camera);
   const hits = pickRaycaster.intersectObject(satMesh, false);
   for (const hit of hits) {
-    if (hit.instanceId == null) continue;
+    if (hit.instanceId == null || hit.instanceId >= lastMeshSats.length) continue;
     if (isBehindGlobe(camPos, hit.point, hit.distance)) continue;
     const sat = lastMeshSats[hit.instanceId];
-    if (sat) return { sat, index: hit.instanceId };
+    if (sat) return { sat };
   }
 
-  // 2) порог: ближайшая к курсору проекция центра в пределах PICK_RADIUS_PX
-  let bestIndex = -1;
+  // 2) порог: ближайшая к курсору проекция центра в пределах PICK_RADIUS_PX.
+  // Оба слоя уже отсечены фрустумом и лимбом в updateSatelliteMesh, поэтому
+  // здесь только проекция — без Raycaster и без повторного теста Земли.
+  let bestSat = null;
   let bestDistPx = PICK_RADIUS_PX;
   const px = clientX - rect.left;
   const py = clientY - rect.top;
 
-  for (let i = 0; i < satMesh.count; i++) {
+  for (let i = 0; i < lastMeshSats.length; i++) {
     satMesh.getMatrixAt(i, pickMatrix);
     pickVec.setFromMatrixPosition(pickMatrix).applyMatrix4(satMesh.matrixWorld);
-
-    if (isBehindGlobe(camPos, pickVec, pickVec.distanceTo(camPos))) continue;
-
     pickVec.project(camera);
     if (pickVec.z > 1 || pickVec.z < -1) continue; // вне near/far
     const sx = (pickVec.x * 0.5 + 0.5) * rect.width;
     const sy = (-pickVec.y * 0.5 + 0.5) * rect.height;
     const d = Math.hypot(sx - px, sy - py);
-    if (d < bestDistPx) { bestDistPx = d; bestIndex = i; }
+    if (d < bestDistPx) { bestDistPx = d; bestSat = lastMeshSats[i]; }
   }
 
-  if (bestIndex < 0) return null;
-  const sat = lastMeshSats[bestIndex];
-  return sat ? { sat, index: bestIndex } : null;
+  if (satPoints && lastPointSats.length) {
+    const attr = satPoints.geometry.getAttribute('position');
+    for (let i = 0; i < lastPointSats.length; i++) {
+      pickVec.fromBufferAttribute(attr, i).applyMatrix4(satMesh.matrixWorld);
+      pickVec.project(camera);
+      if (pickVec.z > 1 || pickVec.z < -1) continue;
+      const sx = (pickVec.x * 0.5 + 0.5) * rect.width;
+      const sy = (-pickVec.y * 0.5 + 0.5) * rect.height;
+      const d = Math.hypot(sx - px, sy - py);
+      if (d < bestDistPx) { bestDistPx = d; bestSat = lastPointSats[i]; }
+    }
+  }
+
+  return bestSat ? { sat: bestSat } : null;
 }
 
 function refreshHover() {
@@ -436,7 +712,6 @@ function refreshHover() {
   const hit = pickSatelliteAt(pickPointer.x, pickPointer.y);
 
   hoveredSatId = hit ? (hit.sat.id ?? null) : null;
-  hoveredIndex = hit ? hit.index : -1;
 
   if (!hit || !el) {
     hoverSat.value = null;
@@ -477,7 +752,6 @@ function onGlobePointerMove(event) {
 
 function clearHoverState() {
   hoveredSatId = null;
-  hoveredIndex = -1;
   hoverSat.value = null;
   if (globeContainer.value) globeContainer.value.style.cursor = '';
 }
@@ -540,7 +814,6 @@ function unbindSatellitePicking() {
   pickPointer  = null;
   pickGesture  = null;
   hoveredSatId = null;
-  hoveredIndex = -1;
   hoverSat.value = null;
   pickGlobeSphere = null;
 }
@@ -849,6 +1122,50 @@ async function refreshPositions() {
   }
 }
 
+// -----------------------------------------------------------------------
+// Debug-режим (?debug=1): сколько инстансов реально отрисовано за кадр
+// -----------------------------------------------------------------------
+// HUD обновляется 2 раза в секунду; в консоль — строка раз в ~2 c, чтобы
+// можно было записать цифры «до/после» при 3000 аппаратах.
+const DEBUG_ENABLED = typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has('debug');
+const debugStats = ref(null);
+let debugFrames       = 0;
+let debugSince        = 0;
+let debugConsoleTick  = 0;
+
+function flushDebugStats(nowMs) {
+  debugFrames++;
+  if (!debugSince) { debugSince = nowMs; return; }
+
+  const elapsed = nowMs - debugSince;
+  if (elapsed < 500) return;
+
+  const fps    = (debugFrames * 1000) / elapsed;
+  const drawn  = satStats.near + satStats.points;
+
+  debugStats.value = {
+    fps: Math.round(fps),
+    total: satStats.total,
+    drawn,
+    near: satStats.near,
+    points: satStats.points,
+    frustum: satStats.culledFrustum,
+    limb: satStats.culledLimb,
+  };
+
+  debugFrames = 0;
+  debugSince = nowMs;
+  debugConsoleTick++;
+  if (debugConsoleTick % 4 === 0) {
+    console.log(
+      `[globe] fps=${Math.round(fps)} drawn=${drawn}/${satStats.total}` +
+      ` spheres=${satStats.near} points=${satStats.points}` +
+      ` culled: frustum=${satStats.culledFrustum} limb=${satStats.culledLimb}`,
+    );
+  }
+}
+
 function renderFrame() {
   const t = Math.min(1, (Date.now() - lastRefreshTime) / 1000);
 
@@ -856,6 +1173,7 @@ function renderFrame() {
     // Подпись под курсором (hover) обновляется пикингом по pointermove — см.
     // раздел «Пикинг спутников»; здесь только интерполированные матрицы.
     updateSatelliteMesh(interpolatePositions(prevPositions, currPositions, t));
+    if (DEBUG_ENABLED) flushDebugStats(performance.now());
   }
 
   rafId = requestAnimationFrame(renderFrame);
@@ -1449,6 +1767,9 @@ const CAMERA_MODE_FREE   = 'free';   // свободная орбита вокр
 const CAMERA_MODE_FOLLOW = 'follow';
 
 const GLOBE_RADIUS      = 100;   // радиус three-globe в мировых единицах
+// Сфера горизонта для отсечения за лимбом (чуть меньше радиуса глобуса, чтобы
+// аппарат на нулевой высоте не отсекался погрешностью интерполяции).
+const SAT_EARTH_LIMB_R2 = (GLOBE_RADIUS * 0.995) * (GLOBE_RADIUS * 0.995);
 const HERO_LAT          = 22;    // Средиземноморье/Сахара — дневная сторона
 const HERO_LNG          = 12;
 const HERO_ALTITUDE     = 0.42;  // камера в 42 ед. над поверхностью (R = 100)
@@ -2124,6 +2445,32 @@ onBeforeUnmount(() => {
   color: #e5e7eb;
   white-space: nowrap;
 }
+
+/* ---- Debug HUD (спутниковый слой, ?debug=1) ---- */
+.debug-hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 46;
+  pointer-events: none;
+  padding: 8px 10px;
+  min-width: 168px;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(52, 211, 153, 0.28);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: #9ca3af;
+}
+.debug-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  line-height: 1.6;
+}
+.debug-row b { color: #34d399; font-weight: 600; }
 
 /* ---- Floating button ---- */
 .floating-btn {
