@@ -48,11 +48,12 @@
 - [x] Web Worker для SGP4 (расчёт позиций вне главного потока) ✅ (`80dc9b8` — sgp4Core + module worker + seq-клиент с main-thread fallback; сборка зелёная 2026-11-09)
 - **F2. Терминатор + огни городов (Day/Night cycle)** (см. ниже) ✅ проверено в браузере 2026-10-27
 - **F3. Звёзды Points + fresnel-атмосфера** ✅ (`0f3bd4a`, спрайты `94dc8cd`; проверено в браузере 2026-10-27 — консоль чистая, свечение атмосферы на месте, звёзды аккуратные)
-- локальные текстуры (Blue Marble 4K/8K, night-lights emissive, облака) + KTX2/AVIF · пост-обработка (bloom/FXAA/ACES)
+- локальные текстуры (Blue Marble 4K/8K, night-lights emissive, облака) + KTX2/AVIF
+- **Пост-обработка: bloom/FXAA/ACES** ✅ (`bd60551` — EffectComposer через штатный хук `postProcessingComposer`: RenderPass → UnrealBloom → OutputPass (ACES+sRGB) → FXAA; сборка зелёная 2026-11-09)
 - **F4. Орбиты (Line2 + ground track)** ✅ (`171f3f3`, z-фикс `83b200c`; принято пользователем 2026-10-27 — траектория + наземный трек без дубля на текстуре)
 - пикинг (Raycaster/GPU) · LOD/отсечение · dispose-контракт
 
-> **Следующий шаг (свежая сессия)**: пост-обработка (bloom/FXAA/ACES). Затем пикинг (Raycaster), LOD/отсечение. Визуальные фиксы глобуса закрывают F1–F4; работаем в `refactor/modernization`, визуальную проверку WebGL пользователь делает в Windows-браузере.
+> **Следующий шаг (свежая сессия)**: пикинг (Raycaster), затем LOD/отсечение. Визуальные фиксы глобуса закрывают F1–F4; работаем в `refactor/modernization`, визуальную проверку WebGL пользователь делает в Windows-браузере.
 
 ### Спринт 5 — Полировка и дипломная упаковка
 - тесты · reduced-motion · WebGL-fallback · PWA-офлайн (Workbox cache текстур)
