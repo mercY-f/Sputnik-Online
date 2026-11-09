@@ -773,7 +773,12 @@ function initDayNightMaterial() {
     sunDirection:        { value: new THREE.Vector3(1, 0, 0) },
     terminatorSharpness: { value: TERMINATOR_SHARPNESS },
     bumpScale:           { value: 1.6 },
-    nightIntensity:      { value: 2.2 },
+    // HDR-огни городов: текстура Black Marble тусклая (люминанс nightColor²
+    // max ≈ 0.044), поэтому ×2.2 давал всего 0.096 линейных — ниже порога
+    // bloom 0.82, свечения не было вовсе. ×45 поднимает ядра огней до ~2.0
+    // линейных: яркие точки городов светят и попадают в bloom, при этом
+    // дневная сторона (≤ 1.0) порог по-прежнему почти не превышает.
+    nightIntensity:      { value: 45 },
     bumpTexel:           { value: new THREE.Vector2(1 / 2048, 1 / 1024) },
   };
 
