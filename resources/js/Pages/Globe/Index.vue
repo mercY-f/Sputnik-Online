@@ -680,9 +680,15 @@ void main() {
   vec3 dayColor   = texture2D(dayMap,   vUv).rgb;
   vec3 nightColor = texture2D(nightMap, vUv).rgb;
 
+  // Огни городов тёплые/нейтральные (r ≈ b), а базовый «синий» слой текстуры
+  // (лёд Гренландии/Антарктиды, airglow над сушей) — сине-доминантный (r << b,
+  // r/b ≈ 0.03). Гейт по отношению r/b отсекает синие пиксели: свечение
+  // остаётся только настоящим огням (их r/b ≈ 0.8–1.7).
+  float warm = smoothstep(0.3, 0.7, nightColor.r / (nightColor.b + 1e-4));
+
   // День: диффуз с затенением к лимбу. Ночь: едва различимая суша + огни городов.
   vec3 daySide   = dayColor * (0.22 + 0.88 * clamp(sunDot, 0.0, 1.0));
-  vec3 nightSide = dayColor * 0.03 + nightColor * nightColor * nightIntensity;
+  vec3 nightSide = dayColor * 0.03 + nightColor * nightColor * nightIntensity * warm;
 
   gl_FragColor = vec4(mix(nightSide, daySide, dayAmount), 1.0);
   #include <colorspace_fragment>
