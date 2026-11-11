@@ -236,7 +236,7 @@ let satColorCache    = [];
 let satColorScratch  = null;
 let lastMeshSats     = [];    // сферы этого кадра: index === instanceId
 let lastPointSats    = [];    // Points-слой этого кадра: index === индекс в буфере
-// Переиспользуемые списки кадра (без аллокации 2×3000 ссылок каждый кадр)
+// Переиспользуемые списки кадра (без аллокации 2×N ссылок на весь каталог каждый кадр)
 const satNearList    = [];
 const satPointList   = [];
 let hoveredSatId     = null;  // id аппарата под курсором (для подсветки инстанса)
@@ -410,7 +410,7 @@ function isInsideSatFrustum(x, y, z, radius) {
 }
 
 // Аппарат за лимбом Земли? Консервативный тест отрезка «камера → спутник» со
-// сферой Земли в локальных координатах группы: без Raycaster на 3000 сфер.
+// сферой Земли в локальных координатах группы: без Raycaster на весь каталог сфер.
 function isBehindEarthLimb(x, y, z, cam) {
   const vx = x - cam.x, vy = y - cam.y, vz = z - cam.z;
   const vv = vx * vx + vy * vy + vz * vz;
@@ -736,7 +736,7 @@ function onGlobePointerMove(event) {
   pickPointer = { x: event.clientX, y: event.clientY };
 
   // Во время вращения камеры (жест со сдвигом) подпись только мешает и
-  // заставляет пикать 3000 инстансов на каждый кадр драга.
+  // заставляет пикать все инстансы на каждый кадр драга.
   if (pickGesture &&
       Math.hypot(event.clientX - pickGesture.x, event.clientY - pickGesture.y) > CLICK_MAX_MOVE_PX) {
     if (hoveredSatId !== null || hoverSat.value) clearHoverState();
@@ -1126,7 +1126,7 @@ async function refreshPositions() {
 // Debug-режим (?debug=1): сколько инстансов реально отрисовано за кадр
 // -----------------------------------------------------------------------
 // HUD обновляется 2 раза в секунду; в консоль — строка раз в ~2 c, чтобы
-// можно было записать цифры «до/после» при 3000 аппаратах.
+// можно было записать цифры «до/после» на полном каталоге (~16k).
 const DEBUG_ENABLED = typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('debug');
 const debugStats = ref(null);
