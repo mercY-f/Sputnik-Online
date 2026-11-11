@@ -18,7 +18,7 @@
 ### Спринт 0 — Фундамент и гигиена
 - [x] git: артефакты, executable-бит, имя пакета (`chore: normalize package name and executable bit`)
 - [x] fix: `atTime` пробрасывается в Node SGP4 (сейчас игнорируется)
-- [x] fix: логирование fallback (упрощённый SGP4) вместо молчаливой подмены
+- [x] fix: очистка fallback — упрощённый PHP SGP4 удалён, одиночный вызов переведён на batch-путь Node, корректный null при невалидном TLE
 - [x] fix: `firstOrCreate` для привилегий/ролей в сидере (идемпотентный `db:seed`)
 - [x] fix: нормализация категорий (убрать orphan «Communication»)
 - [x] миграция SQLite → PostgreSQL + PostGIS (нет пароля — подключение через unix-socket `/var/run/postgresql`, peer-auth; PostGIS 3.6.2)
@@ -26,8 +26,9 @@
 ### Спринт 1 — Бэкенд-производительность ✅
 - [x] батч SGP4: один Node-процесс на массив TLE (`.cjs --batch` через stdin, `getPositionsBatch()`) + дедуп по `satellite_id`
 - [x] `SendTelegramAlert` Job (ShouldQueue, tries/backoff) + `withoutOverlapping()`/`onOneServer()`
-- [x] `FetchSatellites` → `upsert()` чанками по 1000 (≈37.6 c → **5.3 c**) + кэш каталога (`Cache::remember`, database store) с `Cache::flush()` на fetch
+- [x] `FetchSatellites` → `upsert()` чанками по 1000 (≈37.6 c → **5.3 c**) + точечный кэш каталога (`Cache::remember`, database store) со сбросом `Cache::forget()` по списку ключей вместо деструктивного `Cache::flush()`
 - [x] PostGIS в алертах: `alert_rules.zone` (generated `geography(Point,4326)`) + таблица `satellite_subpoints` с GIST-индексами; `satellites:check-alerts` upsert'ит подспутниковые точки и одним join-запросом считает `ST_DWithin`/`ST_Distance` (haversine-путь сохранён для sqlite)
+- [x] перенос API-маршрутов из `routes/web.php` в `routes/api.php` с `throttle:60,1` и исключением web-сессий/CSRF
 - [x] бонус-баг: изолировал тест-БД в sqlite `:memory:` (была закомментирована — `php artisan test` грохал dev-БД)
 - отложено: Redis (не установлен; database-кэша хватает — кэш позиций избыточен при дедупе). Вернуться при WebSocket/SSE в Спринте 5.
 
@@ -59,8 +60,11 @@
 > **Следующий шаг (свежая сессия)**: dispose-контракт для остальных слоёв (звёзды/атмосфера/орбиты/пикинг/воркер — единая точка teardown и проверка отсутствия утечек), затем полировка Спринта 5. Визуальные фиксы глобуса закрывают F1–F4; работаем в `refactor/modernization`, визуальную проверку WebGL пользователь делает в Windows-браузере.
 
 ### Спринт 5 — Полировка и дипломная упаковка
-- тесты · reduced-motion · WebGL-fallback · PWA-офлайн (Workbox cache текстур)
-- README + пояснительная записка (СУБД, архитектура расчётов, обоснование оптимизаций)
+- [x] тесты на ядро: сьют тестов на SGP4 (`getPositionsBatch`, физические границы МКС, обработка невалидных TLE), API (`/api/satellites`) и алерты (`CheckSatelliteAlerts` с `ST_DWithin`)
+- [x] README: подробное руководство по установке, фоновым сервисам (cron, queue, telegram poll) и production-конфигурации
+- [x] базовый CI workflow (`.github/workflows/ci.yml`: сборка фронтенда `npm ci && npm run build`, запуск тестов `composer install && php artisan test`)
+- reduced-motion · WebGL-fallback · PWA-офлайн (Workbox cache текстур)
+- пояснительная записка (СУБД, архитектура расчётов, обоснование оптимизаций)
 
 ---
 
@@ -77,4 +81,4 @@
 
 - **Освещение глобуса строго привязано к реальному положению Солнца на текущий UTC-момент**: расчёт подсолнечной точки (солнечное склонение + уравнение времени → долгота/широта субсолнечной точки).
 - **Ночная сторона**: динамически проявляются **огни городов** (текстура Black Marble как emissive-карта/шейдер), плавно переходящие в дневную текстуру **через линию терминатора**.
-- Технически: терминатор как мягкая полоса (smoothstep на угловом расстоянии от субсолнечной точки к центру Земли), emissive-слой с additive-блендингом, однородные uniform'ы (subsolar direction, терминатор!!sharpness) обновляются по UTC-таймеру; дневная/ночная текстуры стыкуются в одном шейдере.
+- Технически: терминатор как мягкая полоса (smoothstep на угловом расстоянии от субсолнечной точки к центру Земли), emissive-слой с additive-блендингом, однородные uniform'ы (subsolar direction, терминатор sharpness) обновляются по UTC-таймеру; дневная/ночная текстуры стыкуются в одном шейдере.
