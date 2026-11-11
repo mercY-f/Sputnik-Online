@@ -38,12 +38,12 @@
 - [x] базовые компоненты (канон new-york, вручную через patch — CLI упал с «Invalid Version: main»): button, badge, card, sheet, scroll-area, tooltip
 - отложено: vue-sonner (тосты), Command (⌘K-палитра) — по надобности
 
-### Спринт 3 — Mission Control Shell + Hero ✅ (основа)
+### Спринт 3 — Mission Control Shell + Hero ✅
 - [x] MissionShell (топбар: UTC-часы · OBJ-счётчик · LIVE · ⌘K-поиск · аватар; слоты + footer) + NewsFeed/NewsCard (мок, «Найти на орбите» → emit `focus`)
 - [x] Hero-расклад: глобус сверху (flex-1) + лента 38vh снизу; фокус-индикатор «◎ FOCUS — имя»
 - [x] Focus: `catalog_number` в `/api/satellites` + `focusByCatalogNumber` → существующий `focusSatellite` (fly-to `pointOfView`)
 - [x] F1 камера «купол/дуга сверху во всю ширину» (framing) — режимы hero/free/follow (F1 + F1.1 + F1.2) реализованы, проверено в браузере 2026-10-27
-- [ ] миграция AuthenticatedLayout/Breeze + остальных страниц (Admin/Dashboard/Profile/AlertRules) на единый shell
+- [x] миграция AuthenticatedLayout/Breeze + остальных страниц (Admin/Dashboard/Profile/AlertRules) на единый shell
 
 ### Спринт 4 — 3D-модернизация
 - [x] InstancedMesh/Points вместо 3000 `Mesh`/сек · интерполяция (propagate t/t+1, lerp в rAF) ✅ (`d32f531`, `4c03f75`, `63bad9a`)
