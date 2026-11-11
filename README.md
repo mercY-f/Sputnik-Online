@@ -73,8 +73,14 @@ DB_PASSWORD=
 ```
 
 Для подключения по TCP укажите `DB_HOST=127.0.0.1`, `DB_USERNAME`, `DB_PASSWORD`.
-Расширение PostGIS включается на уровне БД; в текущей схеме координаты хранятся в
-`decimal`, геотипы (`geography`/`geometry`) пока не используются.
+PostGIS используется в алертах: миграция `add_postgis_geography_to_alerts` создаёт
+`CREATE EXTENSION IF NOT EXISTS postgis`, генерируемую колонку `alert_rules.zone`
+(`geography(Point,4326)` из `longitude`/`latitude`, GIST-индекс) и таблицу
+`satellite_subpoints` с последней подспутниковой точкой каждого аппарата (тоже
+`geography(Point,4326)` + GIST). `satellites:check-alerts` пишет туда точки через
+`ST_MakePoint(lng, lat)` и одним запросом считает `ST_DWithin` (попадание в радиус) и
+`ST_Distance` (расстояние для текста уведомления). На не-pgsql драйверах (тесты на
+sqlite) миграция ничего не делает, а команда считает расстояние haversine'ом в PHP.
 
 ### 2. Переменные окружения
 
@@ -300,4 +306,3 @@ routes/console.php             расписание (fetch 2 раза в сут�
 - Без Node.js позиции считаются упрощённым PHP-SGP4 — приложение работает, но точность
   алертов ниже; в `storage/logs/laravel.log` появляется предупреждение.
 - Лента новостей на главной использует демонстрационные данные (`resources/js/data/news.js`).
-- PostGIS включён в БД, но геопространственные типы и запросы в коде пока не используются.

@@ -7,7 +7,7 @@
 
 | Слой | Решение |
 |---|---|
-| СУБД | **PostgreSQL 16 + PostGIS** (альтернатива MariaDB 11; MS SQL исключён) |
+| СУБД | **PostgreSQL 18 + PostGIS** (альтернатива MariaDB 11; MS SQL исключён) |
 | UI-примитивы | **shadcn-vue** (reka-ui) + **lucide-vue-next** + tailwind-variants |
 | State | **pinia** · тосты: vue-sonner · анимации: **motion-v** · утилиты: @vueuse/core |
 | Таблицы / графика | @tanstack/vue-table · vue-echarts (телеметрия) |
@@ -27,6 +27,7 @@
 - [x] батч SGP4: один Node-процесс на массив TLE (`.cjs --batch` через stdin, `getPositionsBatch()`) + дедуп по `satellite_id`
 - [x] `SendTelegramAlert` Job (ShouldQueue, tries/backoff) + `withoutOverlapping()`/`onOneServer()`
 - [x] `FetchSatellites` → `upsert()` чанками по 1000 (≈37.6 c → **5.3 c**) + кэш каталога (`Cache::remember`, database store) с `Cache::flush()` на fetch
+- [x] PostGIS в алертах: `alert_rules.zone` (generated `geography(Point,4326)`) + таблица `satellite_subpoints` с GIST-индексами; `satellites:check-alerts` upsert'ит подспутниковые точки и одним join-запросом считает `ST_DWithin`/`ST_Distance` (haversine-путь сохранён для sqlite)
 - [x] бонус-баг: изолировал тест-БД в sqlite `:memory:` (была закомментирована — `php artisan test` грохал dev-БД)
 - отложено: Redis (не установлен; database-кэша хватает — кэш позиций избыточен при дедупе). Вернуться при WebSocket/SSE в Спринте 5.
 
