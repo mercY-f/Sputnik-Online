@@ -155,6 +155,7 @@ import { MissionShell, NewsFeed } from '@/components/mission';
 import { news } from '@/data/news';
 import { sgp4WorkerClient } from '@/lib/sgp4WorkerClient';
 import { createPostProcessing } from '@/lib/postProcessing';
+import { useGlobeDisposer } from '@/lib/globe/useGlobeDisposer';
 
 const page = usePage();
 const user = computed(() => page.props.auth.user);
@@ -204,6 +205,28 @@ let lastRefreshTime  = 0;
 let clockInterval    = null;
 let resizeObserver   = null;
 let postProcessing   = null; // Спринт 4: UnrealBloom + FXAA + ACES (EffectComposer)
+
+// -----------------------------------------------------------------------
+// Спринт 4: единый dispose-контракт (lib/globe/useGlobeDisposer)
+// -----------------------------------------------------------------------
+// Все GPU-ресурсы (геометрии, материалы, текстуры, render target'ы composer'а),
+// SGP4-воркер, слушатели, rAF и таймеры регистрируются здесь по мере создания,
+// а освобождаются одним вызовом disposeAll() в onBeforeUnmount. Без этого при
+// переходе на другой Inertia-роут WebGL-контекст и буферы остаются живыми:
+// лимит контекстов на страницу (8..16) исчерпывается за несколько переходов.
+//
+// auto: false — очистку запускаем сами, чтобы сначала остановить циклы глобуса
+// и камеры, а затем отдать управление детерминированному порядку disposeAll.
+// Цели (scene/renderer/controls) резолвятся лениво: к моменту размонтирования
+// инстанс globe.gl может быть уже пересоздан (HMR) или не создан вовсе.
+const disposer = useGlobeDisposer(
+  () => ({
+    scene:    globeInstance ? globeInstance.scene()    : null,
+    renderer: globeInstance ? globeInstance.renderer() : null,
+    controls: globeInstance ? globeInstance.controls() : null,
+  }),
+  { auto: false },
+);
 
 // -----------------------------------------------------------------------
 // InstancedMesh-слой спутников
@@ -289,6 +312,7 @@ function createSatPointTexture() {
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  disposer.registerTexture(texture); // dispose-контракт: освобождается disposeAll()
   return texture;
 }
 
@@ -359,6 +383,11 @@ function ensureSatPointCloud(count) {
   satPoints.renderOrder = -1;      // точки — до сфер, чтобы подсветка была сверху
   satMeshGroup.add(satPoints);
 
+  // dispose-контракт: Points-слой может не пережить фильтр категорий
+  disposer.registerMesh(satPoints)
+          .registerGeometry(geometry)
+          .registerMaterial(material);
+
   satPointsCapacity = count;
   satPointPositions.array = positions;
   satPointColors.array = colors;
@@ -388,6 +417,12 @@ function ensureSatelliteMesh(count) {
   // мог бы отсечь валидный луч в пикинге. Радиус с запасом перекрывает орбиты.
   satMesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), GLOBE_RADIUS * 2.5);
   satMeshGroup.add(satMesh);
+
+  // dispose-контракт: InstancedMesh пересоздаётся при смене фильтра, а на
+  // размонтировании освобождается вместе со всей сценой (geometry/material).
+  disposer.registerMesh(satMesh)
+          .registerGeometry(geometry)
+          .registerMaterial(material);
 
   satMeshCapacity = count;
   satColorCache = new Array(count).fill(null);
@@ -792,11 +827,14 @@ function onGlobePointerUp(event) {
 function bindSatellitePicking() {
   const el = globeContainer.value;
   if (!el || pickBindings.bound) return;
-  el.addEventListener('pointermove',   onGlobePointerMove);
-  el.addEventListener('pointerdown',   onGlobePointerDown);
-  el.addEventListener('pointerup',     onGlobePointerUp);
-  el.addEventListener('pointerleave',  onGlobePointerLeave);
-  el.addEventListener('pointercancel', onGlobePointerLeave);
+  // dispose-контракт: регистрация идёт через disposer — снимать вручную не нужно.
+  disposer.registerEventListener(el, 'pointermove',   onGlobePointerMove)
+          .registerEventListener(el, 'pointerdown',   onGlobePointerDown)
+          .registerEventListener(el, 'pointerup',     onGlobePointerUp)
+          .registerEventListener(el, 'pointerleave',  onGlobePointerLeave)
+          .registerEventListener(el, 'pointercancel', onGlobePointerLeave);
+  // Троттлинг наведения: id живёт один кадр, поэтому регистрируем геттер.
+  disposer.registerRaf(() => pickHoverRaf);
   pickBindings.bound = true;
 }
 
@@ -840,6 +878,7 @@ let orbitLine         = null;
 let groundTrackLine   = null;
 let orbitRebuildTimer = null;
 let orbitFocusedId    = null;
+let orbitRegistered   = false; // таймер перестроения зарегистрирован в disposer
 
 // LineMaterial рисует толщину в экранных пикселях, поэтому ему нужен размер
 // рендера в uniform resolution; без этого линия будет толщиной в один пиксель.
@@ -872,6 +911,12 @@ function createOrbitLine(points, linewidth, opacity) {
   const line = new Line2(geometry, material);
   line.computeLineDistances();
   line.frustumCulled = false; // bbox не считаем: геометрия пересобирается раз в 30 с
+
+  // dispose-контракт: линии живут от фокуса до фокуса (пересоздаются).
+  disposer.registerMesh(line)
+          .registerGeometry(geometry)
+          .registerMaterial(material);
+
   return line;
 }
 
@@ -954,6 +999,14 @@ function buildOrbitLines(sat) {
     if (!focused) { disposeOrbitLines(); return; }
     buildOrbitLines(focused);
   }, ORBIT_REBUILD_MS);
+
+  // dispose-контракт: таймер пересоздаётся вместе с линиями — регистрируем
+  // геттер один раз (id меняется при каждом buildOrbitLines).
+  if (!orbitRegistered) {
+    orbitRegistered = true;
+    disposer.registerTimer(() => orbitRebuildTimer)
+            .registerDisposer(disposeOrbitLines);
+  }
 }
 
 // -----------------------------------------------------------------------
@@ -1188,7 +1241,18 @@ function startAnimation() {
 
   refreshInterval = setInterval(refreshPositions, 1000);
   rafId = requestAnimationFrame(renderFrame);
+
+  // dispose-контракт: id анимационного цикла переназначается каждый кадр —
+  // регистрируем геттеры, чтобы снять именно актуальный кадр. Флаг не даёт
+  // плодить записи при повторных вызовах (fetchData → startAnimation).
+  if (!animationRegistered) {
+    animationRegistered = true;
+    disposer.registerRaf(() => rafId).registerTimer(() => refreshInterval);
+  }
 }
+
+// Регистрация анимационного цикла — один раз на жизнь компонента.
+let animationRegistered = false;
 
 // -----------------------------------------------------------------------
 // F2: астрономический терминатор + огни городов
@@ -1375,6 +1439,12 @@ function initDayNightMaterial() {
     fragmentShader: TERMINATOR_FRAG,
   });
 
+  // dispose-контракт: шейдерный материал глобуса + его карты (day/night/bump).
+  // Текстуры грузятся асинхронно, поэтому регистрируем слоты через disposer,
+  // а не только на момент вызова: к размонтированию часть может не прийти.
+  disposer.registerMaterial(globeDayNightMaterial)
+          .registerDisposer(disposeDayNightMaterial);
+
   if (typeof globeInstance.globeMaterial === 'function') {
     globeInstance.globeMaterial(globeDayNightMaterial);
   } else {
@@ -1388,6 +1458,7 @@ function initDayNightMaterial() {
   loader.load(DAY_TEXTURE_URL, tex => {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
+    disposer.registerTexture(tex); // пришла после disposeAll — освобождаем сразу
     sunTextures.day = tex;
     uniforms.dayMap.value = tex;
   });
@@ -1395,12 +1466,14 @@ function initDayNightMaterial() {
   loader.load(NIGHT_TEXTURE_URL, tex => {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
+    disposer.registerTexture(tex);
     sunTextures.night = tex;
     uniforms.nightMap.value = tex;
   });
 
   loader.load(BUMP_TEXTURE_URL, tex => {
     tex.colorSpace = THREE.NoColorSpace;
+    disposer.registerTexture(tex);
     sunTextures.bump = tex;
     uniforms.bumpMap.value = tex;
     const img = tex.image;
@@ -1529,6 +1602,7 @@ function initStarfield() {
   if (starfieldGroup || !globeInstance) return;
 
   starTexture = makeStarTexture(); // общий спрайт на оба слоя
+  disposer.registerTexture(starTexture);
 
   starfieldGroup = new THREE.Group();
   starfieldGroup.name = 'starfield';
@@ -1537,6 +1611,10 @@ function initStarfield() {
   starfieldGroup.add(makeStarLayer(Math.round(STAR_COUNT * 0.22), 4.0, STARFIELD_RADIUS));
 
   globeInstance.scene().add(starfieldGroup);
+
+  // dispose-контракт: группа живёт в мировой сцене и не принадлежит globe.gl —
+  // снимаем её своим слоем (release), остальное добьёт обход сцены.
+  disposer.registerObject(starfieldGroup).registerDisposer(disposeStarfield);
 }
 
 function disposeStarfield() {
@@ -1635,6 +1713,12 @@ function initAtmosphere() {
 
   // Отдельный меш в мировой сцене: globeDayNightMaterial остаётся на меше глобуса.
   globeInstance.scene().add(atmosphereMesh);
+
+  // dispose-контракт: оболочка не принадлежит globe.gl — освобождаем своим слоем.
+  disposer.registerMesh(atmosphereMesh)
+          .registerGeometry(geometry)
+          .registerMaterial(material)
+          .registerDisposer(disposeAtmosphere);
 }
 
 function disposeAtmosphere() {
@@ -1659,6 +1743,17 @@ function disposeAtmosphere() {
 function initPostProcessing() {
   if (!globeInstance || postProcessing) return;
   postProcessing = createPostProcessing(globeInstance);
+
+  // dispose-контракт: пассы и внутренние render target'ы UnrealBloomPass
+  // (renderTargetBright + renderTargetsHorizontal/Vertical) освобождает
+  // disposeComposer внутри disposeAll — composer регистрируем целиком.
+  disposer.registerComposer(postProcessing.composer)
+          .registerRenderer(globeInstance.renderer())
+          .registerDisposer(() => {
+            if (!postProcessing) return;
+            postProcessing.dispose();
+            postProcessing = null;
+          });
 }
 
 // -----------------------------------------------------------------------
@@ -1668,6 +1763,16 @@ function initGlobe() {
   if (!globeContainer.value) return;
 
   globeInstance = Globe()(globeContainer.value);
+
+  // dispose-контракт: рендерер и контролы globe.gl регистрируем сразу после
+  // создания (контролы нужны до вызова render(), если он вообще случится).
+  disposer.registerRenderer(globeInstance.renderer())
+          .registerControls(globeInstance.controls());
+
+  // SGP4-воркер: terminate выполняется первым шагом disposeAll, до освобождения
+  // сцены — иначе запоздалый ответ начал бы писать в удалённые буферы.
+  if (sgp4WorkerClient.worker) disposer.registerWorker(sgp4WorkerClient.worker);
+  disposer.registerDisposer(() => sgp4WorkerClient.dispose());
 
   // F4-fix: у three-globe camera.near = 0.05 / far = 125000 (ratio 2.5M:1) —
   // z-буфер на дистанции ~250 ед. неточен на единицы, дальняя дуга орбиты
@@ -1702,6 +1807,7 @@ function initGlobe() {
   initAtmosphere();
   updateSunDirection();
   sunInterval = setInterval(updateSunDirection, SUN_REFRESH_MS);
+  disposer.registerTimer(() => sunInterval);
 
   bindCameraModeControls();
   bindHeroExitHandler();
@@ -1728,6 +1834,9 @@ function initGlobe() {
     }
   });
   resizeObserver.observe(globeContainer.value);
+  disposer.registerDisposer(() => {
+    if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
+  });
 
   // Начальный размер
   globeInstance
@@ -1748,6 +1857,8 @@ function initGlobe() {
       if (heroIntroActive) enterHeroMode(2200);
     }, 300);
   }, 500);
+  // Геттер: heroIntroTimer переприсваивается вложенным setTimeout.
+  disposer.registerTimer(() => heroIntroTimer);
 }
 
 // -----------------------------------------------------------------------
@@ -1985,7 +2096,14 @@ function tweenCameraTo(pos, look, duration = HERO_TWEEN_MS, onDone = null) {
   };
 
   cameraTweenId = requestAnimationFrame(step);
+  if (!tweenRafRegistered) {
+    tweenRafRegistered = true;
+    disposer.registerRaf(() => cameraTweenId).registerDisposer(stopCameraTween);
+  }
 }
+
+// Регистрация твина камеры в disposer — один раз (id меняется каждый кадр).
+let tweenRafRegistered = false;
 
 // Поза hero-кадра: точка стояния над (HERO_LAT, HERO_LNG), наклон вперёд-вниз
 // ровно настолько, чтобы лимб оказался на HERO_HORIZON_DEG выше центра кадра.
@@ -2041,7 +2159,8 @@ function bindCameraModeControls() {
       if (followManual) applyFollowOrbitAnchor();
     }
   };
-  controls.addEventListener('change', cameraChangeHandler);
+  // dispose-контракт: 'change' снимается вместе с остальными слушателями.
+  disposer.registerEventListener(controls, 'change', cameraChangeHandler);
 }
 
 // -----------------------------------------------------------------------
@@ -2095,7 +2214,7 @@ function bindHeroExitHandler() {
   };
   // 'start' TrackballControls шлёт на pointerdown, wheel и touchstart —
   // этого достаточно, отдельные DOM-listener'ы не нужны.
-  controls.addEventListener('start', heroExitHandler);
+  disposer.registerEventListener(controls, 'start', heroExitHandler);
 }
 
 // -----------------------------------------------------------------------
@@ -2124,7 +2243,7 @@ function bindFollowStartHandler() {
     applyFollowOrbitAnchor();
   };
 
-  controls.addEventListener('start', followStartHandler);
+  disposer.registerEventListener(controls, 'start', followStartHandler);
 }
 
 // pointOfView анимирует камеру своим tween-группом, который нам недоступен:
@@ -2138,7 +2257,14 @@ function afterCameraSettle(fn) {
   if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
   if (wait <= 0) { fn(); return; }
   settleTimer = setTimeout(() => { settleTimer = null; fn(); }, wait + 20);
+  if (!settleRegistered) {
+    settleRegistered = true;
+    disposer.registerTimer(() => settleTimer);
+  }
 }
+
+// Регистрация отложенного перелёта в disposer — один раз.
+let settleRegistered = false;
 
 function enterHeroMode(duration = HERO_TWEEN_MS) {
   if (!globeInstance) return;
@@ -2281,6 +2407,7 @@ onMounted(async () => {
   clockInterval = setInterval(() => {
     utcTime.value = new Date().toISOString().split('T')[1].split('.')[0] + ' UTC';
   }, 1000);
+  disposer.registerTimer(() => clockInterval);
 
   await fetchCategories();
   if (user.value) {
@@ -2289,49 +2416,69 @@ onMounted(async () => {
   await fetchData();
 });
 
+// -----------------------------------------------------------------------
+// Размонтирование: единый детерминированный teardown (Спринт 4)
+// -----------------------------------------------------------------------
+// Порядок важен и намеренно НЕ отдан целиком disposer'у:
+//   1. останавливаем собственные циклы (глобус рендерит сам через свой rAF,
+//      поэтому его цикл тоже надо остановить до освобождения сцены);
+//   2. снимаем с globe.gl наши пассы/контролы и отвязываем камеру;
+//   3. отдаём управление disposeAll(): воркеры → слои → слушатели → rAF/таймеры
+//      → обход сцены → composer → controls → renderer.dispose + forceContextLoss.
+// Удаление DOM (innerHTML = '') делаем последним: обход сцены и release
+// контекста должны произойти, пока canvas ещё в документе.
 onBeforeUnmount(() => {
   document.body.style.overflow = '';
+
+  // 1. Собственные циклы компонента.
   stopCameraTween();
-  if (heroIntroTimer) clearTimeout(heroIntroTimer);
-  if (settleTimer) clearTimeout(settleTimer);
-  if (cameraChangeHandler && globeInstance) {
-    const controls = globeInstance.controls();
-    if (controls) controls.removeEventListener('change', cameraChangeHandler);
-  }
-  cameraChangeHandler = null;
-  if (heroExitHandler && globeInstance) {
-    const controls = globeInstance.controls();
-    if (controls) controls.removeEventListener('start', heroExitHandler);
-  }
-  heroExitHandler = null;
-  if (followStartHandler && globeInstance) {
-    const controls = globeInstance.controls();
-    if (controls) controls.removeEventListener('start', followStartHandler);
-  }
-  followStartHandler = null;
-  unbindSatellitePicking(); // Спринт 4: снять pointer-обработчики пикинга и hover-состояние
-  if (refreshInterval) clearInterval(refreshInterval);
-  if (rafId)          cancelAnimationFrame(rafId);
-  if (clockInterval)  clearInterval(clockInterval);
-  if (sunInterval)    clearInterval(sunInterval);
-  if (resizeObserver) resizeObserver.disconnect();
-  disposeOrbitLines(); // F4: геометрия/материалы линий + таймер перестроения
-  // Спринт 4: снимаем пассы пост-обработки и освобождаем render target'ы.
-  // Аксессор postProcessingComposer() в globe.gl — read-only (d.ts:131),
-  // поэтому "снять хук" нельзя: просто dispose'им добавленные пассы.
-  if (postProcessing) {
-    postProcessing.dispose();
-    postProcessing = null;
-  }
-  sgp4WorkerClient.dispose(); // SGP4-воркер: terminate + снятие ожидающих расчётов
-  disposeSatelliteMesh(); // геометрия/материал/instance-буферы + отцепление от группы
-  disposeDayNightMaterial();
-  disposeStarfield();
-  disposeAtmosphere();
-  satMeshGroup = null;
+  if (heroIntroTimer) { clearTimeout(heroIntroTimer); heroIntroTimer = null; }
+  if (settleTimer)    { clearTimeout(settleTimer);    settleTimer = null; }
+  if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+  if (rafId)          { cancelAnimationFrame(rafId); rafId = null; }
+  if (clockInterval)  { clearInterval(clockInterval); clockInterval = null; }
+  if (sunInterval)    { clearInterval(sunInterval);   sunInterval = null; }
+  if (pickHoverRaf)   { cancelAnimationFrame(pickHoverRaf); pickHoverRaf = 0; }
+
+  // 2. Останавливаем рендер-цикл globe.gl до освобождения ресурсов: иначе
+  //    следующий кадр может обратиться к уже диспоузнутым буферам.
   if (globeInstance) {
-    if (typeof globeInstance._destructor === 'function') globeInstance._destructor();
+    try {
+      if (typeof globeInstance.pauseAnimation === 'function') globeInstance.pauseAnimation();
+    } catch (e) {
+      console.warn('[globe] pauseAnimation failed:', e);
+    }
+  }
+
+  cameraChangeHandler = null;
+  heroExitHandler = null;
+  followStartHandler = null;
+  unbindSatellitePicking(); // снимает hover-состояние; сами listener'ы — в disposer
+
+  // 3. Единая очистка GPU-ресурсов, воркера, слушателей, таймеров и контекста.
+  const targets = {
+    scene:    globeInstance ? globeInstance.scene()    : null,
+    renderer: globeInstance ? globeInstance.renderer() : null,
+    controls: globeInstance ? globeInstance.controls() : null,
+  };
+
+  // _destructor() three-globe/three-render-objects обнуляет внутренние объекты
+  // глобуса (globeObj, tileEngine, graticules). Вызываем ПОСЛЕ disposeAll:
+  // он работает с ещё живым объектом, а не с обнулёнными ссылками.
+  try {
+    disposer.disposeAll(targets);
+  } finally {
+    // Ресурсы компонента, которые не являются частью графа сцены.
+    satMeshGroup = null;
+    if (globeInstance && typeof globeInstance._destructor === 'function') {
+      try {
+        globeInstance._destructor();
+      } catch (e) {
+        console.warn('[globe] _destructor failed:', e);
+      }
+    }
     if (globeContainer.value) globeContainer.value.innerHTML = '';
+    globeInstance = null;
   }
 });
 </script>
