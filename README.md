@@ -291,7 +291,7 @@ Breeze-тесты проходят с пометкой deprecated из-за `PDO
 
 ```
 app/Console/Commands/          satellites:fetch, satellites:check-alerts, telegram:poll
-app/Services/SatellitePositionCalculator.php   вызов Node/SGP4 + PHP-fallback
+app/Services/SatellitePositionCalculator.php   расчёт позиций через Node/satellite.js (--batch)
 app/Jobs/SendTelegramAlert.php очередь Telegram-уведомлений
 scripts/satellite_position.cjs SGP4 через satellite.js (одиночный и --batch режимы)
 resources/js/Pages/Globe/Index.vue             сцена, LOD, пикинг, орбиты, HUD
@@ -303,6 +303,6 @@ routes/console.php             расписание (fetch 2 раза в сут�
 - `satellites:fetch` вызывает `Cache::flush()` и очищает весь кэш БД, а не только ключи
   каталога; на database-драйвере это затрагивает и чужие ключи (сессии хранятся в
   отдельной таблице и не страдают).
-- Без Node.js позиции считаются упрощённым PHP-SGP4 — приложение работает, но точность
-  алертов ниже; в `storage/logs/laravel.log` появляется предупреждение.
+- Без Node.js позиции не рассчитываются (возвращается null, ошибка пишется в
+  `storage/logs/laravel.log`); для алертов наличие Node.js обязательно.
 - Лента новостей на главной использует демонстрационные данные (`resources/js/data/news.js`).
