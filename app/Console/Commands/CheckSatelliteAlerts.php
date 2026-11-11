@@ -6,6 +6,8 @@ use App\Jobs\SendTelegramAlert;
 use App\Models\AlertRule;
 use App\Services\SatellitePositionCalculator;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class CheckSatelliteAlerts extends Command
 {
@@ -50,6 +52,16 @@ class CheckSatelliteAlerts extends Command
             $positionById[$id] = $positions[$index] ?? null;
         }
 
+        // PostGIS path: persist sub-satellite points and resolve "in zone" set-wise.
+        // Non-pgsql drivers (sqlite test DB) keep the in-PHP haversine fallback.
+        $usePostgis = $this->isPostgisAvailable();
+        $zoneInfo   = [];
+
+        if ($usePostgis) {
+            $this->storeSubpoints($positionById, $now);
+            $zoneInfo = $this->fetchZoneInfo($rules->modelKeys(), (bool) $this->option('test'));
+        }
+
         foreach ($rules as $rule) {
             $satellite = $rule->satellite;
 
@@ -65,14 +77,21 @@ class CheckSatelliteAlerts extends Command
                 continue;
             }
 
-            $distanceKm = $calculator->haversineDistance(
-                $rule->latitude, $rule->longitude,
-                $position['lat'], $position['lng']
-            );
+            if (isset($zoneInfo[$rule->id])) {
+                $distanceKm = $zoneInfo[$rule->id]['distance_km'];
+                $inRange    = $zoneInfo[$rule->id]['in_zone'];
+                $source     = 'postgis';
+            } else {
+                $distanceKm = $calculator->haversineDistance(
+                    $rule->latitude, $rule->longitude,
+                    $position['lat'], $position['lng']
+                );
+                $inRange = $distanceKm <= $rule->radius_km;
+                $source  = 'haversine';
+            }
 
-            $this->line("  [{$satellite->name}] at lat={$position['lat']}, lng={$position['lng']} | Distance to rule point: " . round($distanceKm) . " km (rule radius: {$rule->radius_km} km)");
+            $this->line("  [{$satellite->name}] at lat={$position['lat']}, lng={$position['lng']} | Distance to rule point: " . round($distanceKm) . " km (rule radius: {$rule->radius_km} km, {$source})");
 
-            $inRange = $distanceKm <= $rule->radius_km;
             $onCooldown = $rule->last_notified_at && $rule->last_notified_at->diffInHours(now()) < 4;
 
             if ($inRange || $this->option('test')) {
@@ -93,6 +112,105 @@ class CheckSatelliteAlerts extends Command
         }
 
         $this->info('Done.');
+    }
+
+    private function isPostgisAvailable(): bool
+    {
+        return DB::connection()->getDriverName() === 'pgsql';
+    }
+
+    /**
+     * Upsert the freshly computed sub-satellite points into satellite_subpoints
+     * in a single statement (ST_MakePoint takes longitude first, then latitude).
+     *
+     * @param array<int, array{lat: float, lng: float, alt_km: float}|null> $positionById
+     */
+    private function storeSubpoints(array $positionById, \DateTime $now): void
+    {
+        $rows = [];
+        foreach ($positionById as $satelliteId => $position) {
+            if (!$position || !isset($position['lat'], $position['lng'])) {
+                continue;
+            }
+
+            $rows[] = [
+                'id'     => (int) $satelliteId,
+                'lat'    => (float) $position['lat'],
+                'lng'    => (float) $position['lng'],
+                'alt_km' => isset($position['alt_km']) ? (float) $position['alt_km'] : null,
+            ];
+        }
+
+        if ($rows === []) {
+            return;
+        }
+
+        try {
+            DB::statement(
+                <<<'SQL'
+                INSERT INTO satellite_subpoints (satellite_id, position, alt_km, computed_at)
+                SELECT s.id,
+                       ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)::geography,
+                       s.alt_km,
+                       ?::timestamp
+                FROM jsonb_to_recordset(?::jsonb)
+                     AS s(id bigint, lat double precision, lng double precision, alt_km real)
+                ON CONFLICT (satellite_id) DO UPDATE
+                   SET position    = EXCLUDED.position,
+                       alt_km      = EXCLUDED.alt_km,
+                       computed_at = EXCLUDED.computed_at
+                SQL,
+                [$now->format('Y-m-d H:i:s'), json_encode($rows)]
+            );
+        } catch (\Throwable $e) {
+            Log::warning('CheckSatelliteAlerts: failed to upsert satellite_subpoints, falling back to haversine.', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Resolve distance/containment for all rules in one query using ST_DWithin + ST_Distance.
+     *
+     * @param  int[] $ruleIds
+     * @return array<int, array{distance_km: float, in_zone: bool}>
+     */
+    private function fetchZoneInfo(array $ruleIds, bool $force = false): array
+    {
+        if ($ruleIds === []) {
+            return [];
+        }
+
+        try {
+            $rows = DB::select(
+                <<<'SQL'
+                SELECT ar.id AS rule_id,
+                       ST_Distance(sp.position, ar.zone) AS distance_m,
+                       (ST_DWithin(sp.position, ar.zone, ar.radius_km * 1000) OR ?::boolean) AS in_zone
+                FROM alert_rules ar
+                JOIN satellite_subpoints sp ON sp.satellite_id = ar.satellite_id
+                WHERE ar.is_active = true
+                  AND ar.id = ANY(?::bigint[])
+                SQL,
+                [$force, '{' . implode(',', array_map('intval', $ruleIds)) . '}']
+            );
+        } catch (\Throwable $e) {
+            Log::warning('CheckSatelliteAlerts: PostGIS zone query failed, falling back to haversine.', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+
+        $result = [];
+        foreach ($rows as $row) {
+            $result[(int) $row->rule_id] = [
+                'distance_km' => ((float) $row->distance_m) / 1000.0,
+                'in_zone'     => $row->in_zone === true || $row->in_zone === 't' || $row->in_zone === 1,
+            ];
+        }
+
+        return $result;
     }
 
     private function buildAlertText($rule, $satellite, $position, $distance): string
