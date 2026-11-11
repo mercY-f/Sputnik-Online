@@ -1,66 +1,303 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# «Спутник-Онлайн» (Earth Orbit Live)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Веб-трекер спутников Земли: интерактивный 3D-глобус с ~15,9 тыс. аппаратов каталога
+CelesTrak, поиск и слежение за спутником, фильтр по категориям, лента космических
+событий и Telegram-уведомления, когда аппарат пролетает над заданной точкой.
 
-## About Laravel
+## Возможности
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- 3D-глобус на Three.js / globe.gl: InstancedMesh и Points, LOD, отсечение за лимбом,
+  пикинг (hover/клик), орбиты и наземный трек, терминатор день/ночь, атмосфера и звёзды.
+- Каталог TLE из CelesTrak: `satellites:fetch` загружает группу `active`, раскладывает по
+  категориям (ISS, STARLINK, ONEWEB, IRIDIUM, NAVIGATION, WEATHER, TELESCOPE, OTHER)
+  и обновляет записи батчами через `upsert`.
+- Позиции считаются по SGP4 в Node.js (`scripts/satellite_position.cjs`, `satellite.js`),
+  батчем на один процесс; на фронте — Web Worker.
+- Регистрация, профиль, избранное, админка спутников.
+- Правила алертов (точка + радиус в км) и Telegram-бот: привязка аккаунта по токену,
+  поиск спутника, уведомления через очередь.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Стек
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+| Слой | Технологии |
+|---|---|
+| Бэкенд | Laravel 11.48, PHP 8.2+ |
+| Фронтенд | Inertia 2, Vue 3.4, Vite 5, Tailwind CSS 3, shadcn-vue (reka-ui) |
+| 3D | Three.js 0.183, globe.gl, satellite.js 6 (SGP4) |
+| БД | PostgreSQL + PostGIS; cache, queue и sessions — в `database` |
+| Прочее | ziggy, laravel/breeze, irazasyed/telegram-bot-sdk |
 
-## Learning Laravel
+## Требования
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+- **PHP 8.2+** (проект проверен на 8.5) с расширениями `pdo_pgsql`, `mbstring`, `openssl`,
+  `tokenizer`, `xml`, `ctype`, `json`, `curl`, `fileinfo`, `zip`.
+- **Composer 2**.
+- **PostgreSQL 14+** (проверено на 18.6) и **PostGIS 3.x** (проверено на 3.6.2).
+- **Node.js 20+** и npm. Нужен не только для сборки фронта: PHP вызывает
+  `node scripts/satellite_position.cjs` для точного SGP4. Без Node приложение
+  откатывается на упрощённый PHP-расчёт (в лог пишется warning, точность ниже).
+- `pdo_sqlite` — только чтобы гонять тесты (см. раздел «Тесты»).
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+## Установка
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+```bash
+git clone <repo-url> Sputnik-Online
+cd Sputnik-Online
 
-## Laravel Sponsors
+composer install
+npm install
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+cp .env.example .env
+php artisan key:generate
+```
 
-### Premium Partners
+### 1. База данных
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+Создайте роль и БД (пример для peer-аутентификации через unix-сокет):
 
-## Contributing
+```bash
+sudo -u postgres createuser --createdb "$USER"   # если роли ещё нет
+createdb sputnik
+psql -d sputnik -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+По умолчанию `.env.example` уже настроен на сокет:
 
-## Code of Conduct
+```dotenv
+DB_CONNECTION=pgsql
+DB_HOST=/var/run/postgresql
+DB_PORT=5432
+DB_DATABASE=sputnik
+DB_USERNAME=mercy
+DB_PASSWORD=
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Для подключения по TCP укажите `DB_HOST=127.0.0.1`, `DB_USERNAME`, `DB_PASSWORD`.
+Расширение PostGIS включается на уровне БД; в текущей схеме координаты хранятся в
+`decimal`, геотипы (`geography`/`geometry`) пока не используются.
 
-## Security Vulnerabilities
+### 2. Переменные окружения
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Минимум, что стоит поправить в `.env`:
 
-## License
+| Переменная | Значение |
+|---|---|
+| `APP_NAME` | `"Спутник-Онлайн"` (в шаблоне `Laravel`) |
+| `APP_URL` | адрес приложения, например `http://127.0.0.1:8000` |
+| `APP_ENV` / `APP_DEBUG` | `local` / `true` для разработки; см. «Production» |
+| `DB_*` | параметры PostgreSQL |
+| `TELEGRAM_BOT_TOKEN` | токен от [@BotFather](https://t.me/BotFather), если нужен бот |
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+`CACHE_STORE`, `QUEUE_CONNECTION`, `SESSION_DRIVER` уже указывают на `database` —
+отдельные Redis/демоны не требуются, но нужны миграции (таблицы `cache`, `jobs`, `sessions`).
+
+### 3. Миграции и сиды
+
+```bash
+php artisan migrate --seed
+```
+
+Сидер идемпотентен: создаёт привилегии и роли (`admin`, `user`, `guest`), три тестовых
+аккаунта и категории спутников.
+
+| Аккаунт | Пароль | Роль |
+|---|---|---|
+| `admin@example.com` | `password` | admin |
+| `user@example.com` | `password` | user |
+| `guest@example.com` | `password` | guest |
+
+Пароли тестовые — смените их или не запускайте `--seed` в production.
+
+### 4. Каталог спутников
+
+```bash
+php artisan satellites:fetch
+```
+
+Команда скачивает TLE с `celestrak.org` (таймаут 60 с), пишет ~15,9 тыс. записей чанками
+по 1000 и сбрасывает кэш каталога. Нужен доступ в интернет; занимает несколько секунд.
+Без этой команды глобус пуст, а `/api/satellites` возвращает `[]`.
+
+Команда стоит в расписании дважды в сутки (01:00 и 13:00 UTC), но первый запуск нужно
+сделать вручную.
+
+### 5. Сборка фронта и запуск
+
+```bash
+npm run build          # production-сборка в public/build
+# или на время разработки:
+npm run dev            # Vite dev-сервер с HMR
+
+php artisan serve      # http://127.0.0.1:8000
+```
+
+Главная страница — `/`, вход — `/login`, кабинет — `/profile`, админка — `/admin/dashboard`.
+
+## Команды и фоновые процессы
+
+В проекте четыре вещи, которые должны работать постоянно или по расписанию.
+
+| Команда | Назначение | Режим |
+|---|---|---|
+| `php artisan satellites:fetch` | загрузка TLE из CelesTrak + сброс кэша каталога | по расписанию |
+| `php artisan satellites:check-alerts` | проверка правил алертов и постановка задач в очередь; `--test` — отправить принудительно | по расписанию, каждую минуту |
+| `php artisan schedule:work` | планировщик Laravel (альтернатива cron) | постоянный процесс |
+| `php artisan queue:work` | обработка очереди `database` (джоба `SendTelegramAlert`) | постоянный процесс |
+| `php artisan telegram:poll` | long-poll Telegram (снимает webhook, обрабатывает `/start`, `/link`, `/search`) | постоянный процесс |
+
+Важно: без `queue:work` алерты ставятся в очередь, но не отправляются. Без
+`schedule:work` (или cron) не обновляются TLE и не проверяются правила.
+
+### Разработка: пять терминалов
+
+```bash
+php artisan serve
+npm run dev
+php artisan queue:work
+php artisan schedule:work
+php artisan telegram:poll     # только если настроен TELEGRAM_BOT_TOKEN
+```
+
+Вместо `schedule:work` можно повесить cron:
+
+```cron
+* * * * * cd /path/to/Sputnik-Online && php artisan schedule:run >> /dev/null 2>&1
+```
+
+### Telegram
+
+1. Получите токен у [@BotFather](https://t.me/BotFather) и пропишите `TELEGRAM_BOT_TOKEN` в `.env`.
+2. Запустите `php artisan telegram:poll` (после правки `.env` при закешированном конфиге
+   нужен `php artisan config:clear`).
+3. На сайте: `/profile` → «Подключить Telegram» → в боте отправить `/link <токен>`
+   (страница показывает готовую команду).
+4. Создайте правило в `/alert-rules`: спутник, широта/долгота, радиус. Проверка идёт
+   раз в минуту, повторное уведомление по правилу — не чаще раза в 4 часа.
+
+`telegram:poll` снимает webhook, поэтому не запускайте его одновременно с webhook-режимом
+(`php artisan telegram:webhook`). Для production допустимы оба варианта, но webhook
+требует публичный HTTPS-адрес.
+
+## Production
+
+```dotenv
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://example.com
+LOG_LEVEL=warning
+```
+
+Порядок выкладки:
+
+```bash
+composer install --no-dev --optimize-autoloader
+php artisan migrate --force
+npm ci && npm run build
+
+php artisan optimize          # config + route + view cache
+php artisan queue:restart     # после деплоя, чтобы воркеры подхватили код
+```
+
+После изменения `.env` или конфигов — `php artisan optimize:clear` (или `config:clear`),
+иначе значения останутся закешированными. Web-сервер должен смотреть в `public/`,
+запись — в `storage/` и `bootstrap/cache/`.
+
+`/api/satellites` отдаёт весь каталог одним JSON (~2,5 МБ, ~0,8 МБ gzip) и кэшируется на час.
+Первый запрос после `satellites:fetch` может быть заметно дольше.
+
+### Supervisor
+
+```ini
+[program:sputnik-queue]
+command=php /var/www/sputnik/artisan queue:work database --sleep=3 --tries=3 --max-time=3600
+directory=/var/www/sputnik
+autostart=true
+autorestart=true
+user=www-data
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/var/www/sputnik/storage/logs/queue.log
+stopwaitsecs=3600
+
+[program:sputnik-schedule]
+command=php /var/www/sputnik/artisan schedule:work
+directory=/var/www/sputnik
+autostart=true
+autorestart=true
+user=www-data
+redirect_stderr=true
+stdout_logfile=/var/www/sputnik/storage/logs/schedule.log
+
+[program:sputnik-telegram]
+command=php /var/www/sputnik/artisan telegram:poll
+directory=/var/www/sputnik
+autostart=true
+autorestart=true
+user=www-data
+redirect_stderr=true
+stdout_logfile=/var/www/sputnik/storage/logs/telegram.log
+```
+
+Затем `sudo supervisorctl reread && sudo supervisorctl update`.
+
+Альтернатива — systemd (шаблон для одного воркера, юниты для планировщика и бота
+делаются копированием с другой `ExecStart`):
+
+```ini
+[Unit]
+Description=Sputnik-Online queue worker
+After=network.target postgresql.service
+
+[Service]
+User=www-data
+WorkingDirectory=/var/www/sputnik
+ExecStart=/usr/bin/php /var/www/sputnik/artisan queue:work database --sleep=3 --tries=3 --max-time=3600
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Тесты
+
+```bash
+php artisan test
+```
+
+`phpunit.xml` изолирует тесты: `DB_CONNECTION=sqlite`, `DB_DATABASE=:memory:`,
+`CACHE_STORE=array`, `QUEUE_CONNECTION=sync`, поэтому dev-БД не затрагивается.
+Для запуска нужен `pdo_sqlite`.
+
+Текущее состояние на 2026-11-11 (PHP 8.5): 1 упавший тест — шаблонный
+`Tests\Feature\ExampleTest` обращается к `/` без миграций in-memory БД; остальные
+Breeze-тесты проходят с пометкой deprecated из-за `PDO::MYSQL_ATTR_SSL_CA`.
+Тестами покрыт только шаблон аутентификации; SGP4, `satellites:fetch`,
+`satellites:check-alerts` и `/api/satellites` не покрыты.
+
+## Отладка глобуса
+
+Добавьте к URL `?debug=1` — в углу появится HUD: `FPS`, `DRAWN / всего`,
+`SPHERES` (ближний LOD), `POINTS` (дальний LOD), `CULL FRUSTUM`, `CULL LIMB`.
+Удобно для замера производительности на полном каталоге.
+
+## Структура
+
+```
+app/Console/Commands/          satellites:fetch, satellites:check-alerts, telegram:poll
+app/Services/SatellitePositionCalculator.php   вызов Node/SGP4 + PHP-fallback
+app/Jobs/SendTelegramAlert.php очередь Telegram-уведомлений
+scripts/satellite_position.cjs SGP4 через satellite.js (одиночный и --batch режимы)
+resources/js/Pages/Globe/Index.vue             сцена, LOD, пикинг, орбиты, HUD
+routes/console.php             расписание (fetch 2 раза в сутки, алерты каждую минуту)
+```
+
+## Известные ограничения
+
+- `satellites:fetch` вызывает `Cache::flush()` и очищает весь кэш БД, а не только ключи
+  каталога; на database-драйвере это затрагивает и чужие ключи (сессии хранятся в
+  отдельной таблице и не страдают).
+- Без Node.js позиции считаются упрощённым PHP-SGP4 — приложение работает, но точность
+  алертов ниже; в `storage/logs/laravel.log` появляется предупреждение.
+- Лента новостей на главной использует демонстрационные данные (`resources/js/data/news.js`).
+- PostGIS включён в БД, но геопространственные типы и запросы в коде пока не используются.
