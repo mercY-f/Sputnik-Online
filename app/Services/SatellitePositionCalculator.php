@@ -96,7 +96,14 @@ class SatellitePositionCalculator
         }
 
         return array_values(array_map(function ($d) {
-            if (is_array($d) && !isset($d['error'])) {
+            if (
+                is_array($d) &&
+                !isset($d['error']) &&
+                isset($d['lat'], $d['lng'], $d['alt_km']) &&
+                is_numeric($d['lat']) &&
+                is_numeric($d['lng']) &&
+                is_numeric($d['alt_km'])
+            ) {
                 return [
                     'lat'    => (float) $d['lat'],
                     'lng'    => (float) $d['lng'],

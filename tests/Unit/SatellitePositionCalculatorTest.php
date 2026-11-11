@@ -48,14 +48,6 @@ class SatellitePositionCalculatorTest extends TestCase
         $calc = new SatellitePositionCalculator();
 
         $result = $calc->getPosition('', '');
-        if ($result !== null && ($result['lat'] === 0.0 && $result['lng'] === 0.0 && $result['alt_km'] === 0.0)) {
-            $this->markTestSkipped(
-                'Баг в SatellitePositionCalculator / scripts/satellite_position.cjs: при пустом/битом TLE '
-                . 'satellite.js возвращает NaN, который сериализуется в JSON как null. PHP-код кастит null в '
-                . '(float) 0.0, возвращая фиктивные координаты [lat: 0.0, lng: 0.0, alt_km: 0.0] вместо null.'
-            );
-        }
-
         $this->assertNull($result);
         $this->assertNull($calc->getPosition('invalid tle line 1', 'invalid tle line 2'));
         $this->assertNull($calc->getPosition(self::ISS_TLE1, 'bad tle line 2'));

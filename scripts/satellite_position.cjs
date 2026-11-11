@@ -27,6 +27,10 @@ function propagateTle(tle1, tle2, tsMs) {
         const lng = satellite.degreesLong(geo.longitude);
         const altKm = geo.height; // km
 
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(altKm)) {
+            return { error: 'Invalid coordinates computed (NaN or infinite)' };
+        }
+
         return {
             lat: Math.round(lat * 10000) / 10000,
             lng: Math.round(lng * 10000) / 10000,
