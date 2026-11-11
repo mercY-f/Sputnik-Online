@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Satellite;
+use App\Support\SatelliteCache;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 
 class SatelliteController extends Controller
@@ -30,9 +32,9 @@ class SatelliteController extends Controller
      */
     public function api(Request $request)
     {
-        $category = $request->query('category', 'ALL');
+        $category = SatelliteCache::normalizeCategory($request->query('category', 'ALL'));
 
-        $satellites = \Illuminate\Support\Facades\Cache::remember("satellites:api:{$category}:v2", 3600, function () use ($category) {
+        $satellites = Cache::remember(SatelliteCache::apiKey($category), 3600, function () use ($category) {
             $query = Satellite::select('id', 'name', 'catalog_number', 'tle1', 'tle2', 'category')
                 ->orderBy('id');
             if ($category !== 'ALL') {
@@ -49,7 +51,7 @@ class SatelliteController extends Controller
      */
     public function categories()
     {
-        return response()->json(\Illuminate\Support\Facades\Cache::remember('satellites:categories', 3600, function () {
+        return response()->json(Cache::remember(SatelliteCache::categoriesKey(), 3600, function () {
             $categories = Satellite::selectRaw('category, COUNT(*) as count')
                 ->groupBy('category')
                 ->orderBy('count', 'desc')

@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Satellite;
+use App\Support\SatelliteCache;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 
@@ -49,7 +50,7 @@ class FetchSatellites extends Command
                 }
             });
 
-            \Illuminate\Support\Facades\Cache::flush();
+            SatelliteCache::forgetCatalog();
 
             $saved = count($satellites);
             $this->info("Done! Saved/updated {$saved} satellites.");

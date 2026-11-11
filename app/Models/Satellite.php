@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 use App\Traits\Trackable;
 use App\Interfaces\CacheableInterface;
+use App\Support\SatelliteCache;
 
 class Satellite extends Model implements CacheableInterface
 {
@@ -31,7 +32,7 @@ class Satellite extends Model implements CacheableInterface
 
     public function getCacheKey(): string
     {
-        return 'satellite_' . $this->id;
+        return SatelliteCache::satelliteKey($this->id);
     }
 
     public function getCacheTtl(): int
@@ -41,7 +42,8 @@ class Satellite extends Model implements CacheableInterface
 
     public function clearCache(): void
     {
-        \Illuminate\Support\Facades\Cache::forget($this->getCacheKey());
+        SatelliteCache::forgetSatellite($this->id);
+        SatelliteCache::forgetCatalog();
     }
 
     public function alertRules()
