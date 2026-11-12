@@ -18,6 +18,19 @@ class Satellite extends Model implements CacheableInterface
         'category',
         'tle1',
         'tle2',
+        'country',
+        'country_name',
+        'launch_date',
+        'launch_site',
+        'purpose',
+        'object_type',
+        'decay_date',
+        'rcs_size',
+    ];
+
+    protected $casts = [
+        'launch_date' => 'date:Y-m-d',
+        'decay_date' => 'date:Y-m-d',
     ];
 
     public function satelliteCategory()

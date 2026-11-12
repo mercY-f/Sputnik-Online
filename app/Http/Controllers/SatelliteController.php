@@ -35,8 +35,22 @@ class SatelliteController extends Controller
         $category = SatelliteCache::normalizeCategory($request->query('category', 'ALL'));
 
         $satellites = Cache::remember(SatelliteCache::apiKey($category), 3600, function () use ($category) {
-            $query = Satellite::select('id', 'name', 'catalog_number', 'tle1', 'tle2', 'category')
-                ->orderBy('id');
+            $query = Satellite::select(
+                'id',
+                'name',
+                'catalog_number',
+                'tle1',
+                'tle2',
+                'category',
+                'country',
+                'country_name',
+                'launch_date',
+                'launch_site',
+                'purpose',
+                'object_type',
+                'decay_date',
+                'rcs_size'
+            )->orderBy('id');
             if ($category !== 'ALL') {
                 $query->where('category', $category);
             }
