@@ -13,7 +13,7 @@ const props = defineProps({
     },
     maxHeight: {
         type: String,
-        default: '38vh',
+        default: '50vh',
     },
     title: {
         type: String,
@@ -45,7 +45,7 @@ function onFocus(catalogNumber) {
         <div
             :class="
                 cn(
-                    'flex min-h-[44px] cursor-pointer select-none items-center justify-between gap-3',
+                    'flex cursor-pointer select-none items-center justify-between gap-3',
                     !collapsed && 'mb-3',
                 )
             "
@@ -73,8 +73,8 @@ function onFocus(catalogNumber) {
         </div>
 
         <div v-show="!collapsed" class="min-h-0">
-            <ScrollArea :style="{ maxHeight: maxHeight }" class="pr-3 [&>div]:max-h-[inherit]">
-                <div v-if="items.length" class="flex flex-col gap-3 pb-1">
+            <ScrollArea :style="{ maxHeight: maxHeight }" class="news-scroll-area pr-3 [&>div]:max-h-[inherit]">
+                <div v-if="items.length" class="flex flex-col gap-2 pb-1">
                     <NewsCard
                         v-for="item in items"
                         :key="item.id"

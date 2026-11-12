@@ -1,5 +1,5 @@
 <template>
-  <MissionShell :object-count="satPositions.length" class="h-screen overflow-hidden">
+  <MissionShell :object-count="satPositions.length" hide-footer class="h-screen overflow-hidden">
     <div class="hero-main">
       <div class="globe-area">
         <!-- Focus indicator (glass overlay above the globe) -->
@@ -186,14 +186,15 @@
             </div>
           </div>
         </div>
-      </div>
 
-      <section class="news-area">
-        <NewsFeed
-          :items="news"
-          @focus="focusByCatalogNumber"
-        />
-      </section>
+        <!-- Floating Glass News Feed Panel -->
+        <section class="news-area">
+          <NewsFeed
+            :items="news"
+            @focus="focusByCatalogNumber"
+          />
+        </section>
+      </div>
     </div>
   </MissionShell>
 </template>
@@ -2603,9 +2604,9 @@ onBeforeUnmount(() => {
 <style scoped>
 /* ---- Layout ---- */
 .hero-main {
-  display: flex;
-  flex-direction: column;
+  position: relative;
   height: 100%;
+  width: 100%;
   min-height: 0;
   background: #050505;
   overflow: hidden;
@@ -2613,10 +2614,10 @@ onBeforeUnmount(() => {
 }
 
 .globe-area {
-  flex: 1 1 auto;
   position: relative;
-  min-height: 0;
+  height: 100%;
   width: 100%;
+  min-height: 0;
   background: #050505;
   overflow: hidden;
 }
@@ -2626,20 +2627,41 @@ onBeforeUnmount(() => {
   inset: 0;
 }
 
-/* ---- News feed area ---- */
+/* ---- Floating glass news feed panel ---- */
 .news-area {
-  flex-shrink: 0;
-  overflow: hidden;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(0, 0, 0, 0.35);
-  padding: 14px 20px 18px;
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: min(360px, calc(100vw - 32px));
+  z-index: 25;
+  pointer-events: auto;
+  background: rgba(10, 10, 12, 0.45);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45), 0 0 1px rgba(255, 255, 255, 0.1);
+  padding: 12px;
   display: flex;
   flex-direction: column;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.news-area :deep(section) {
   min-height: 0;
 }
-.news-area :deep(section) {
-  height: 100%;
-  min-height: 0;
+
+@media (max-width: 639px) {
+  .news-area {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+    width: auto;
+  }
+  .news-area :deep(.news-scroll-area),
+  .news-area :deep([data-reka-scroll-area-viewport]) {
+    max-height: 40vh !important;
+  }
 }
 
 /* ---- Focus indicator ---- */

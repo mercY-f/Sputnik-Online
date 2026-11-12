@@ -8,6 +8,10 @@ const props = defineProps({
         type: Number,
         default: 0,
     },
+    hideFooter: {
+        type: Boolean,
+        default: false,
+    },
     class: {
         type: null,
         default: undefined,
@@ -114,7 +118,7 @@ onUnmounted(() => {
             <slot />
         </main>
 
-        <footer class="border-t border-border/60 bg-card/30 px-4 py-3 backdrop-blur-xl">
+        <footer v-if="!hideFooter" class="border-t border-border/60 bg-card/30 px-4 py-3 backdrop-blur-xl">
             <slot name="footer" :clock="clock">
                 <div
                     class="flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground"
