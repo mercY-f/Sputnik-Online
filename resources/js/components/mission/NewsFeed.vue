@@ -29,7 +29,7 @@ const emit = defineEmits(['focus']);
 
 const count = computed(() => String(props.items.length).padStart(2, '0'));
 
-const collapsed = ref(false);
+const collapsed = ref(true);
 
 function toggle() {
     collapsed.value = !collapsed.value;
@@ -43,7 +43,12 @@ function onFocus(catalogNumber) {
 <template>
     <section :class="cn('flex flex-col', props.class)">
         <div
-            class="mb-3 flex cursor-pointer select-none items-center justify-between gap-3"
+            :class="
+                cn(
+                    'flex min-h-[44px] cursor-pointer select-none items-center justify-between gap-3',
+                    !collapsed && 'mb-3',
+                )
+            "
             role="button"
             tabindex="0"
             :aria-expanded="!collapsed"
@@ -68,7 +73,7 @@ function onFocus(catalogNumber) {
         </div>
 
         <div v-show="!collapsed" class="min-h-0">
-            <ScrollArea :style="{ height: maxHeight }" class="pr-3">
+            <ScrollArea :style="{ maxHeight: maxHeight }" class="pr-3 [&>div]:max-h-[inherit]">
                 <div v-if="items.length" class="flex flex-col gap-3 pb-1">
                     <NewsCard
                         v-for="item in items"
