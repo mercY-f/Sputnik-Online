@@ -188,12 +188,28 @@
         </div>
 
         <!-- Floating Glass News Feed Panel -->
-        <section class="news-area">
+        <section class="news-area" :class="{ 'hidden sm:flex': !!selectedSatellite }">
           <NewsFeed
             :items="news"
             @focus="focusByCatalogNumber"
           />
         </section>
+
+        <!-- Floating Glass Satellite Card -->
+        <transition name="sat-card-transition">
+          <div
+            v-if="selectedSatellite"
+            class="satellite-card-container"
+          >
+            <SatelliteCard
+              :satellite="selectedSatellite"
+              :category-color="getCategoryColor(selectedSatellite.category)"
+              :is-favorite="isFavorite(selectedSatellite)"
+              @close="clearFocus"
+              @toggle-favorite="toggleFavorite(selectedSatellite)"
+            />
+          </div>
+        </transition>
       </div>
     </div>
   </MissionShell>
@@ -209,7 +225,7 @@ import * as THREE from 'three';
 import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
-import { MissionShell, NewsFeed } from '@/components/mission';
+import { MissionShell, NewsFeed, SatelliteCard } from '@/components/mission';
 import { news } from '@/data/news';
 import { sgp4WorkerClient } from '@/lib/sgp4WorkerClient';
 import { createPostProcessing } from '@/lib/postProcessing';
@@ -247,6 +263,7 @@ const sidebarOpen    = ref(true);
 const activeFilter   = ref('ALL');
 const satPositions   = ref([]);
 const focusTarget    = ref(null);
+const selectedSatellite = ref(null);
 const utcTime        = ref('');
 const availableCategories = ref(['ALL']);
 const userFavorites  = ref([]);
@@ -1112,7 +1129,24 @@ async function fetchData() {
       .map(sat => {
         try {
           const satrec = satellite.twoline2satrec(sat.tle1, sat.tle2);
-          return { id: sat.id, name: sat.name, category: sat.category, catalogNumber: sat.catalog_number ?? null, satrec };
+          return {
+            id: sat.id,
+            name: sat.name,
+            category: sat.category,
+            catalogNumber: sat.catalog_number ?? null,
+            catalog_number: sat.catalog_number ?? null,
+            tle1: sat.tle1,
+            tle2: sat.tle2,
+            country: sat.country ?? null,
+            country_name: sat.country_name ?? null,
+            launch_date: sat.launch_date ?? null,
+            launch_site: sat.launch_site ?? null,
+            purpose: sat.purpose ?? null,
+            object_type: sat.object_type ?? null,
+            decay_date: sat.decay_date ?? null,
+            rcs_size: sat.rcs_size ?? null,
+            satrec,
+          };
         } catch { return null; }
       })
       .filter(Boolean);
@@ -2373,6 +2407,7 @@ function enterHeroMode(duration = HERO_TWEEN_MS) {
   followSatId.value = null;
   followManual = false;
   focusTarget.value = null;
+  selectedSatellite.value = null;
 
   afterCameraSettle(() => {
     if (!globeInstance) return;
@@ -2456,6 +2491,13 @@ function trackFocusedSatellite() {
   const sat = currPositions.find(p => p.id === followSatId.value);
   if (!sat) return;
 
+  if (selectedSatellite.value && selectedSatellite.value.id === sat.id) {
+    selectedSatellite.value.lat = sat.lat;
+    selectedSatellite.value.lng = sat.lng;
+    selectedSatellite.value.alt = sat.alt;
+    selectedSatellite.value.altKm = sat.alt != null ? sat.alt * 6371 : null;
+  }
+
   const pov  = globeInstance.pointOfView();
   const base = followAltitude(sat.alt);
   const zoom = Number.isFinite(pov.altitude) ? Math.min(pov.altitude, FOLLOW_MAX_ALT) : base;
@@ -2480,6 +2522,19 @@ function setFilter(cat) {
 function focusSatellite(sat) {
   if (!sat) return;
   focusTarget.value = sat.name || focusTarget.value;
+
+  const full = allSatellites.find(s => s.id === sat.id)
+    || allSatellites.find(s => s.catalogNumber != null && String(s.catalogNumber) === String(sat.catalogNumber || sat.catalog_number))
+    || sat;
+
+  selectedSatellite.value = {
+    ...full,
+    lat: sat.lat ?? full.lat,
+    lng: sat.lng ?? full.lng,
+    alt: sat.alt ?? full.alt,
+    altKm: sat.alt != null ? sat.alt * 6371 : (full.alt != null ? full.alt * 6371 : null),
+  };
+
   buildOrbitLines(sat); // F4: орбита + наземный трек в фокусе
   enterFollowMode(sat);
 }
@@ -2487,6 +2542,8 @@ function focusSatellite(sat) {
 function focusByCatalogNumber(catalogNumber) {
   const sat = satPositions.value.find(
     p => p.catalogNumber != null && String(p.catalogNumber) === String(catalogNumber)
+  ) || allSatellites.find(
+    s => s.catalogNumber != null && String(s.catalogNumber) === String(catalogNumber)
   );
   if (!sat) return;
   focusTarget.value = sat.name;
@@ -2495,6 +2552,8 @@ function focusByCatalogNumber(catalogNumber) {
 
 // Снятие фокуса — возврат в hero-режим («обзор»), тоже плавным твином.
 function clearFocus() {
+  selectedSatellite.value = null;
+  focusTarget.value = null;
   disposeOrbitLines(); // F4: линии живут только пока есть фокус
   enterHeroMode();
 }
@@ -2661,6 +2720,66 @@ onBeforeUnmount(() => {
   .news-area :deep(.news-scroll-area),
   .news-area :deep([data-reka-scroll-area-viewport]) {
     max-height: 40vh !important;
+  }
+}
+
+/* ---- Floating glass satellite card container ---- */
+.satellite-card-container {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  width: min(380px, calc(100vw - 32px));
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  z-index: 28;
+  pointer-events: auto;
+  border-radius: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.satellite-card-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.satellite-card-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.sat-card-transition-enter-active,
+.sat-card-transition-leave-active {
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sat-card-transition-enter-from,
+.sat-card-transition-leave-to {
+  opacity: 0;
+  transform: translateY(-12px) scale(0.98);
+}
+
+@media (max-width: 639px) {
+  .satellite-card-container {
+    right: 0;
+    left: 0;
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    max-height: 55vh;
+    border-radius: 20px 20px 0 0;
+  }
+  .sat-card-transition-enter-from,
+  .sat-card-transition-leave-to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sat-card-transition-enter-active,
+  .sat-card-transition-leave-active {
+    transition: opacity 0.05s ease !important;
+    transform: none !important;
   }
 }
 
