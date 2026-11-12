@@ -128,7 +128,64 @@
         </aside>
 
         <!-- Globe Container -->
-        <div ref="globeContainer" class="globe-container"></div>
+        <div v-show="webglSupported" ref="globeContainer" class="globe-container"></div>
+
+        <!-- WebGL Fallback (если WebGL недоступен или отключён) -->
+        <div v-if="!webglSupported" class="webgl-fallback">
+          <div class="webgl-card">
+            <div class="webgl-badge">
+              <span class="warning-dot"></span>
+              HARDWARE ACCELERATION UNAVAILABLE
+            </div>
+            <h2 class="webgl-title">3D-режим отключён (WebGL недоступен)</h2>
+            <p class="webgl-desc">
+              Ваш браузер или видеокарта не поддерживает аппаратное ускорение WebGL либо оно отключено в настройках.
+              Интерфейс переведён в 2D-режим телеметрии — каталог спутников и расчёт орбит продолжают работать в реальном времени.
+            </p>
+
+            <div class="webgl-stats-grid">
+              <div class="stat-card">
+                <span class="stat-name">Спутников в каталоге</span>
+                <span class="stat-num emerald">{{ satPositions.length.toLocaleString() }}</span>
+              </div>
+              <div class="stat-card">
+                <span class="stat-name">Системное время UTC</span>
+                <span class="stat-num mono">{{ utcTime }}</span>
+              </div>
+              <div class="stat-card">
+                <span class="stat-name">Активная группировка</span>
+                <span class="stat-num">{{ activeFilter }}</span>
+              </div>
+            </div>
+
+            <div class="fallback-telemetry" v-if="satPositions.length > 0">
+              <div class="telemetry-header">Оперативная телеметрия (Top 5)</div>
+              <div class="telemetry-table">
+                <div class="t-row t-head">
+                  <span>Имя</span>
+                  <span>Категория</span>
+                  <span>Широта</span>
+                  <span>Долгота</span>
+                  <span>Высота</span>
+                </div>
+                <div v-for="s in satPositions.slice(0, 5)" :key="s.id || s.name" class="t-row">
+                  <span class="t-name font-mono text-emerald-400">{{ s.name }}</span>
+                  <span class="t-cat">{{ s.category }}</span>
+                  <span class="t-num font-mono">{{ s.lat != null ? s.lat.toFixed(2) + '°' : '—' }}</span>
+                  <span class="t-num font-mono">{{ s.lng != null ? s.lng.toFixed(2) + '°' : '—' }}</span>
+                  <span class="t-num font-mono">{{ s.altKm != null ? Math.round(s.altKm) + ' км' : '—' }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="webgl-actions">
+              <button class="retry-btn" @click="retryInitGlobe">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Повторить попытку инициализации WebGL
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <section class="news-area">
@@ -192,6 +249,26 @@ const focusTarget    = ref(null);
 const utcTime        = ref('');
 const availableCategories = ref(['ALL']);
 const userFavorites  = ref([]);
+const webglSupported = ref(true);
+const prefersReducedMotion = ref(false);
+
+function checkWebGLSupport() {
+  try {
+    const canvas = document.createElement('canvas');
+    return !!(
+      window.WebGLRenderingContext &&
+      (canvas.getContext('webgl') || canvas.getContext('experimental-webgl') || canvas.getContext('webgl2'))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function checkReducedMotion() {
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    prefersReducedMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+}
 
 // Внутренние переменные
 let allSatellites    = [];
@@ -1262,9 +1339,9 @@ let animationRegistered = false;
 // переводим её в единичный вектор sunDirection в системе координат глобуса и
 // сравниваем его с нормалью в вершинном/фрагментном шейдере: день — Blue Marble,
 // ночь — Black Marble (огни городов) с мягкой полосой терминатора.
-const DAY_TEXTURE_URL   = '/textures/earth-blue-marble.jpg';
-const NIGHT_TEXTURE_URL = '/textures/earth-night.jpg';
-const BUMP_TEXTURE_URL  = '/textures/earth-topology.png';
+const DAY_TEXTURE_URL   = '/textures/earth-blue-marble.webp';
+const NIGHT_TEXTURE_URL = '/textures/earth-night.webp';
+const BUMP_TEXTURE_URL  = '/textures/earth-topology.webp';
 
 const TERMINATOR_SHARPNESS = 0.08;  // полуширина полосы терминатора (в единицах dot(n, sun))
 const SUN_REFRESH_MS       = 60 * 1000; // пересчёт sunDirection раз в минуту
@@ -1759,10 +1836,30 @@ function initPostProcessing() {
 // -----------------------------------------------------------------------
 // Инициализация глобуса
 // -----------------------------------------------------------------------
+function retryInitGlobe() {
+  webglSupported.value = true;
+  setTimeout(() => {
+    initGlobe();
+  }, 50);
+}
+
 function initGlobe() {
   if (!globeContainer.value) return;
 
-  globeInstance = Globe()(globeContainer.value);
+  if (!checkWebGLSupport()) {
+    console.warn('[globe] WebGL is not supported on this client/device');
+    webglSupported.value = false;
+    return;
+  }
+
+  try {
+    globeInstance = Globe()(globeContainer.value);
+  } catch (err) {
+    console.error('[globe] WebGL context initialization error:', err);
+    webglSupported.value = false;
+    return;
+  }
+  webglSupported.value = true;
 
   // dispose-контракт: рендерер и контролы globe.gl регистрируем сразу после
   // создания (контролы нужны до вызова render(), если он вообще случится).
@@ -1787,9 +1884,9 @@ function initGlobe() {
   }
 
   globeInstance
-    .globeImageUrl('/textures/earth-blue-marble.jpg')
-    .bumpImageUrl('/textures/earth-topology.png')
-    .backgroundImageUrl('/textures/night-sky.png')
+    .globeImageUrl('/textures/earth-blue-marble.webp')
+    .bumpImageUrl('/textures/earth-topology.webp')
+    .backgroundImageUrl('/textures/night-sky.webp')
     // Слой Points three-globe больше не используется: спутники рисует
     // собственный THREE.InstancedMesh на истинной радиальной высоте (см. updateSatelliteMesh).
     .onGlobeReady(() => {
@@ -1854,7 +1951,7 @@ function initGlobe() {
     if (controls) controls.autoRotate = false;
     globeInstance.pointOfView({ lat: HERO_LAT, lng: HERO_LNG, altitude: 2.4 }, 0);
     heroIntroTimer = setTimeout(() => {
-      if (heroIntroActive) enterHeroMode(2200);
+      if (heroIntroActive) enterHeroMode(prefersReducedMotion.value ? 0 : 2200);
     }, 300);
   }, 500);
   // Геттер: heroIntroTimer переприсваивается вложенным setTimeout.
@@ -2057,7 +2154,7 @@ function tweenCameraTo(pos, look, duration = HERO_TWEEN_MS, onDone = null) {
   s.fromLook.set(from.look.x, from.look.y, from.look.z);
   s.toLook.set(look.x, look.y, look.z);
 
-  if (!duration) {
+  if (!duration || prefersReducedMotion.value) {
     applyCameraPose(s.toPos, s.toLook);
     if (onDone) onDone();
     return;
@@ -2269,6 +2366,8 @@ let settleRegistered = false;
 function enterHeroMode(duration = HERO_TWEEN_MS) {
   if (!globeInstance) return;
 
+  const effDuration = prefersReducedMotion.value ? 0 : duration;
+
   // фокус снят: авто-слежение больше не перебивает камеру
   followSatId.value = null;
   followManual = false;
@@ -2285,7 +2384,7 @@ function enterHeroMode(duration = HERO_TWEEN_MS) {
     }
 
     const { pos, look } = heroCameraPose();
-    tweenCameraTo(pos, look, duration);
+    tweenCameraTo(pos, look, effDuration);
   });
 }
 
@@ -2300,6 +2399,7 @@ function enterFollowMode(sat, duration = FOLLOW_TWEEN_MS) {
   if (!globeInstance || !sat) return;
 
   cancelHeroIntro();   // фокус на аппарате отменяет стартовый заезд в «купол»
+  const effDuration = prefersReducedMotion.value ? 0 : duration;
 
   afterCameraSettle(() => {
     if (!globeInstance) return;
@@ -2311,14 +2411,14 @@ function enterFollowMode(sat, duration = FOLLOW_TWEEN_MS) {
       followSatId.value = sat.id ?? null;
       // новый фокус = новый цикл авто-слежения: ручное управление сбрасывается
       followManual      = false;
-      cameraSettleUntil = performance.now() + duration;
+      cameraSettleUntil = performance.now() + effDuration;
 
       const controls = globeInstance.controls();
       if (controls) controls.zoomToCursor = true;
 
       globeInstance.pointOfView(
         { lat: sat.lat, lng: sat.lng, altitude: followAltitude(sat.alt) },
-        duration
+        effDuration
       );
     };
 
@@ -2327,7 +2427,7 @@ function enterFollowMode(sat, duration = FOLLOW_TWEEN_MS) {
     // затем сам перелёт к аппарату.
     const { pos, look } = cameraPoseNow();
     const centred = look.x === 0 && look.y === 0 && look.z === 0;
-    if (centred) {
+    if (centred || prefersReducedMotion.value) {
       flyTo();
       return;
     }
@@ -2359,9 +2459,10 @@ function trackFocusedSatellite() {
   const base = followAltitude(sat.alt);
   const zoom = Number.isFinite(pov.altitude) ? Math.min(pov.altitude, FOLLOW_MAX_ALT) : base;
 
+  const effTrackDuration = prefersReducedMotion.value ? 0 : TRACK_TWEEN_MS;
   globeInstance.pointOfView(
     { lat: sat.lat, lng: sat.lng, altitude: Math.max(base, zoom) },
-    TRACK_TWEEN_MS
+    effTrackDuration
   );
 }
 
@@ -2402,6 +2503,22 @@ function clearFocus() {
 // -----------------------------------------------------------------------
 onMounted(async () => {
   document.body.style.overflow = 'hidden';
+
+  checkReducedMotion();
+  const motionQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  if (motionQuery) {
+    const onMotionChange = (e) => {
+      prefersReducedMotion.value = e.matches;
+    };
+    if (typeof motionQuery.addEventListener === 'function') {
+      motionQuery.addEventListener('change', onMotionChange);
+      disposer.registerDisposer(() => motionQuery.removeEventListener('change', onMotionChange));
+    } else if (typeof motionQuery.addListener === 'function') {
+      motionQuery.addListener(onMotionChange);
+      disposer.registerDisposer(() => motionQuery.removeListener(onMotionChange));
+    }
+  }
+
   initGlobe();
 
   clockInterval = setInterval(() => {
@@ -2861,5 +2978,183 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---- WebGL Fallback Overlay ---- */
+.webgl-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(circle at center, rgba(15, 23, 42, 0.85) 0%, rgba(5, 5, 5, 0.98) 100%);
+  z-index: 40;
+  backdrop-filter: blur(8px);
+}
+.webgl-card {
+  max-width: 640px;
+  width: 100%;
+  background: rgba(18, 24, 38, 0.85);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.webgl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  text-transform: uppercase;
+}
+.warning-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 6px #ef4444;
+}
+.webgl-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #f3f4f6;
+  margin: 0;
+}
+.webgl-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #9ca3af;
+  margin: 0;
+}
+.webgl-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 4px;
+}
+.stat-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stat-name {
+  font-size: 11px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.stat-num {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+.stat-num.emerald { color: #34d399; font-family: monospace; }
+.stat-num.mono { font-family: monospace; font-size: 12px; }
+
+.fallback-telemetry {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.telemetry-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.telemetry-table {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+}
+.t-row {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1fr 1fr 1fr;
+  padding: 6px 12px;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  color: #d1d5db;
+}
+.t-row:last-child {
+  border-bottom: none;
+}
+.t-head {
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.02);
+}
+.t-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.t-cat {
+  color: #9ca3af;
+}
+.t-num {
+  font-size: 10px;
+}
+
+.webgl-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(52, 211, 153, 0.15);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  color: #34d399;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.retry-btn:hover {
+  background: rgba(52, 211, 153, 0.25);
+  border-color: #34d399;
+}
+
+/* ---- Prefers-reduced-motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .focus-dot {
+    animation: none !important;
+  }
+  .spinner {
+    animation: none !important;
+    border-top-color: #34d399 !important;
+  }
 }
 </style>

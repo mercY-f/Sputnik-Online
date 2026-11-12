@@ -45,21 +45,29 @@
 
 ---
 
-### 9. [P1 · ЗАКРЫТО] Единый dispose-контракт для 3D-сцены и Globe/Index.vue
+### 9. [P1 · ЗАКРЫТО `824cc6d`] Единый dispose-контракт для 3D-сцены и Globe/Index.vue
 - Создан модуль `resources/js/lib/globe/useGlobeDisposer.js` с реестром по категориям (геометрии, материалы со всеми 26 текстурными слотами, текстуры, renderTarget'ы EffectComposer/UnrealBloomPass, SGP4 Web Worker, слушатели, rAF/таймеры, controls, renderer).
 - Реализован fallback-обход сцены через `scene.traverse()` с вызовом `dispose()`, очисткой текстур и `removeFromParent()`.
 - Реализована принудительная очистка renderer'а через `renderer.dispose()` и `renderer.forceContextLoss()`.
 - `Globe/Index.vue` переведён на `useGlobeDisposer` с детерминированным порядком teardown в `onBeforeUnmount`. Сборка `npm run build` зелёная (0 ошибок).
 
+### 10. [P1 · ЗАКРЫТО] Оптимизация текстур глобуса и PWA Workbox cache
+- Все 4 текстуры `public/textures/*` сконвертированы в WebP (Blue Marble 4K, Night Lights 4K, Topology lossless 2K, Night Sky 4K).
+- Суммарный вес сократился с 3.46 MB до 2.15 MB (чистый выигрыш **-38.0% / 1.31 MB**, текстура Земли Blue Marble -46.8%, Night -49.9%).
+- Настроен Workbox runtimeCaching `CacheFirst` (30 дней) для `/textures/*` в `vite.config.js`.
+
+### 11. [P1 · ЗАКРЫТО] prefers-reduced-motion и WebGL-fallback
+- Добавлена проверка `checkWebGLSupport()` и перехват ошибок инициализации `Globe()`.
+- При отсутствии/сбое WebGL интерфейс не падает, а показывает полноценный Mission Control Fallback с оперативной таблицей телеметрии, активной группировкой, системным временем и кнопкой повтора инициализации.
+- Реализована поддержка `prefers-reduced-motion`: реактивное отслеживание системных настроек, моментальные перелёты камеры (`duration = 0`), пропуск вводного зум-интро и безопасные CSS-стили (`animation-duration: 0.001ms`).
+
 ---
 
 ## Что осталось (актуальный бэклог по ROADMAP)
 
-2. **[P2 · Небольшое замечание в `CheckSatelliteAlertsTest`]**
-   - Тесты `CheckSatelliteAlertsTest` гоняются на `sqlite :memory:`, поэтому проверяют Haversine-ветку, а не SQL-запрос PostGIS (`storeSubpoints` / `fetchZoneInfo`). Сам SQL-запрос валиден (проверен вручную на Postgres 18), но при желании можно добавить отдельный интеграционный прогон на pgsql-соединении или оставить как есть.
+1. **[P2 · Небольшое замечание в `CheckSatelliteAlertsTest`]**
+   - Тесты `CheckSatelliteAlertsTest` гоняются на `sqlite :memory:`, поэтому проверяют Haversine-ветку, а не SQL-запрос PostGIS (`storeSubpoints` / `fetchZoneInfo`). Сам SQL-запрос валиден (проверен вручную на Postgres 18).
 
-3. **[Спринт 4 / Спринт 5 — плановые задачи]**
-   - Конвертация текстур `public/textures/*` в AVIF/WebP (или KTX2) + замер веса.
-   - Визуальный замер FPS и `DRAWN` в браузере с `?debug=1` на полном каталоге (15 910 аппаратов) для таблиц «до/после» в пояснительной записке.
-   - `prefers-reduced-motion`, WebGL-fallback, PWA-офлайн (Workbox cache текстур).
+2. **[Спринт 5 — дипломная упаковка]**
+   - Визуальный замер FPS и `DRAWN` в браузере с `?debug=1` на полном каталоге для таблиц в пояснительной записке.
    - Пояснительная записка.

@@ -50,20 +50,20 @@
 - [x] Web Worker для SGP4 (расчёт позиций вне главного потока) ✅ (`80dc9b8` — sgp4Core + module worker + seq-клиент с main-thread fallback; сборка зелёная 2026-11-09)
 - **F2. Терминатор + огни городов (Day/Night cycle)** (см. ниже) ✅ проверено в браузере 2026-10-27
 - **F3. Звёзды Points + fresnel-атмосфера** ✅ (`0f3bd4a`, спрайты `94dc8cd`; проверено в браузере 2026-10-27 — консоль чистая, свечение атмосферы на месте, звёзды аккуратные)
-- локальные текстуры (Blue Marble 4K/8K, night-lights emissive, облака) + KTX2/AVIF
+- [x] локальные текстуры: оптимизация в WebP (экономия -38% / 1.31 MB: Blue Marble 778 KB, Night 358 KB, Topology lossless 265 KB, Sky 743 KB) + Workbox runtime caching в PWA ✅
 - **Пост-обработка: bloom/FXAA/ACES** ✅ (`bd60551` — EffectComposer через штатный хук `postProcessingComposer`: RenderPass → UnrealBloom → OutputPass (ACES+sRGB) → FXAA; сборка зелёная 2026-11-09)
 - **F4. Орбиты (Line2 + ground track)** ✅ (`171f3f3`, z-фикс `83b200c`; принято пользователем 2026-10-27 — траектория + наземный трек без дубля на текстуре)
 - **Пикинг спутников (Raycaster по InstancedMesh)** ✅ (hover `◎ имя` + подсветка инстанса, клик → существующий `focusSatellite`/follow; порог 16 px, дебаунс клика, отсечение за лимбом, dispose pointer-обработчиков; сборка зелёная 2026-11-09)
 - **LOD/отсечение спутникового слоя** ✅ (frustum-тест по 6 плоскостям камеры в локальных координатах вращающейся группы + консервативный лимб Земли на отрезке камера→аппарат: отсечённые не пишут матрицы/точки и не попадают в пикинг; LOD по экранному радиусу — сферы InstancedMesh для близких, `THREE.Points` для далёких, переиспользуемые списки кадра, частичная загрузка instance-буфера в GPU; HUD `?debug=1` — FPS / DRAWN / SPHERES / POINTS / CULL FRUSTUM / CULL LIMB; сборка зелёная 2026-11-09)
 - [x] dispose-контракт для 3D-сцены и слоёв (`resources/js/lib/globe/useGlobeDisposer.js` — детерминированный teardown: воркер, слои, слушатели, rAF/таймеры, fallback-обход scene.traverse, EffectComposer + UnrealBloom targets, controls, renderer.dispose + forceContextLoss; сборка зелёная 2026-11-11) ✅
 
-> **Следующий шаг**: полировка Спринта 5 (PWA/кеш текстур, reduced-motion, оформление пояснительной записки). Визуальную проверку WebGL пользователь делает в Windows-браузере.
+> **Следующий шаг**: оформление пояснительной записки (Спринт 5). Визуальную проверку WebGL пользователь делает в Windows-браузере.
 
 ### Спринт 5 — Полировка и дипломная упаковка
 - [x] тесты на ядро: сьют тестов на SGP4 (`getPositionsBatch`, физические границы МКС, обработка невалидных TLE), API (`/api/satellites`) и алерты (`CheckSatelliteAlerts` с `ST_DWithin`)
 - [x] README: подробное руководство по установке, фоновым сервисам (cron, queue, telegram poll) и production-конфигурации
 - [x] базовый CI workflow (`.github/workflows/ci.yml`: сборка фронтенда `npm ci && npm run build`, запуск тестов `composer install && php artisan test`)
-- reduced-motion · WebGL-fallback · PWA-офлайн (Workbox cache текстур)
+- [x] reduced-motion (matchMedia + моментальные перелёты + CSS safe) · WebGL-fallback (телеметрия без 3D-GPU) · PWA-офлайн (Workbox cache текстур) ✅
 - пояснительная записка (СУБД, архитектура расчётов, обоснование оптимизаций)
 
 ---

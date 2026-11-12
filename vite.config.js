@@ -30,6 +30,24 @@ export default defineConfig({
             outDir: 'public/build', // Must output to build folder for Laravel Vite
             buildBase: '/build/', // To properly reference assets in the build folder
             registerType: 'autoUpdate',
+            workbox: {
+                runtimeCaching: [
+                    {
+                        urlPattern: /\/textures\/.*\.(?:png|jpg|jpeg|svg|webp|avif)$/i,
+                        handler: 'CacheFirst',
+                        options: {
+                            cacheName: 'globe-textures-cache',
+                            expiration: {
+                                maxEntries: 20,
+                                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+                            },
+                            cacheableResponse: {
+                                statuses: [0, 200],
+                            },
+                        },
+                    },
+                ],
+            },
             manifest: {
                 name: 'Earth Orbit Live',
                 short_name: 'OrbitLive',
