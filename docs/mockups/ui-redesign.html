@@ -113,6 +113,9 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
       background:
         radial-gradient(1px 1px at 15% 20%, rgba(255,255,255,0.7), transparent),
         radial-gradient(1px 1px at 35% 85%, rgba(255,255,255,0.6), transparent),
@@ -133,8 +136,21 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      pointer-events: none;
+      pointer-events: auto;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+      transform-origin: center center;
       transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    body.is-dragging,
+    .viewport-canvas.is-dragging,
+    .globe-stage.is-dragging {
+      cursor: grabbing !important;
+    }
+    body.is-dragging * {
+      user-select: none !important;
     }
 
     /* Внешнее свечение атмосферы */
@@ -178,6 +194,7 @@
       background: radial-gradient(circle at 45% 40%, rgba(255,255,255,0.08) 0%, transparent 60%);
       mix-blend-mode: overlay;
       pointer-events: none;
+      transform-origin: center center;
       transition: opacity 0.3s ease;
     }
     .globe-clouds.hidden {
@@ -192,6 +209,7 @@
       height: 100%;
       pointer-events: none;
       z-index: 2;
+      transform-origin: center center;
       transition: opacity 0.3s ease;
     }
     .orbit-path-svg.hidden {
@@ -222,6 +240,7 @@
       inset: 0;
       z-index: 3;
       pointer-events: auto;
+      transform-origin: center center;
     }
     .sat-dot {
       position: absolute;
@@ -1138,29 +1157,40 @@
               <stop offset="50%" stop-color="#34d399" stop-opacity="0.4"/>
               <stop offset="100%" stop-color="#059669" stop-opacity="0.1"/>
             </linearGradient>
+            <clipPath id="globeDiskClip">
+              <circle cx="300" cy="300" r="298" />
+            </clipPath>
+            <g id="globeContinents">
+              <!-- Евразия и Африка -->
+              <path d="M260,140 Q290,110 350,120 Q420,135 450,180 Q480,230 460,270 Q430,300 370,290 Q340,320 330,380 Q310,430 290,440 Q270,390 280,330 Q250,300 230,240 Q220,170 260,140 Z"/>
+              <!-- Америка -->
+              <path d="M120,160 Q180,150 190,210 Q200,260 170,290 Q180,340 190,390 Q170,460 140,430 Q130,370 140,310 Q110,260 100,210 Z"/>
+              <!-- Австралия -->
+              <path d="M420,380 Q470,370 480,410 Q470,450 430,440 Q400,420 420,380 Z"/>
+            </g>
           </defs>
           
           <circle cx="300" cy="300" r="298" fill="url(#oceanGrad)" />
 
-          <!-- Сетка координат (меридианы и параллели) -->
-          <g stroke="rgba(56, 189, 248, 0.12)" stroke-width="1" fill="none">
-            <ellipse cx="300" cy="300" rx="298" ry="80"/>
-            <ellipse cx="300" cy="300" rx="298" ry="170"/>
-            <ellipse cx="300" cy="300" rx="298" ry="250"/>
-            <line x1="300" y1="2" x2="300" y2="598" stroke-dasharray="3 3"/>
-            <line x1="2" y1="300" x2="598" y2="300"/>
-            <ellipse cx="300" cy="300" rx="90" ry="298"/>
-            <ellipse cx="300" cy="300" rx="190" ry="298"/>
-          </g>
+          <!-- Динамический слой карты (сетка координат и континенты с вращением) -->
+          <g id="globeMapGroup" clip-path="url(#globeDiskClip)">
+            <!-- Сетка координат (меридианы и параллели) -->
+            <g stroke="rgba(56, 189, 248, 0.12)" stroke-width="1" fill="none">
+              <ellipse cx="300" cy="300" rx="298" ry="80"/>
+              <ellipse cx="300" cy="300" rx="298" ry="170"/>
+              <ellipse cx="300" cy="300" rx="298" ry="250"/>
+              <line x1="300" y1="2" x2="300" y2="598" stroke-dasharray="3 3"/>
+              <line x1="2" y1="300" x2="598" y2="300"/>
+              <ellipse cx="300" cy="300" rx="90" ry="298"/>
+              <ellipse cx="300" cy="300" rx="190" ry="298"/>
+            </g>
 
-          <!-- Стилизованные полупрозрачные континенты -->
-          <g fill="rgba(56, 189, 248, 0.18)" stroke="rgba(56, 189, 248, 0.3)" stroke-width="1.2">
-            <!-- Евразия и Африка -->
-            <path d="M260,140 Q290,110 350,120 Q420,135 450,180 Q480,230 460,270 Q430,300 370,290 Q340,320 330,380 Q310,430 290,440 Q270,390 280,330 Q250,300 230,240 Q220,170 260,140 Z"/>
-            <!-- Америка -->
-            <path d="M120,160 Q180,150 190,210 Q200,260 170,290 Q180,340 190,390 Q170,460 140,430 Q130,370 140,310 Q110,260 100,210 Z"/>
-            <!-- Австралия -->
-            <path d="M420,380 Q470,370 480,410 Q470,450 430,440 Q400,420 420,380 Z"/>
+            <!-- Стилизованные полупрозрачные континенты -->
+            <g fill="rgba(56, 189, 248, 0.18)" stroke="rgba(56, 189, 248, 0.3)" stroke-width="1.2">
+              <use href="#globeContinents" x="-600"/>
+              <use href="#globeContinents" x="0"/>
+              <use href="#globeContinents" x="600"/>
+            </g>
           </g>
         </svg>
 
@@ -1973,11 +2003,23 @@
       activeChip: 'ALL',
       cardVisible: true,
       userMenuOpen: false,
-      searchDropdownOpen: false
+      searchDropdownOpen: false,
+      globe: {
+        yaw: 0,
+        pitch: 0,
+        zoom: 1.0,
+        isDragging: false,
+        hasDragged: false,
+        wheelActive: false
+      }
     };
 
     // DOM-элементы
     const el = {
+      viewportStage: document.getElementById('viewportStage'),
+      globeStage: document.getElementById('globeStage'),
+      globeSphere: document.getElementById('globeSphere'),
+      globeMapGroup: document.getElementById('globeMapGroup'),
       utcClock: document.getElementById('liveUtcClock'),
       chipsBar: document.getElementById('chipsBar'),
       topbarSearch: document.getElementById('topbarSearch'),
@@ -2005,6 +2047,8 @@
       renderSatDots();
       renderSelectedCard();
       bindEvents();
+      initGlobeInteraction();
+      applyGlobeTransform(false);
       startUtcClock();
       startTelemetryJitter();
     }
@@ -2112,6 +2156,7 @@
         clampDotLabel(dot, sat.x, sat.y);
 
         dot.addEventListener('click', () => {
+          if (state.globe && state.globe.hasDragged) return;
           selectSatellite(sat.id);
         });
         el.satDotsLayer.appendChild(dot);
@@ -2128,6 +2173,7 @@
         dot.innerHTML = `<span class="sat-label">${bg.name}</span>`;
         clampDotLabel(dot, bg.x, bg.y);
         dot.addEventListener('click', () => {
+          if (state.globe && state.globe.hasDragged) return;
           const match = SATELLITES.find(s => s.category === bg.cat) || SATELLITES[0];
           selectSatellite(match.id);
         });
@@ -2305,6 +2351,207 @@
       });
 
       el.searchDropdown.classList.add('open');
+    }
+
+    // ========================================================================
+    // ИНТЕРАКТИВНОСТЬ ГЛОБУСА: ВРАЩЕНИЕ, МАСШТАБ, ЩИПОК, СБРОС ВИДА
+    // ========================================================================
+
+    // Применение трансформаций глобуса (масштаб, поворот долготы/широты, параллакс)
+    function applyGlobeTransform(animated = false) {
+      const { yaw, pitch, zoom, wheelActive } = state.globe;
+      const transitionStyle = animated ? 'transform 0.45s cubic-bezier(0.16, 1, 0.3, 1)' : 'none';
+
+      // 1. Масштабирование контейнера глобуса (со всеми вложенными слоями)
+      if (el.globeStage) {
+        el.globeStage.style.transition = animated ? transitionStyle : (wheelActive ? 'transform 0.1s ease-out' : 'none');
+        el.globeStage.style.transform = `scale(${zoom})`;
+      }
+
+      // 2. Смещение текстуры карты (сетка и континенты) внутри круглой маски
+      const mapX = (yaw / 60) * 120;
+      const mapY = (-pitch / 60) * 80;
+      if (el.globeMapGroup) {
+        el.globeMapGroup.style.transition = animated ? transitionStyle : 'none';
+        el.globeMapGroup.setAttribute('transform', `translate(${mapX.toFixed(2)}, ${mapY.toFixed(2)})`);
+      }
+
+      // 3. Параллакс облачного слоя (движется медленнее поверхности)
+      if (el.cloudLayer) {
+        el.cloudLayer.style.transition = animated ? transitionStyle : 'none';
+        const cloudX = (yaw / 60) * 24;
+        const cloudY = (-pitch / 60) * 16;
+        el.cloudLayer.style.transform = `translate(${cloudX.toFixed(2)}px, ${cloudY.toFixed(2)}px)`;
+      }
+
+      // 4. Смещение слоя спутников синхронно с вращением Земли
+      if (el.satDotsLayer) {
+        el.satDotsLayer.style.transition = animated ? transitionStyle : 'none';
+        const satX = (yaw / 60) * 44;
+        const satY = (-pitch / 60) * 28;
+        el.satDotsLayer.style.transform = `translate(${satX.toFixed(2)}px, ${satY.toFixed(2)}px)`;
+      }
+
+      // 5. Смещение орбиты выбранного спутника
+      if (el.orbitPathLayer) {
+        el.orbitPathLayer.style.transition = animated ? transitionStyle : 'none';
+        const orbitX = (yaw / 60) * 36;
+        const orbitY = (-pitch / 60) * 22;
+        el.orbitPathLayer.style.transform = `translate(${orbitX.toFixed(2)}px, ${orbitY.toFixed(2)}px)`;
+      }
+    }
+
+    function initGlobeInteraction() {
+      const activePointers = new Map();
+      let startX = 0;
+      let startY = 0;
+      let lastX = 0;
+      let lastY = 0;
+      let pinchStartDist = 0;
+      let pinchStartZoom = 1;
+      let lastTapTime = 0;
+      let wheelTimeout = null;
+
+      function resetGlobeView() {
+        state.globe.yaw = 0;
+        state.globe.pitch = 0;
+        state.globe.zoom = 1.0;
+        applyGlobeTransform(true);
+      }
+
+      // 1. Обработка pointerdown (мышь + тач)
+      el.viewportStage.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        try {
+          el.viewportStage.setPointerCapture(e.pointerId);
+        } catch (_) {}
+
+        if (activePointers.size === 1) {
+          state.globe.isDragging = true;
+          state.globe.hasDragged = false;
+          startX = e.clientX;
+          startY = e.clientY;
+          lastX = e.clientX;
+          lastY = e.clientY;
+
+          document.body.classList.add('is-dragging');
+          el.viewportStage.classList.add('is-dragging');
+          el.globeStage.classList.add('is-dragging');
+        } else if (activePointers.size === 2) {
+          const pts = Array.from(activePointers.values());
+          pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+          pinchStartZoom = state.globe.zoom;
+          state.globe.hasDragged = true;
+        }
+      });
+
+      // 2. Обработка pointermove (вращение и масштабирование щипком)
+      el.viewportStage.addEventListener('pointermove', (e) => {
+        if (!activePointers.has(e.pointerId)) return;
+
+        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        // Щипок двумя пальцами (pinch-to-zoom)
+        if (activePointers.size === 2) {
+          const pts = Array.from(activePointers.values());
+          const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+          if (pinchStartDist > 0) {
+            const factor = dist / pinchStartDist;
+            const targetZoom = Math.max(0.6, Math.min(2.2, pinchStartZoom * factor));
+            state.globe.zoom = Number(targetZoom.toFixed(3));
+            applyGlobeTransform(false);
+          }
+          return;
+        }
+
+        // Вращение одним указателем (drag)
+        if (activePointers.size === 1 && state.globe.isDragging) {
+          const dx = e.clientX - lastX;
+          const dy = e.clientY - lastY;
+          lastX = e.clientX;
+          lastY = e.clientY;
+
+          if (!state.globe.hasDragged && Math.hypot(e.clientX - startX, e.clientY - startY) > 5) {
+            state.globe.hasDragged = true;
+          }
+
+          // Чувствительность вращения (~0.35° на пиксель движения)
+          const sens = 0.35;
+          const nextYaw = state.globe.yaw + dx * sens;
+          const nextPitch = state.globe.pitch - dy * sens;
+
+          // Ограничения: clamp долготы (±80°) и clamp широты (±60°)
+          state.globe.yaw = Math.max(-80, Math.min(80, nextYaw));
+          state.globe.pitch = Math.max(-60, Math.min(60, nextPitch));
+
+          applyGlobeTransform(false);
+        }
+      });
+
+      // 3. Завершение перемещения / отпускание
+      function onPointerEnd(e) {
+        if (!activePointers.has(e.pointerId)) return;
+
+        try {
+          if (el.viewportStage.hasPointerCapture(e.pointerId)) {
+            el.viewportStage.releasePointerCapture(e.pointerId);
+          }
+        } catch (_) {}
+
+        activePointers.delete(e.pointerId);
+
+        if (activePointers.size === 1) {
+          const remaining = Array.from(activePointers.values())[0];
+          lastX = remaining.x;
+          lastY = remaining.y;
+        } else if (activePointers.size === 0) {
+          state.globe.isDragging = false;
+          document.body.classList.remove('is-dragging');
+          el.viewportStage.classList.remove('is-dragging');
+          el.globeStage.classList.remove('is-dragging');
+
+          // Двойной тап на мобильных устройствах
+          if (e.pointerType === 'touch' && !state.globe.hasDragged && !e.target.closest('.sat-dot')) {
+            const now = Date.now();
+            if (now - lastTapTime < 350) {
+              resetGlobeView();
+              lastTapTime = 0;
+            } else {
+              lastTapTime = now;
+            }
+          }
+        }
+      }
+
+      el.viewportStage.addEventListener('pointerup', onPointerEnd);
+      el.viewportStage.addEventListener('pointercancel', onPointerEnd);
+
+      // 4. Двойной клик мыши по глобусу / сцене — сброс вида к исходному
+      el.viewportStage.addEventListener('dblclick', (e) => {
+        if (e.target.closest('.sat-dot')) return;
+        resetGlobeView();
+      });
+
+      // 5. Приближение колёсиком мыши (с preventDefault только над областью глобуса)
+      el.viewportStage.addEventListener('wheel', (e) => {
+        const isOverGlobe = Boolean(e.target.closest('#globeStage') || e.target.closest('.globe-sphere'));
+        if (!isOverGlobe) return;
+
+        e.preventDefault();
+
+        state.globe.wheelActive = true;
+        clearTimeout(wheelTimeout);
+        wheelTimeout = setTimeout(() => {
+          state.globe.wheelActive = false;
+        }, 120);
+
+        const zoomDelta = -e.deltaY * 0.0015;
+        const targetZoom = Math.max(0.6, Math.min(2.2, state.globe.zoom + zoomDelta));
+        state.globe.zoom = Number(targetZoom.toFixed(3));
+        applyGlobeTransform(false);
+      }, { passive: false });
     }
 
     // ========================================================================
