@@ -2424,9 +2424,6 @@
         if (e.pointerType === 'mouse' && e.button !== 0) return;
 
         activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        try {
-          el.viewportStage.setPointerCapture(e.pointerId);
-        } catch (_) {}
 
         if (activePointers.size === 1) {
           state.globe.isDragging = true;
@@ -2444,6 +2441,7 @@
           pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
           pinchStartZoom = state.globe.zoom;
           state.globe.hasDragged = true;
+          try { el.viewportStage.setPointerCapture(e.pointerId); } catch (_) {}
         }
       });
 
@@ -2475,6 +2473,7 @@
 
           if (!state.globe.hasDragged && Math.hypot(e.clientX - startX, e.clientY - startY) > 5) {
             state.globe.hasDragged = true;
+            try { el.viewportStage.setPointerCapture(e.pointerId); } catch (_) {}
           }
 
           // Чувствительность вращения (~0.35° на пиксель движения)
