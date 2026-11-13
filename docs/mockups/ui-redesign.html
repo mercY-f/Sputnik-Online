@@ -1,0 +1,2375 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Спутник-Онлайн — Макет интерфейса (UI Redesign)</title>
+  <style>
+    /* ==========================================================================
+       CSS Переменные и Тема оформления (Glassmorphism + Space Dark)
+       ========================================================================== */
+    :root {
+      --bg-space: #050505;
+      --bg-glass-rail: rgba(10, 10, 14, 0.65);
+      --bg-glass-card: rgba(12, 14, 20, 0.78);
+      --bg-glass-elevated: rgba(17, 20, 30, 0.94);
+      --bg-glass-input: rgba(255, 255, 255, 0.05);
+      --bg-glass-hover: rgba(255, 255, 255, 0.08);
+
+      --border-glass: rgba(255, 255, 255, 0.08);
+      --border-glass-light: rgba(255, 255, 255, 0.16);
+      --border-emerald: rgba(16, 185, 129, 0.45);
+
+      --primary: #10b981;
+      --primary-light: #34d399;
+      --primary-dark: #059669;
+      --primary-glow: rgba(16, 185, 129, 0.35);
+
+      --text-main: #f8fafc;
+      --text-sub: #cbd5e1;
+      --text-muted: #a1a1aa;
+      --text-dim: #71717a;
+
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+      /* Цвета категорий спутников */
+      --cat-iss: #ef4444;
+      --cat-starlink: #3b82f6;
+      --cat-oneweb: #8b5cf6;
+      --cat-iridium: #f59e0b;
+      --cat-nav: #eab308;
+      --cat-weather: #06b6d4;
+      --cat-telescope: #ec4899;
+      --cat-other: #10b981;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg-space);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      user-select: none;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--primary-light);
+      outline-offset: 2px;
+    }
+
+    button {
+      font-family: inherit;
+      color: inherit;
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
+
+    input {
+      font-family: inherit;
+      color: inherit;
+      background: none;
+      border: none;
+    }
+
+    /* Кастомный скроллбар */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+
+    /* ==========================================================================
+       Звёздное поле и Глобус (Сцена по центру)
+       ========================================================================== */
+    .viewport-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background:
+        radial-gradient(1px 1px at 15% 20%, rgba(255,255,255,0.7), transparent),
+        radial-gradient(1px 1px at 35% 85%, rgba(255,255,255,0.6), transparent),
+        radial-gradient(1.5px 1.5px at 70% 15%, rgba(255,255,255,0.85), transparent),
+        radial-gradient(1px 1px at 80% 65%, rgba(255,255,255,0.5), transparent),
+        radial-gradient(1.5px 1.5px at 50% 40%, rgba(255,255,255,0.7), transparent),
+        radial-gradient(1px 1px at 25% 60%, rgba(255,255,255,0.5), transparent),
+        radial-gradient(1px 1px at 90% 30%, rgba(255,255,255,0.75), transparent),
+        radial-gradient(1.2px 1.2px at 10% 75%, rgba(255,255,255,0.6), transparent),
+        radial-gradient(1.5px 1.5px at 60% 80%, rgba(255,255,255,0.8), transparent),
+        radial-gradient(circle at 50% 50%, #080f1d 0%, #050505 85%);
+    }
+
+    .globe-stage {
+      position: relative;
+      width: min(620px, 85vw);
+      height: min(620px, 85vw);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* Внешнее свечение атмосферы */
+    .globe-atmosphere {
+      position: absolute;
+      inset: -20px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.18) 40%, rgba(16, 185, 129, 0.08) 65%, transparent 75%);
+      filter: blur(24px);
+      pointer-events: none;
+    }
+
+    /* Земная сфера */
+    .globe-sphere {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #17325b 0%, #0d1e38 45%, #050d1a 80%, #02060d 100%);
+      box-shadow:
+        inset -30px -30px 60px rgba(0, 0, 0, 0.9),
+        inset 15px 15px 40px rgba(96, 165, 250, 0.35),
+        0 0 50px rgba(14, 165, 233, 0.25);
+      overflow: hidden;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+
+    .globe-svg {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    /* Облачный слой */
+    .globe-clouds {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: radial-gradient(circle at 45% 40%, rgba(255,255,255,0.08) 0%, transparent 60%);
+      mix-blend-mode: overlay;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .globe-clouds.hidden {
+      opacity: 0;
+    }
+
+    /* Орбитальное кольцо выбранного спутника (в пределах контейнера глобуса) */
+    .orbit-path-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 2;
+      transition: opacity 0.3s ease;
+    }
+    .orbit-path-svg.hidden {
+      opacity: 0;
+    }
+    .orbit-ellipse {
+      stroke: url(#orbitGrad);
+      stroke-width: 1.5;
+      stroke-dasharray: 6 6;
+      fill: none;
+      filter: drop-shadow(0 0 6px var(--primary-glow));
+      animation: orbit-dash 24s linear infinite;
+    }
+    .orbit-ellipse-back {
+      stroke: var(--primary);
+      stroke-opacity: 0.22;
+      stroke-width: 1.2;
+      stroke-dasharray: 4 6;
+      fill: none;
+    }
+    @keyframes orbit-dash {
+      to { stroke-dashoffset: -200; }
+    }
+
+    /* Точки спутников на глобусе */
+    .sat-dots-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      pointer-events: auto;
+    }
+    .sat-dot {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.25s ease;
+    }
+    .sat-dot::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      background: inherit;
+      opacity: 0.35;
+      animation: sat-pulse 2.2s infinite ease-in-out;
+    }
+    .sat-dot:hover {
+      transform: translate(-50%, -50%) scale(1.8);
+      z-index: 10;
+      box-shadow: 0 0 14px currentColor;
+    }
+    .sat-dot.active {
+      transform: translate(-50%, -50%) scale(2.2);
+      box-shadow: 0 0 18px var(--primary-light);
+      z-index: 15;
+    }
+    .sat-dot.active::before {
+      content: '';
+      position: absolute;
+      inset: -7px;
+      border-radius: 50%;
+      border: 1.5px solid var(--primary-light);
+      animation: target-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+    .sat-dot.dimmed {
+      opacity: 0.15;
+      filter: grayscale(80%);
+      pointer-events: none;
+    }
+    .sat-label {
+      position: absolute;
+      left: 12px;
+      top: -6px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.25;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(10, 10, 14, 0.92);
+      border: 1px solid var(--border-glass-light);
+      color: var(--text-main);
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+    .sat-dot:hover .sat-label {
+      opacity: 1;
+      transform: scale(0.555);
+      transform-origin: left center;
+    }
+    .sat-dot.active .sat-label {
+      opacity: 1;
+      transform: scale(0.455);
+      transform-origin: left center;
+    }
+    .sat-dot.pos-flip-x:hover .sat-label,
+    .sat-dot.pos-flip-x.active .sat-label {
+      transform-origin: right center;
+    }
+    .sat-labels-disabled .sat-label {
+      display: none !important;
+    }
+
+    @keyframes sat-pulse {
+      0%, 100% { transform: scale(1); opacity: 0.35; }
+      50% { transform: scale(1.6); opacity: 0; }
+    }
+    @keyframes target-ping {
+      75%, 100% { transform: scale(2); opacity: 0; }
+    }
+
+    /* ==========================================================================
+       ТОПБАР (48px стеклянный)
+       ========================================================================== */
+    .topbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 48px;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      background: var(--bg-glass-rail);
+      -webkit-backdrop-filter: blur(16px) saturate(140%);
+      backdrop-filter: blur(16px) saturate(140%);
+      border-bottom: 1px solid var(--border-glass);
+    }
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--primary);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--primary-light);
+      animation: live-blink 2s infinite ease-in-out;
+    }
+    @keyframes live-blink {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.35; transform: scale(0.85); }
+    }
+    .logo-text {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      color: #ffffff;
+      text-transform: uppercase;
+    }
+    .mockup-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--primary-light);
+      letter-spacing: 0.06em;
+    }
+
+    /* Поиск в топбаре */
+    .topbar-center {
+      position: relative;
+      width: min(440px, 42vw);
+    }
+    .search-input-box {
+      position: relative;
+      display: flex;
+      align-items: center;
+      width: 100%;
+    }
+    .search-icon {
+      position: absolute;
+      left: 10px;
+      width: 15px;
+      height: 15px;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+    .search-input {
+      width: 100%;
+      height: 32px;
+      padding: 0 54px 0 32px;
+      background: var(--bg-glass-input);
+      border: 1px solid var(--border-glass);
+      border-radius: 8px;
+      color: var(--text-main);
+      font-size: 12px;
+      transition: all 0.15s ease;
+    }
+    .search-input:hover {
+      background: var(--bg-glass-hover);
+      border-color: rgba(255, 255, 255, 0.16);
+    }
+    .search-input:focus {
+      background: rgba(15, 17, 24, 0.95);
+      border-color: var(--border-emerald);
+      box-shadow: 0 0 14px var(--primary-glow);
+      outline: none;
+    }
+    .kbd-shortcut {
+      position: absolute;
+      right: 8px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    /* Выпадающий список результатов поиска */
+    .search-dropdown {
+      position: absolute;
+      top: 38px;
+      left: 0;
+      right: 0;
+      background: var(--bg-glass-elevated);
+      -webkit-backdrop-filter: blur(20px);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border-glass-light);
+      border-radius: 10px;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.75);
+      max-height: 340px;
+      overflow-y: auto;
+      z-index: 150;
+      display: none;
+    }
+    .search-dropdown.open {
+      display: block;
+    }
+    .search-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      transition: background 0.12s;
+    }
+    .search-item:last-child {
+      border-bottom: none;
+    }
+    .search-item:hover, .search-item.highlighted {
+      background: rgba(16, 185, 129, 0.16);
+    }
+    .search-item-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .search-item-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: #ffffff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .search-item-norad {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .search-item-cat {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid;
+    }
+
+    /* Правая часть топбара */
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .utc-clock {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-sub);
+      letter-spacing: 0.05em;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .icon-btn {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: var(--bg-glass-input);
+      border: 1px solid var(--border-glass);
+      color: var(--text-sub);
+      transition: all 0.15s ease;
+    }
+    .icon-btn:hover {
+      background: var(--bg-glass-hover);
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+    .icon-badge {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 8px;
+      background: var(--cat-iss);
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid var(--bg-space);
+      box-shadow: 0 0 6px rgba(239, 68, 68, 0.45);
+      z-index: 5;
+    }
+
+    /* Аватар профиля и выпадающее меню */
+    .user-menu-wrapper {
+      position: relative;
+    }
+    .avatar-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #10b981, #3b82f6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 12px;
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+      border: 1.5px solid rgba(255, 255, 255, 0.2);
+    }
+    .user-dropdown {
+      position: absolute;
+      top: 40px;
+      right: 0;
+      width: 210px;
+      background: var(--bg-glass-elevated);
+      -webkit-backdrop-filter: blur(20px);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border-glass-light);
+      border-radius: 10px;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7);
+      padding: 6px;
+      z-index: 150;
+      display: none;
+    }
+    .user-dropdown.open {
+      display: block;
+    }
+    .user-dropdown-header {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      margin-bottom: 4px;
+    }
+    .user-name {
+      font-weight: 600;
+      font-size: 12px;
+      color: #ffffff;
+    }
+    .user-role {
+      font-size: 11px;
+      color: var(--primary-light);
+      font-family: var(--font-mono);
+    }
+    .user-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text-sub);
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s;
+      width: 100%;
+      text-align: left;
+    }
+    .user-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
+    }
+    .user-item.danger:hover {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+    }
+
+    /* ==========================================================================
+       ЛЕНТА ЧИПСОВ (Под топбаром)
+       ========================================================================== */
+    .chips-bar {
+      position: fixed;
+      top: 48px;
+      left: 0;
+      right: 0;
+      height: 44px;
+      z-index: 90;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 16px;
+      background: rgba(8, 8, 12, 0.55);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-glass);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .chips-bar::-webkit-scrollbar {
+      display: none;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-glass);
+      font-size: 12px;
+      color: var(--text-sub);
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .chip:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+    .chip.active {
+      background: rgba(16, 185, 129, 0.18);
+      border-color: var(--primary);
+      color: #ffffff;
+      box-shadow: 0 0 12px var(--primary-glow);
+    }
+    .chip-count {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-sub);
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .chip.active .chip-count {
+      background: rgba(16, 185, 129, 0.35);
+      color: var(--primary-light);
+      font-size: 12px;
+      opacity: 1;
+    }
+    .chip-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    /* ==========================================================================
+       ПЛАШКА ФОКУСА (Под чипсами по центру)
+       ========================================================================== */
+    .focus-badge {
+      position: fixed;
+      top: 100px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 85;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 14px;
+      border-radius: 20px;
+      background: rgba(15, 17, 24, 0.85);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-emerald);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4), 0 0 10px var(--primary-glow);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #ffffff;
+      letter-spacing: 0.04em;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+    .focus-badge.hidden {
+      opacity: 0;
+      transform: translate(-50%, -10px);
+      pointer-events: none;
+    }
+    .focus-badge-close {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: color 0.15s, background 0.15s;
+    }
+    .focus-badge-close:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+        .sat-cat-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ==========================================================================
+       КАРТОЧКА СПУТНИКА (Справа, ~380px стеклянная)
+       ========================================================================== */
+    .sat-card {
+      position: fixed;
+      top: 104px;
+      right: 16px;
+      width: 380px;
+      height: auto;
+      max-height: calc(100vh - 128px);
+      align-self: start;
+      z-index: 80;
+      background: var(--bg-glass-card);
+      -webkit-backdrop-filter: blur(24px) saturate(150%);
+      backdrop-filter: blur(24px) saturate(150%);
+      border: 1px solid var(--border-glass-light);
+      border-radius: 16px;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transform: translateX(0);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+    }
+    .sat-card.hidden {
+      transform: translateX(410px);
+      pointer-events: none;
+      opacity: 0;
+    }
+    .card-header {
+      padding: 16px;
+      border-bottom: 1px solid var(--border-glass);
+      position: relative;
+    }
+    .card-header-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+    .card-sat-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 1.3;
+    }
+    .card-close-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-glass);
+      flex-shrink: 0;
+    }
+    .card-close-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+    }
+    .card-meta-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 11px;
+    }
+    .card-norad {
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+    }
+    .card-cat-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    .card-country-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--text-sub);
+    }
+
+    .card-scrollable {
+      flex: 0 1 auto;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .section-title {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+    }
+    .purpose-box {
+      font-size: 12px;
+      color: var(--text-sub);
+      line-height: 1.45;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-glass);
+    }
+    .payload-type-tag {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      color: var(--primary-light);
+      background: rgba(16, 185, 129, 0.12);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+
+    .launch-box {
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-glass);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+    }
+    .launch-date {
+      color: #ffffff;
+      font-weight: 500;
+    }
+    .launch-site {
+      color: var(--text-muted);
+    }
+    .duration-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 4px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.12);
+      padding: 2px 8px;
+      border-radius: 4px;
+      align-self: flex-start;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+
+    /* Сетка 10 параметров полёта (2 колонки) */
+    .flight-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .param-tile {
+      position: relative;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-glass);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 58px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .param-tile:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+    .param-tile-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .param-label {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .info-btn {
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      border-radius: 50%;
+      cursor: help;
+      transition: color 0.12s;
+    }
+    .info-btn:hover, .info-btn:focus-visible {
+      color: var(--primary-light);
+      outline: none;
+    }
+    .param-value {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      color: #ffffff;
+      margin-top: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .param-value.live {
+      color: var(--primary-light);
+    }
+
+    /* Интерактивные всплывающие подсказки параметров */
+    .info-tooltip {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      width: 250px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(15, 18, 28, 0.96);
+      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-glass-light);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.7);
+      z-index: 200;
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      font-family: var(--font-sans);
+    }
+    .info-tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: rgba(15, 18, 28, 0.96);
+    }
+    .param-tile:nth-child(2n) .info-tooltip {
+      left: auto;
+      right: 0;
+      transform: none;
+    }
+    .param-tile:nth-child(2n) .info-tooltip::after {
+      left: auto;
+      right: 14px;
+      transform: none;
+    }
+    .param-tile:hover .info-tooltip,
+    .info-btn:focus-visible + .info-tooltip,
+    .info-btn:hover + .info-tooltip {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(-50%) translateY(-2px);
+    }
+    .param-tile:nth-child(2n):hover .info-tooltip,
+    .param-tile:nth-child(2n) .info-btn:focus-visible + .info-tooltip,
+    .param-tile:nth-child(2n) .info-btn:hover + .info-tooltip {
+      transform: translateY(-2px);
+    }
+    .tooltip-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #ffffff;
+      margin-bottom: 4px;
+    }
+    .tooltip-desc {
+      font-size: 11px;
+      color: var(--text-sub);
+      line-height: 1.35;
+      margin-bottom: 6px;
+    }
+    .tooltip-tip {
+      font-size: 10px;
+      color: var(--primary-light);
+      line-height: 1.3;
+      padding-top: 4px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    /* Нижняя панель действий карточки */
+    .card-actions {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border-glass);
+      background: rgba(10, 10, 14, 0.5);
+    }
+    .card-action-btn {
+      width: 100%;
+      height: 36px;
+      border-radius: 8px;
+      background: rgba(16, 185, 129, 0.16);
+      border: 1px solid var(--border-emerald);
+      color: var(--primary-light);
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+    .card-action-btn:hover {
+      background: var(--primary);
+      color: #ffffff;
+      box-shadow: 0 0 16px var(--primary-glow);
+    }
+    .card-action-btn.active {
+      background: rgba(251, 191, 36, 0.16);
+      border-color: rgba(251, 191, 36, 0.4);
+      color: #fbbf24;
+    }
+    .card-action-btn.active:hover {
+      background: #f59e0b;
+      color: #000000;
+    }
+
+    /* ==========================================================================
+       АДАПТИВНОСТЬ: < 640px (Мобильный режим: Bottom Sheet + Нижняя навигация)
+       ========================================================================== */
+    @media (max-width: 640px) {
+      .topbar {
+        padding: 0 10px;
+      }
+      .logo-text {
+        font-size: 11px;
+      }
+      .mockup-badge {
+        display: none;
+      }
+      .topbar-center {
+        width: 140px;
+      }
+      .kbd-shortcut {
+        display: none;
+      }
+      .utc-clock {
+        display: none;
+      }
+
+      .sat-card {
+        top: auto;
+        bottom: 52px;
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-height: 55vh;
+        border-radius: 16px 16px 0 0;
+        border-top: 1px solid var(--border-glass-light);
+        z-index: 115;
+        transform: translateY(0);
+      }
+      .sat-card.hidden {
+        transform: translateY(110%);
+      }
+      .focus-badge {
+        top: 96px;
+        max-width: 90vw;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========================================================================
+       ЦЕНТРАЛЬНАЯ 3D-СЦЕНА (SVG МАКЕТ ЗЕМНОГО ШАРА СО СПУТНИКАМИ)
+       ======================================================================== -->
+  <main class="viewport-canvas" id="viewportStage" aria-label="Интерактивная карта околоземного пространства">
+    <div class="globe-stage" id="globeStage">
+      <div class="globe-atmosphere"></div>
+      
+      <!-- Сфера планеты -->
+      <div class="globe-sphere" id="globeSphere">
+        <svg class="globe-svg" viewBox="0 0 600 600" aria-hidden="true">
+          <defs>
+            <radialGradient id="oceanGrad" cx="40%" cy="35%" r="65%">
+              <stop offset="0%" stop-color="#1e3a68"/>
+              <stop offset="50%" stop-color="#0e2343"/>
+              <stop offset="90%" stop-color="#040c1b"/>
+              <stop offset="100%" stop-color="#02060f"/>
+            </radialGradient>
+            <linearGradient id="orbitGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#10b981" stop-opacity="0.9"/>
+              <stop offset="50%" stop-color="#34d399" stop-opacity="0.4"/>
+              <stop offset="100%" stop-color="#059669" stop-opacity="0.1"/>
+            </linearGradient>
+          </defs>
+          
+          <circle cx="300" cy="300" r="298" fill="url(#oceanGrad)" />
+
+          <!-- Сетка координат (меридианы и параллели) -->
+          <g stroke="rgba(56, 189, 248, 0.12)" stroke-width="1" fill="none">
+            <ellipse cx="300" cy="300" rx="298" ry="80"/>
+            <ellipse cx="300" cy="300" rx="298" ry="170"/>
+            <ellipse cx="300" cy="300" rx="298" ry="250"/>
+            <line x1="300" y1="2" x2="300" y2="598" stroke-dasharray="3 3"/>
+            <line x1="2" y1="300" x2="598" y2="300"/>
+            <ellipse cx="300" cy="300" rx="90" ry="298"/>
+            <ellipse cx="300" cy="300" rx="190" ry="298"/>
+          </g>
+
+          <!-- Стилизованные полупрозрачные континенты -->
+          <g fill="rgba(56, 189, 248, 0.18)" stroke="rgba(56, 189, 248, 0.3)" stroke-width="1.2">
+            <!-- Евразия и Африка -->
+            <path d="M260,140 Q290,110 350,120 Q420,135 450,180 Q480,230 460,270 Q430,300 370,290 Q340,320 330,380 Q310,430 290,440 Q270,390 280,330 Q250,300 230,240 Q220,170 260,140 Z"/>
+            <!-- Америка -->
+            <path d="M120,160 Q180,150 190,210 Q200,260 170,290 Q180,340 190,390 Q170,460 140,430 Q130,370 140,310 Q110,260 100,210 Z"/>
+            <!-- Австралия -->
+            <path d="M420,380 Q470,370 480,410 Q470,450 430,440 Q400,420 420,380 Z"/>
+          </g>
+        </svg>
+
+        <div class="globe-clouds" id="cloudLayer"></div>
+      </div>
+
+      <!-- Орбитальная траектория выбранного аппарата (ограничена радиусом глобуса) -->
+      <svg class="orbit-path-svg" id="orbitPathLayer" viewBox="0 0 600 600" aria-hidden="true">
+        <defs>
+          <linearGradient id="orbitGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#10b981" stop-opacity="0.25"/>
+            <stop offset="35%" stop-color="#10b981" stop-opacity="0.95"/>
+            <stop offset="65%" stop-color="#34d399" stop-opacity="1"/>
+            <stop offset="100%" stop-color="#10b981" stop-opacity="0.25"/>
+          </linearGradient>
+        </defs>
+        <!-- Задняя полусфера (за диском, полупрозрачная) -->
+        <ellipse class="orbit-ellipse-back" cx="300" cy="300" rx="285" ry="110" transform="rotate(-28 300 300)"/>
+        <!-- Видимая часть по диску глобуса -->
+        <ellipse class="orbit-ellipse" cx="300" cy="300" rx="285" ry="110" transform="rotate(-28 300 300)"/>
+      </svg>
+
+      <!-- Интерактивные точки спутников -->
+      <div class="sat-dots-layer" id="satDotsLayer"></div>
+    </div>
+  </main>
+
+  <!-- ========================================================================
+       ТОПБАР (48px)
+       ======================================================================== -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="pulse-dot"></div>
+      <div class="logo-text">СПУТНИК-ОНЛАЙН</div>
+      <span class="mockup-badge">МАКЕТ ИНТЕРФЕЙСА</span>
+    </div>
+
+    <!-- Поиск -->
+    <div class="topbar-center">
+      <div class="search-input-box">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="topbarSearch" class="search-input" placeholder="Поиск спутника по названию или NORAD... (⌘K)" autocomplete="off" aria-label="Поиск спутника">
+        <span class="kbd-shortcut">⌘K</span>
+      </div>
+
+      <!-- Выпадающий список совпадений -->
+      <div class="search-dropdown" id="searchDropdown" role="listbox"></div>
+    </div>
+
+    <div class="topbar-right">
+      <div class="utc-clock" id="liveUtcClock">00:00:00 UTC</div>
+
+      <!-- Аватар и выпадающее меню пользователя -->
+      <div class="user-menu-wrapper">
+        <button class="avatar-btn" id="avatarMenuBtn" aria-label="Меню пользователя" aria-haspopup="true">А</button>
+        <div class="user-dropdown" id="userDropdown">
+          <div class="user-dropdown-header">
+            <div class="user-name">Александр Новиков</div>
+            <div class="user-role">Оператор ЦУП</div>
+          </div>
+          <button class="user-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+            Панель управления
+          </button>
+          <button class="user-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+            Администрирование
+          </button>
+          <button class="user-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            Профиль оператора
+          </button>
+          <div style="height:1px; background:rgba(255,255,255,0.06); margin:4px 0;"></div>
+          <button class="user-item danger">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+            Выйти
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================================
+       ЛЕНТА ЧИПСОВ СОЗВЕЗДИЙ
+       ======================================================================== -->
+  <nav class="chips-bar" id="chipsBar" aria-label="Фильтры группировок">
+    <!-- Генерируются в JS -->
+  </nav>
+
+  <!-- ========================================================================
+       ПЛАШКА ФОКУСА
+       ======================================================================== -->
+  <div class="focus-badge" id="focusBadge">
+    <span style="color:var(--primary-light)">◎ ФОКУС</span> — <span id="focusSatName">ISS (ZARYA)</span>
+    <button class="focus-badge-close" id="focusCloseBtn" aria-label="Снять фокус" title="Снять фокус">✕</button>
+  </div>
+
+  <!-- ========================================================================
+       КАРТОЧКА СПУТНИКА (Справа, ~380px)
+       ======================================================================== -->
+  <aside class="sat-card" id="satCard" aria-label="Детальная карточка спутника">
+    <div class="card-header">
+      <div class="card-header-top">
+        <div class="card-sat-name" id="cardSatName">ISS (ZARYA)</div>
+        <button class="card-close-btn" id="cardCloseBtn" aria-label="Закрыть карточку" title="Закрыть">✕</button>
+      </div>
+      <div class="card-meta-row">
+        <span class="card-norad" id="cardNorad">#25544</span>
+        <span class="card-cat-badge" id="cardCatBadge" style="background:rgba(239,68,68,0.18); border:1px solid #ef4444; color:#fca5a5;">МКС</span>
+        <span class="card-country-badge" id="cardCountry">🇷🇺 / 🇺🇸 Россия/США</span>
+      </div>
+    </div>
+
+    <div class="card-scrollable">
+      <!-- Назначение -->
+      <div class="card-section">
+        <div class="section-title">Назначение</div>
+        <div class="purpose-box">
+          <div id="cardPurpose">Международная космическая пилотируемая станция, используемая как многоцелевой научно-исследовательский комплекс в условиях микрогравитации.</div>
+          <span class="payload-type-tag" id="cardPayloadTag">Полезная нагрузка</span>
+        </div>
+      </div>
+
+      <!-- Запуск -->
+      <div class="card-section">
+        <div class="section-title">Запуск</div>
+        <div class="launch-box">
+          <div class="launch-date" id="cardLaunchDate">20 ноября 1998 г.</div>
+          <div class="launch-site" id="cardLaunchSite">Космодром Байконур, Казахстан</div>
+          <div class="duration-tag" id="cardDurationTag">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span id="cardDurationText">27 лет 11 мес. в космосе</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Параметры полёта (10 плиток) -->
+      <div class="card-section">
+        <div class="section-title">Параметры полёта</div>
+        <div class="flight-grid">
+          
+          <!-- 1. Высота -->
+          <div class="param-tile">
+            <div class="param-tile-header">
+              <span class="param-label">Высота</span>
+              <button class="info-btn" tabindex="0" aria-label="Справка: Высота">ⓘ</button>
+              <div class="info-tooltip">
+                <div class="tooltip-title">Высота (км)</div>
+                <div class="tooltip-desc">Расстояние от поверхности Земли до космического аппарата в данный момент времени.</div>
+                <div class="tooltip-tip">💡 МКС летает на ~420 км, Starlink — ~550 км, ГЛОНАСС/GPS — ~20 000 км, геостационарные — 35 786 км.</div>
+              </div>
+            </div>
+            <div class="param-value live" id="paramAltitude">418.4 км</div>
+          </div>
+
+          <!-- 2. Скорость -->
+          <div class="param-tile">
+            <div class="param-tile-header">
+              <span class="param-label">Скорость</span>
+              <button class="info-btn" tabindex="0" aria-label="Справка: Скорость">ⓘ</button>
+              <div class="info-tooltip">
+                <div class="tooltip-title">Скорость (км/с)</div>
+                <div class="tooltip-desc">Орбитальная скорость движения аппарата относительно центра Земли.</div>
+                <div class="tooltip-tip">💡 Первая космическая скорость ~7.9 км/с (~28 400 км/ч). Чем выше орбита, тем меньше скорость.</div>
+              </div>
+            </div>
+            <div class="param-value live" id="paramSpeed">7.66 км/с</div>
+          </div>
+
+          <!-- 3. Период -->
+          <div class="param-tile">
+            <div class="param-tile-header">
+              <span class="param-label">Период</span>
+              <button class="info-btn" tabindex="0" aria-label="Справка: Период">ⓘ</button>
+              <div class="info-tooltip">
+                <div class="tooltip-title">Период обращения</div>
+                <div class="tooltip-desc">Время одного полного оборота вокруг Земли.</div>
+                <div class="tooltip-tip">💡 На низкой орбите виток длится 90–100 мин. На геостационарной — ровно 23 ч 56 мин (1436 мин).</div>
+              </div>
+            </div>
+            <div class="param-value" id="paramPeriod">92.87 мин</div>
+          </div>
+
+          <!-- 4. Наклонение -->
+          <div class="param-tile">
+            <div class="param-tile-header">
+              <span class="param-label">Наклонение</span>
+              <button class="info-btn" tabindex="0" aria-label="Справка: Наклонение">ⓘ</button>
+              <div class="info-tooltip">
+                <div class="tooltip-title">Наклонение орбиты</div>
+                <div class="tooltip-desc">Угол между плоскостью орбиты и экватором Земли.</div>
+                <div class="tooltip-tip">💡 0° — строго над экватором, ~90° — над полюсами, 51.6° — как у МКС (удобно для Байконура и Канаверала).</div>
+              </div>
+            </div>
+            <div class="param-value" id="paramInclination">51.64°</div>
+          </div>
+
+          <!-- 5. Апогей / Перигей -->
+          <div class="param-tile">
+            <div class="param-tile-header">
+              <span class="param-label">Апогей / Перигей</span>
+              <button class="info-btn" tabindex="0" aria-label="Справка: Апогей и Перигей">ⓘ</button>
+              <div class="info-tooltip">
+                <div class="tooltip-title">Апогей / Перигей</div>
+                <div class="tooltip-desc">Максимальная (апогей) и минимальная (перигей) точки удаления от Земли.</div>
+                <div class="tooltip-tip">💡 Разница показывает сплюснутость витка. Перигей ниже ~150 км ведёт к сгоранию в атмосфере.</div>
+              </div>
+            </div>
+            <div class="param-value" id="paramApoPeri">422 / 415 км</div>
+          </div>
+
+          <!-- 6. Эксцентриситет -->
+          <div class="param-tile">
+            <div class="param-tile-header">
+              <span class="param-label">Эксцентриситет</span>
+              <button class="info-btn" tabindex="0" aria-label="Справка: Эксцентриситет">ⓘ</button>
+              <div class="info-tooltip">
+                <div class="tooltip-title">Эксцентриситет (e)</div>
+                <div class="tooltip-desc">Степень вытянутости орбиты. 0 — идеальный круг, больше 0 — эллипс.</div>
+                <div class="tooltip-tip">💡 Большинство рабочих аппаратов имеют почти круговые орбиты (e &lt; 0.005).</div>
+              </div>
+            </div>
+            <div class="param-value" id="paramEccentricity">0.00052</div>
+          </div>
+
+          <!-- 7. Тип орбиты -->
+          <div class="param-tile">
+            <div class="param-tile-header">
+              <span class="param-label">Тип орбиты</span>
+              <button class="info-btn" tabindex="0" aria-label="Справка: Тип орбиты">ⓘ</button>
+              <div class="info-tooltip">
+                <div class="tooltip-title">Классификация орбиты</div>
+                <div class="tooltip-desc">LEO — низкая (&lt;2000 км), MEO — средневысотная, GEO — геостационарная (35 786 км), SSO — солнечно-синхронная.</div>
+                <div class="tooltip-tip">💡 Выбирается исходя из задач связи, навигации или наблюдения за поверхностью.</div>
+              </div>
+            </div>
+            <div class="param-value" id="paramOrbitType">LEO · низкая</div>
+          </div>
+
+          <!-- 8. Координаты -->
+          <div class="param-tile">
+            <div class="param-tile-header">
+              <span class="param-label">Координаты</span>
+              <button class="info-btn" tabindex="0" aria-label="Справка: Координаты подспутниковой точки">ⓘ</button>
+              <div class="info-tooltip">
+                <div class="tooltip-title">Подспутниковая точка</div>
+                <div class="tooltip-desc">Широта и долгота географической точки на Земле, над которой находится аппарат в данный момент.</div>
+                <div class="tooltip-tip">💡 Меняются непрерывно по мере движения аппарата по витку.</div>
+              </div>
+            </div>
+            <div class="param-value live" id="paramCoords">24.12° N, 78.45° E</div>
+          </div>
+
+          <!-- 9. Витков/сутки -->
+          <div class="param-tile">
+            <div class="param-tile-header">
+              <span class="param-label">Витков / сутки</span>
+              <button class="info-btn" tabindex="0" aria-label="Справка: Витков в сутки">ⓘ</button>
+              <div class="info-tooltip">
+                <div class="tooltip-title">Среднее движение (Mean Motion)</div>
+                <div class="tooltip-desc">Количество полных витков вокруг Земли за 24 часа.</div>
+                <div class="tooltip-tip">💡 МКС делает ~15.5 витков в сутки, а геостационарный спутник связи — ровно 1.0 оборот.</div>
+              </div>
+            </div>
+            <div class="param-value" id="paramMeanMotion">15.51 об/сут</div>
+          </div>
+
+          <!-- 10. Возраст TLE -->
+          <div class="param-tile">
+            <div class="param-tile-header">
+              <span class="param-label">Возраст TLE</span>
+              <button class="info-btn" tabindex="0" aria-label="Справка: Возраст TLE набора">ⓘ</button>
+              <div class="info-tooltip">
+                <div class="tooltip-title">Эпоха данных TLE</div>
+                <div class="tooltip-desc">Время, прошедшее с момента последнего измерения параметров орбиты сетью слежения NORAD.</div>
+                <div class="tooltip-tip">💡 Из-за возмущений атмосферы TLE актуален 2–4 дня, после чего требует обновления.</div>
+              </div>
+            </div>
+            <div class="param-value" id="paramEpochAge">0.4 сут (~10 ч)</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Кнопка «В избранное» -->
+    <div class="card-actions">
+      <button class="card-action-btn" id="cardFavToggleBtn">
+        <span id="cardFavStar">★</span>
+        <span id="cardFavText">В избранное</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ========================================================================
+       ИНЛАЙН JAVASCRIPT: ДАННЫЕ И ИНТЕРАКТИВНОСТЬ
+       ======================================================================== -->
+  <script>
+    // --- Демонстрационный набор спутников (~15 подробных объектов) ---
+    const SATELLITES = [
+      {
+        id: '25544',
+        norad: '25544',
+        name: 'ISS (ZARYA)',
+        category: 'ISS',
+        categoryLabel: 'МКС',
+        country: '🇷🇺 / 🇺🇸 Россия/США',
+        purpose: 'Международная космическая пилотируемая станция, комплекс для фундаментальных научных экспериментов в условиях микрогравитации.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '20 ноября 1998 г.',
+        cosmodrome: 'Космодром Байконур, Казахстан',
+        duration: '27 лет 11 мес. в космосе',
+        alt: 418.4,
+        speed: 7.66,
+        period: '92.87 мин',
+        inc: '51.64°',
+        apogeePerigee: '422 / 415 км',
+        ecc: '0.00052',
+        orbitType: 'LEO · низкая',
+        lat: 24.12,
+        lng: 78.45,
+        meanMotion: '15.51 об/сут',
+        epochAge: '0.4 сут (~10 ч)',
+        isFavorite: true,
+        x: 48, y: 44
+      },
+      {
+        id: '48274',
+        norad: '48274',
+        name: 'TIANGONG',
+        category: 'OTHER',
+        categoryLabel: 'Другое',
+        country: '🇨🇳 Китай',
+        purpose: 'Китайская многомодульная орбитальная станция третьего поколения для долгосрочных пилотируемых экспедиций.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '29 апреля 2021 г.',
+        cosmodrome: 'Космодром Вэньчан, Китай',
+        duration: '5 лет 6 мес. в космосе',
+        alt: 388.2,
+        speed: 7.68,
+        period: '92.20 мин',
+        inc: '41.47°',
+        apogeePerigee: '392 / 384 км',
+        ecc: '0.00061',
+        orbitType: 'LEO · низкая',
+        lat: -12.30,
+        lng: 114.20,
+        meanMotion: '15.61 об/сут',
+        epochAge: '0.6 сут (~14 ч)',
+        isFavorite: false,
+        x: 62, y: 56
+      },
+      {
+        id: '20580',
+        norad: '20580',
+        name: 'HUBBLE SPACE TELESCOPE',
+        category: 'TELESCOPE',
+        categoryLabel: 'Телескопы',
+        country: '🇺🇸 США',
+        purpose: 'Автоматическая орбитальная обсерватория NASA/ESA, работающая в ультрафиолетовом, видимом и ближнем инфракрасном диапазонах.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '24 апреля 1990 г.',
+        cosmodrome: 'Космодром мыс Канаверал, США',
+        duration: '36 лет 6 мес. в космосе',
+        alt: 535.1,
+        speed: 7.59,
+        period: '95.34 мин',
+        inc: '28.47°',
+        apogeePerigee: '540 / 530 км',
+        ecc: '0.00074',
+        orbitType: 'LEO · низкая',
+        lat: 18.50,
+        lng: -64.20,
+        meanMotion: '15.10 об/сут',
+        epochAge: '1.2 сут',
+        isFavorite: true,
+        x: 32, y: 38
+      },
+      {
+        id: '51042',
+        norad: '51042',
+        name: 'STARLINK-3110',
+        category: 'STARLINK',
+        categoryLabel: 'Starlink',
+        country: '🇺🇸 США',
+        purpose: 'Телекоммуникационный аппарат созвездия Starlink для предоставления глобального высокоскоростного широкополосного интернета.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '18 января 2022 г.',
+        cosmodrome: 'Космодром мыс Канаверал, США',
+        duration: '4 года 9 мес. в космосе',
+        alt: 549.3,
+        speed: 7.58,
+        period: '95.62 мин',
+        inc: '53.22°',
+        apogeePerigee: '552 / 546 км',
+        ecc: '0.00041',
+        orbitType: 'LEO · низкая',
+        lat: 48.21,
+        lng: 32.11,
+        meanMotion: '15.06 об/сут',
+        epochAge: '0.3 сут (~7 ч)',
+        isFavorite: false,
+        x: 55, y: 28
+      },
+      {
+        id: '56214',
+        norad: '56214',
+        name: 'STARLINK-5821',
+        category: 'STARLINK',
+        categoryLabel: 'Starlink',
+        country: '🇺🇸 США',
+        purpose: 'Спутник группировки Starlink поколения V2 Mini с повышенной пропускной способностью фазированных антенных решеток.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '19 апреля 2023 г.',
+        cosmodrome: 'Космодром мыс Канаверал, США',
+        duration: '3 года 6 мес. в космосе',
+        alt: 550.0,
+        speed: 7.58,
+        period: '95.64 мин',
+        inc: '53.22°',
+        apogeePerigee: '554 / 546 км',
+        ecc: '0.00058',
+        orbitType: 'LEO · низкая',
+        lat: -34.12,
+        lng: -58.40,
+        meanMotion: '15.05 об/сут',
+        epochAge: '0.8 сут (~19 ч)',
+        isFavorite: false,
+        x: 28, y: 68
+      },
+      {
+        id: '47712',
+        norad: '47712',
+        name: 'ONEWEB-0145',
+        category: 'ONEWEB',
+        categoryLabel: 'OneWeb',
+        country: '🇬🇧 Великобритания',
+        purpose: 'Низкоорбитальный телекоммуникационный аппарат Ku/Ka-диапазона для глобального транзита данных в труднодоступных регионах.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '25 марта 2021 г.',
+        cosmodrome: 'Космодром Восточный, Россия',
+        duration: '5 лет 7 мес. в космосе',
+        alt: 1200.5,
+        speed: 7.24,
+        period: '109.40 мин',
+        inc: '87.90°',
+        apogeePerigee: '1205 / 1195 км',
+        ecc: '0.00080',
+        orbitType: 'LEO · низкая',
+        lat: 71.05,
+        lng: 45.18,
+        meanMotion: '13.16 об/сут',
+        epochAge: '0.9 сут',
+        isFavorite: false,
+        x: 52, y: 15
+      },
+      {
+        id: '49021',
+        norad: '49021',
+        name: 'ONEWEB-0210',
+        category: 'ONEWEB',
+        categoryLabel: 'OneWeb',
+        country: '🇬🇧 Великобритания',
+        purpose: 'Спутник группировки OneWeb первого этапа развертывания сети полярного покрытия.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '21 августа 2021 г.',
+        cosmodrome: 'Космодром Байконур, Казахстан',
+        duration: '5 лет 2 мес. в космосе',
+        alt: 1201.2,
+        speed: 7.24,
+        period: '109.42 мин',
+        inc: '87.90°',
+        apogeePerigee: '1204 / 1198 км',
+        ecc: '0.00042',
+        orbitType: 'LEO · низкая',
+        lat: -52.18,
+        lng: 142.30,
+        meanMotion: '13.16 об/сут',
+        epochAge: '1.1 сут',
+        isFavorite: false,
+        x: 74, y: 78
+      },
+      {
+        id: '42956',
+        norad: '42956',
+        name: 'IRIDIUM 106',
+        category: 'IRIDIUM',
+        categoryLabel: 'Iridium',
+        country: '🇺🇸 США',
+        purpose: 'Спутник спутниковой связи Iridium NEXT с полезной нагрузкой мониторинга авиалайнеров Aireon ADS-B.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '9 октября 2017 г.',
+        cosmodrome: 'База Ванденберг, США',
+        duration: '9 лет 1 мес. в космосе',
+        alt: 780.2,
+        speed: 7.46,
+        period: '100.41 мин',
+        inc: '86.40°',
+        apogeePerigee: '782 / 778 км',
+        ecc: '0.00030',
+        orbitType: 'LEO · низкая',
+        lat: 63.45,
+        lng: -112.50,
+        meanMotion: '14.34 об/сут',
+        epochAge: '0.5 сут',
+        isFavorite: false,
+        x: 20, y: 22
+      },
+      {
+        id: '43924',
+        norad: '43924',
+        name: 'IRIDIUM 175',
+        category: 'IRIDIUM',
+        categoryLabel: 'Iridium',
+        country: '🇺🇸 США',
+        purpose: 'Спутник созвездия Iridium NEXT второго поколения для спутниковой телефонии и интернета вещей IoT.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '11 января 2019 г.',
+        cosmodrome: 'База Ванденберг, США',
+        duration: '7 лет 10 мес. в космосе',
+        alt: 781.0,
+        speed: 7.46,
+        period: '100.43 мин',
+        inc: '86.40°',
+        apogeePerigee: '783 / 779 км',
+        ecc: '0.00032',
+        orbitType: 'LEO · низкая',
+        lat: -18.20,
+        lng: 35.80,
+        meanMotion: '14.34 об/сут',
+        epochAge: '0.7 сут',
+        isFavorite: false,
+        x: 46, y: 64
+      },
+      {
+        id: '40001',
+        norad: '40001',
+        name: 'GLONASS-M 755',
+        category: 'NAVIGATION',
+        categoryLabel: 'Навигация',
+        country: '🇷🇺 Россия',
+        purpose: 'Навигационный космический аппарат российской глобальной спутниковой системы ГЛОНАСС.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '14 июня 2014 г.',
+        cosmodrome: 'Космодром Плесецк, Россия',
+        duration: '12 лет 5 мес. в космосе',
+        alt: 19130.4,
+        speed: 3.95,
+        period: '675.72 мин',
+        inc: '64.80°',
+        apogeePerigee: '19145 / 19115 км',
+        ecc: '0.00084',
+        orbitType: 'MEO · средневысокая',
+        lat: 55.75,
+        lng: 37.61,
+        meanMotion: '2.13 об/сут',
+        epochAge: '1.5 сут',
+        isFavorite: true,
+        x: 58, y: 35
+      },
+      {
+        id: '24876',
+        norad: '24876',
+        name: 'GPS BIIR-2 (PRN 13)',
+        category: 'NAVIGATION',
+        categoryLabel: 'Навигация',
+        country: '🇺🇸 США',
+        purpose: 'Навигационный аппарат созвездия NAVSTAR GPS с атомными стандартами частоты на цезии и рубидии.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '23 июля 1997 г.',
+        cosmodrome: 'Космодром мыс Канаверал, США',
+        duration: '29 лет 3 мес. в космосе',
+        alt: 20180.0,
+        speed: 3.88,
+        period: '717.93 мин',
+        inc: '55.00°',
+        apogeePerigee: '20210 / 20150 км',
+        ecc: '0.00140',
+        orbitType: 'MEO · средневысокая',
+        lat: 32.14,
+        lng: -102.30,
+        meanMotion: '2.01 об/сут',
+        epochAge: '0.8 сут',
+        isFavorite: false,
+        x: 25, y: 48
+      },
+      {
+        id: '33591',
+        norad: '33591',
+        name: 'NOAA 19',
+        category: 'WEATHER',
+        categoryLabel: 'Погода',
+        country: '🇺🇸 США',
+        purpose: 'Метеорологический спутник дистанционного зондирования Земли на солнечно-синхронной орбите.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '6 февраля 2009 г.',
+        cosmodrome: 'База Ванденберг, США',
+        duration: '17 лет 9 мес. в космосе',
+        alt: 850.3,
+        speed: 7.42,
+        period: '102.12 мин',
+        inc: '98.70°',
+        apogeePerigee: '866 / 844 км',
+        ecc: '0.00150',
+        orbitType: 'SSO · солнечно-синхр.',
+        lat: 10.42,
+        lng: 105.12,
+        meanMotion: '14.10 об/сут',
+        epochAge: '0.4 сут',
+        isFavorite: false,
+        x: 70, y: 50
+      },
+      {
+        id: '57166',
+        norad: '57166',
+        name: 'METEOR-M 2-3',
+        category: 'WEATHER',
+        categoryLabel: 'Погода',
+        country: '🇷🇺 Россия',
+        purpose: 'Российский гидрометеорологический комплекс оперативного мониторинга ледовой обстановки и климата.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '27 июня 2023 г.',
+        cosmodrome: 'Космодром Восточный, Россия',
+        duration: '3 года 4 мес. в космосе',
+        alt: 820.1,
+        speed: 7.44,
+        period: '101.30 мин',
+        inc: '98.57°',
+        apogeePerigee: '828 / 816 км',
+        ecc: '0.00082',
+        orbitType: 'SSO · солнечно-синхр.',
+        lat: 61.20,
+        lng: 73.10,
+        meanMotion: '14.21 об/сут',
+        epochAge: '0.5 сут',
+        isFavorite: false,
+        x: 65, y: 25
+      },
+      {
+        id: '50463',
+        norad: '50463',
+        name: 'JWST (JAMES WEBB)',
+        category: 'TELESCOPE',
+        categoryLabel: 'Телескопы',
+        country: '🇺🇸 / 🇪🇺 США/ESA',
+        purpose: 'Инфракрасная космическая обсерватория в точке Лагранжа L2 системы Солнце-Земля для изучения ранней Вселенной.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '25 декабря 2021 г.',
+        cosmodrome: 'Гвианский космический центр (Куру), Французская Гвиана',
+        duration: '4 года 10 мес. в космосе',
+        alt: 1500000.0,
+        speed: 0.22,
+        period: '8640.0 мин',
+        inc: '5.20°',
+        apogeePerigee: '1510000 / 1490000 км',
+        ecc: '0.00500',
+        orbitType: 'HEO · гало-орбита L2',
+        lat: 0.00,
+        lng: 0.00,
+        meanMotion: '0.17 об/сут',
+        epochAge: '2.1 сут',
+        isFavorite: false,
+        x: 82, y: 22
+      },
+      {
+        id: '55506',
+        norad: '55506',
+        name: 'ELEKTRO-L 4',
+        category: 'WEATHER',
+        categoryLabel: 'Погода',
+        country: '🇷🇺 Россия',
+        purpose: 'Геостационарный гидрометеорологический комплекс для глобального сканирования диска Земли каждые 15 минут.',
+        objectType: 'Полезная нагрузка',
+        launchDate: '5 февраля 2023 г.',
+        cosmodrome: 'Космодром Байконур, Казахстан',
+        duration: '3 года 9 мес. в космосе',
+        alt: 35786.0,
+        speed: 3.07,
+        period: '1436.07 мин',
+        inc: '0.05°',
+        apogeePerigee: '35790 / 35782 км',
+        ecc: '0.00010',
+        orbitType: 'GEO · геостационарная',
+        lat: 0.00,
+        lng: 165.80,
+        meanMotion: '1.00 об/сут',
+        epochAge: '0.2 сут',
+        isFavorite: false,
+        x: 85, y: 52
+      }
+    ];
+
+    // Дополнительные фоновые спутники на глобусе (для эффекта созвездий ~40 точек)
+    const BACKGROUND_DOTS = [
+      { name: 'STARLINK-1007', cat: 'STARLINK', x: 38, y: 24 },
+      { name: 'STARLINK-1422', cat: 'STARLINK', x: 42, y: 32 },
+      { name: 'STARLINK-2051', cat: 'STARLINK', x: 60, y: 65 },
+      { name: 'STARLINK-2409', cat: 'STARLINK', x: 33, y: 54 },
+      { name: 'STARLINK-3211', cat: 'STARLINK', x: 49, y: 72 },
+      { name: 'STARLINK-4102', cat: 'STARLINK', x: 72, y: 38 },
+      { name: 'STARLINK-4550', cat: 'STARLINK', x: 64, y: 46 },
+      { name: 'ONEWEB-0012', cat: 'ONEWEB', x: 50, y: 10 },
+      { name: 'ONEWEB-0084', cat: 'ONEWEB', x: 46, y: 84 },
+      { name: 'ONEWEB-0312', cat: 'ONEWEB', x: 80, y: 62 },
+      { name: 'IRIDIUM 120', cat: 'IRIDIUM', x: 18, y: 35 },
+      { name: 'IRIDIUM 144', cat: 'IRIDIUM', x: 26, y: 78 },
+      { name: 'IRIDIUM 162', cat: 'IRIDIUM', x: 76, y: 26 },
+      { name: 'GLONASS-K1 702', cat: 'NAVIGATION', x: 66, y: 18 },
+      { name: 'GPS BIIF-1', cat: 'NAVIGATION', x: 15, y: 62 },
+      { name: 'GALILEO 26', cat: 'NAVIGATION', x: 39, y: 60 },
+      { name: 'BEIDOU-3 M1', cat: 'NAVIGATION', x: 74, y: 48 },
+      { name: 'METOP-C', cat: 'WEATHER', x: 54, y: 82 },
+      { name: 'GOES 18', cat: 'WEATHER', x: 12, y: 45 },
+      { name: 'FENGYUN 3D', cat: 'WEATHER', x: 78, y: 42 },
+      { name: 'CHANDRA X-RAY', cat: 'TELESCOPE', x: 86, y: 30 },
+      { name: 'SPEKTR-RG', cat: 'TELESCOPE', x: 88, y: 70 },
+      { name: 'COSMOS 2558', cat: 'OTHER', x: 44, y: 18 },
+      { name: 'RESURS-P 4', cat: 'OTHER', x: 62, y: 30 },
+      { name: 'CZ-2D R/B', cat: 'OTHER', x: 36, y: 75 }
+    ];
+
+    // Цвета категорий
+    const CATEGORY_COLORS = {
+      'ISS': '#ef4444',
+      'STARLINK': '#3b82f6',
+      'ONEWEB': '#8b5cf6',
+      'IRIDIUM': '#f59e0b',
+      'NAVIGATION': '#eab308',
+      'WEATHER': '#06b6d4',
+      'TELESCOPE': '#ec4899',
+      'OTHER': '#10b981'
+    };
+
+    // Новости Mission Control (5 реалистичных новостей из news.js)
+    const NEWS_DATA = [
+      {
+        id: 'n1',
+        category: 'launch',
+        categoryLabel: 'Запуск',
+        color: '#ef4444',
+        title: 'Экипаж «Союза МС-29» перешёл на борт МКС',
+        summary: 'Стыковка прошла в автоматическом режиме за четыре витка. Новая экспедиция примет вахту и продолжит серию выходов в открытый космос для обслуживания внешних научных платформ.',
+        source: 'Роскосмос · 2 ч назад',
+        satNorad: '25544'
+      },
+      {
+        id: 'n2',
+        category: 'discovery',
+        categoryLabel: 'Открытие',
+        color: '#ec4899',
+        title: 'JWST зафиксировал атмосферу у скалистой экзопланеты',
+        summary: 'Спектр транзита в инфракрасном диапазоне указывает на плотную оболочку из углекислого газа. Наблюдение потребовало восьми последовательных прохождений планеты по диску звезды.',
+        source: 'NASA · 18 ч назад',
+        satNorad: '50463'
+      },
+      {
+        id: 'n3',
+        category: 'science',
+        categoryLabel: 'Наука',
+        color: '#ec4899',
+        title: 'Hubble уточнил скорость расширения в ближней Вселенной',
+        summary: 'Новая серия измерений цефеид в 42 галактиках сократила неопределённость постоянной Хаббла до 1.3%. Расхождение с реликтовым фоном при этом сохраняется.',
+        source: 'SpaceNews · 1 день назад',
+        satNorad: '20580'
+      },
+      {
+        id: 'n4',
+        category: 'science',
+        categoryLabel: 'Наука',
+        color: '#10b981',
+        title: 'На «Тяньгуне» запустили серию экспериментов по микрогравитации',
+        summary: 'Китайские операторы включили новую платформу материаловедения в лабораторном модуле «Мэнтянь». Программа рассчитана на 180 суток непрерывной работы.',
+        source: 'Reuters · 2 дня назад',
+        satNorad: '48274'
+      },
+      {
+        id: 'n5',
+        category: 'launch',
+        categoryLabel: 'Запуск',
+        color: '#3b82f6',
+        title: 'SpaceX вывела очередную партию Starlink на низкую околоземную орбиту',
+        summary: 'Двадцать три аппарата успешно отделились на высоте 290 км и готовятся к подъёму на рабочую орбиту. Первая ступень совершила штатную посадку на морскую платформу.',
+        source: 'SpaceX · 3 дня назад',
+        satNorad: '51042'
+      }
+    ];
+
+    // Чипсы группировок со счётчиками
+    const CHIPS_CONFIG = [
+      { key: 'ALL', label: 'Все', count: '15 807', color: '#10b981' },
+      { key: 'ISS', label: 'МКС', count: '2', color: '#ef4444' },
+      { key: 'STARLINK', label: 'Starlink', count: '6 200', color: '#3b82f6' },
+      { key: 'ONEWEB', label: 'OneWeb', count: '648', color: '#8b5cf6' },
+      { key: 'IRIDIUM', label: 'Iridium', count: '75', color: '#f59e0b' },
+      { key: 'NAVIGATION', label: 'Навигация', count: '142', color: '#eab308' },
+      { key: 'WEATHER', label: 'Погода', count: '88', color: '#06b6d4' },
+      { key: 'TELESCOPE', label: 'Телескопы', count: '18', color: '#ec4899' },
+      { key: 'OTHER', label: 'Другое', count: '8 634', color: '#10b981' },
+      { key: 'FAVORITES', label: '★ Избранное', count: '3', color: '#fbbf24' }
+    ];
+
+    // ========================================================================
+    // СОСТОЯНИЕ ПРИЛОЖЕНИЯ
+    // ========================================================================
+    const state = {
+      selectedSatId: '25544',
+      activeChip: 'ALL',
+      cardVisible: true,
+      userMenuOpen: false,
+      searchDropdownOpen: false
+    };
+
+    // DOM-элементы
+    const el = {
+      utcClock: document.getElementById('liveUtcClock'),
+      chipsBar: document.getElementById('chipsBar'),
+      topbarSearch: document.getElementById('topbarSearch'),
+      searchDropdown: document.getElementById('searchDropdown'),
+      avatarMenuBtn: document.getElementById('avatarMenuBtn'),
+      userDropdown: document.getElementById('userDropdown'),
+      focusBadge: document.getElementById('focusBadge'),
+      focusSatName: document.getElementById('focusSatName'),
+      focusCloseBtn: document.getElementById('focusCloseBtn'),
+      satCard: document.getElementById('satCard'),
+      cardCloseBtn: document.getElementById('cardCloseBtn'),
+      cardFavToggleBtn: document.getElementById('cardFavToggleBtn'),
+      cardFavStar: document.getElementById('cardFavStar'),
+      cardFavText: document.getElementById('cardFavText'),
+      satDotsLayer: document.getElementById('satDotsLayer'),
+      orbitPathLayer: document.getElementById('orbitPathLayer'),
+      cloudLayer: document.getElementById('cloudLayer')
+    };
+
+    // ========================================================================
+    // ИНИЦИАЛИЗАЦИЯ И РЕНДЕР
+    // ========================================================================
+    function init() {
+      renderChips();
+      renderSatDots();
+      renderSelectedCard();
+      bindEvents();
+      startUtcClock();
+      startTelemetryJitter();
+    }
+
+    // Живые часы UTC
+    function startUtcClock() {
+      function update() {
+        const now = new Date();
+        const h = String(now.getUTCHours()).padStart(2, '0');
+        const m = String(now.getUTCMinutes()).padStart(2, '0');
+        const s = String(now.getUTCSeconds()).padStart(2, '0');
+        el.utcClock.textContent = `${h}:${m}:${s} UTC`;
+      }
+      update();
+      setInterval(update, 1000);
+    }
+
+    // Живое дрожание телеметрии раз в секунду
+    function startTelemetryJitter() {
+      setInterval(() => {
+        const sat = SATELLITES.find(s => s.id === state.selectedSatId);
+        if (!sat || !state.cardVisible) return;
+
+        const altJitter = (Math.random() - 0.5) * 0.4;
+        const speedJitter = (Math.random() - 0.5) * 0.01;
+        const curAlt = (sat.alt + altJitter).toFixed(1);
+        const curSpeed = (sat.speed + speedJitter).toFixed(2);
+
+        const altEl = document.getElementById('paramAltitude');
+        const speedEl = document.getElementById('paramSpeed');
+        const coordsEl = document.getElementById('paramCoords');
+
+        if (altEl) altEl.textContent = `${curAlt} км`;
+        if (speedEl) speedEl.textContent = `${curSpeed} км/с`;
+
+        if (coordsEl && sat.lat != null) {
+          const latJitter = (sat.lat + (Math.random() - 0.5) * 0.02).toFixed(2);
+          const lngJitter = (sat.lng + (Math.random() - 0.5) * 0.02).toFixed(2);
+          const latSign = Number(latJitter) >= 0 ? 'N' : 'S';
+          const lngSign = Number(lngJitter) >= 0 ? 'E' : 'W';
+          coordsEl.textContent = `${Math.abs(latJitter)}° ${latSign}, ${Math.abs(lngJitter)}° ${lngSign}`;
+        }
+      }, 1000);
+    }
+
+    // Фильтры-чипсы
+    function renderChips() {
+      el.chipsBar.innerHTML = '';
+      CHIPS_CONFIG.forEach(chip => {
+        const btn = document.createElement('button');
+        btn.className = `chip ${state.activeChip === chip.key ? 'active' : ''}`;
+        btn.dataset.key = chip.key;
+        btn.innerHTML = `
+          <span class="chip-dot" style="background:${chip.color}"></span>
+          <span>${chip.label}</span>
+          <span class="chip-count">${chip.count}</span>
+        `;
+        btn.addEventListener('click', () => {
+          state.activeChip = chip.key;
+          renderChips();
+          updateDotsVisibility();
+        });
+        el.chipsBar.appendChild(btn);
+      });
+    }
+
+    function clampDotLabel(dot, x, y) {
+      const label = dot.querySelector('.sat-label');
+      if (!label) return;
+      if (x > 58) {
+        dot.classList.add('pos-flip-x');
+        label.style.left = 'auto';
+        label.style.right = '12px';
+      } else {
+        dot.classList.remove('pos-flip-x');
+        label.style.left = '12px';
+        label.style.right = 'auto';
+      }
+      if (y > 76) {
+        label.style.top = 'auto';
+        label.style.bottom = '2px';
+      } else if (y < 16) {
+        label.style.top = '12px';
+        label.style.bottom = 'auto';
+      } else {
+        label.style.top = '-6px';
+        label.style.bottom = 'auto';
+      }
+    }
+
+    // Отрисовка спутников на глобусе
+    function renderSatDots() {
+      el.satDotsLayer.innerHTML = '';
+
+      SATELLITES.forEach(sat => {
+        const dot = document.createElement('div');
+        dot.className = `sat-dot ${sat.id === state.selectedSatId ? 'active' : ''}`;
+        dot.dataset.id = sat.id;
+        dot.dataset.cat = sat.category;
+        dot.style.left = `${sat.x}%`;
+        dot.style.top = `${sat.y}%`;
+        dot.style.background = CATEGORY_COLORS[sat.category] || '#10b981';
+        dot.style.color = dot.style.background;
+        dot.innerHTML = `<span class="sat-label">${sat.name}</span>`;
+        clampDotLabel(dot, sat.x, sat.y);
+
+        dot.addEventListener('click', () => {
+          selectSatellite(sat.id);
+        });
+        el.satDotsLayer.appendChild(dot);
+      });
+
+      BACKGROUND_DOTS.forEach(bg => {
+        const dot = document.createElement('div');
+        dot.className = 'sat-dot';
+        dot.dataset.cat = bg.cat;
+        dot.style.left = `${bg.x}%`;
+        dot.style.top = `${bg.y}%`;
+        dot.style.background = CATEGORY_COLORS[bg.cat] || '#10b981';
+        dot.style.color = dot.style.background;
+        dot.innerHTML = `<span class="sat-label">${bg.name}</span>`;
+        clampDotLabel(dot, bg.x, bg.y);
+        dot.addEventListener('click', () => {
+          const match = SATELLITES.find(s => s.category === bg.cat) || SATELLITES[0];
+          selectSatellite(match.id);
+        });
+        el.satDotsLayer.appendChild(dot);
+      });
+
+      updateDotsVisibility();
+    }
+
+    function updateDotsVisibility() {
+      const allDots = el.satDotsLayer.querySelectorAll('.sat-dot');
+      allDots.forEach(dot => {
+        const cat = dot.dataset.cat;
+        const id = dot.dataset.id;
+        let visible = true;
+
+        if (state.activeChip === 'FAVORITES') {
+          if (id) {
+            const sat = SATELLITES.find(s => s.id === id);
+            visible = sat && sat.isFavorite;
+          } else {
+            visible = false;
+          }
+        } else if (state.activeChip !== 'ALL') {
+          visible = (cat === state.activeChip);
+        }
+
+        if (visible) {
+          dot.classList.remove('dimmed');
+        } else {
+          dot.classList.add('dimmed');
+        }
+      });
+    }
+
+    // Выбор спутника
+    function selectSatellite(id) {
+      state.selectedSatId = id;
+      state.cardVisible = true;
+      el.satCard.classList.remove('hidden');
+
+      const sat = SATELLITES.find(s => s.id === id);
+      if (sat) {
+        el.focusSatName.textContent = sat.name;
+        el.focusBadge.classList.remove('hidden');
+      }
+
+      const allDots = el.satDotsLayer.querySelectorAll('.sat-dot');
+      allDots.forEach(d => {
+        if (d.dataset.id === id) {
+          d.classList.add('active');
+          if (sat) clampDotLabel(d, sat.x, sat.y);
+        } else {
+          d.classList.remove('active');
+        }
+      });
+
+      renderSelectedCard();
+    }
+
+    // Заполнение правой карточки
+    function renderSelectedCard() {
+      const sat = SATELLITES.find(s => s.id === state.selectedSatId);
+      if (!sat) return;
+
+      const catColor = CATEGORY_COLORS[sat.category] || '#10b981';
+
+      document.getElementById('cardSatName').textContent = sat.name;
+      document.getElementById('cardNorad').textContent = `#${sat.norad}`;
+      
+      const catBadge = document.getElementById('cardCatBadge');
+      catBadge.textContent = sat.categoryLabel;
+      catBadge.style.background = `${catColor}22`;
+      catBadge.style.borderColor = catColor;
+      catBadge.style.color = catColor;
+
+      document.getElementById('cardCountry').textContent = sat.country;
+
+      document.getElementById('cardPurpose').textContent = sat.purpose;
+      document.getElementById('cardPayloadTag').textContent = sat.objectType;
+      document.getElementById('cardLaunchDate').textContent = sat.launchDate;
+      document.getElementById('cardLaunchSite').textContent = sat.cosmodrome;
+      document.getElementById('cardDurationText').textContent = sat.duration;
+
+      document.getElementById('paramAltitude').textContent = `${sat.alt} км`;
+      document.getElementById('paramSpeed').textContent = `${sat.speed} км/с`;
+      document.getElementById('paramPeriod').textContent = sat.period;
+      document.getElementById('paramInclination').textContent = sat.inc;
+      document.getElementById('paramApoPeri').textContent = sat.apogeePerigee;
+      document.getElementById('paramEccentricity').textContent = sat.ecc;
+      document.getElementById('paramOrbitType').textContent = sat.orbitType;
+      
+      const latSign = sat.lat >= 0 ? 'N' : 'S';
+      const lngSign = sat.lng >= 0 ? 'E' : 'W';
+      document.getElementById('paramCoords').textContent = `${Math.abs(sat.lat)}° ${latSign}, ${Math.abs(lngSign)}° ${lngSign}`;
+      document.getElementById('paramMeanMotion').textContent = sat.meanMotion;
+      document.getElementById('paramEpochAge').textContent = sat.epochAge;
+
+      updateCardFavButton(sat.isFavorite);
+    }
+
+    function updateCardFavButton(isFav) {
+      if (isFav) {
+        el.cardFavToggleBtn.classList.add('active');
+        el.cardFavStar.textContent = '★';
+        el.cardFavText.textContent = 'В избранном';
+      } else {
+        el.cardFavToggleBtn.classList.remove('active');
+        el.cardFavStar.textContent = '☆';
+        el.cardFavText.textContent = 'В избранное';
+      }
+    }
+
+    // Переключение избранного
+    function toggleFavorite(id) {
+      const sat = SATELLITES.find(s => s.id === id);
+      if (!sat) return;
+      sat.isFavorite = !sat.isFavorite;
+
+      const favCount = SATELLITES.filter(s => s.isFavorite).length;
+      const favChip = CHIPS_CONFIG.find(c => c.key === 'FAVORITES');
+      if (favChip) favChip.count = String(favCount);
+      renderChips();
+
+      if (sat.id === state.selectedSatId) {
+        updateCardFavButton(sat.isFavorite);
+      }
+
+      updateDotsVisibility();
+    }
+
+    // Живой поиск в топбаре
+    function handleTopbarSearch(query) {
+      const q = query.trim().toLowerCase();
+      if (!q) {
+        el.searchDropdown.classList.remove('open');
+        el.searchDropdown.innerHTML = '';
+        return;
+      }
+
+      const matches = SATELLITES.filter(s => 
+        s.name.toLowerCase().includes(q) || 
+        s.norad.includes(q) || 
+        s.categoryLabel.toLowerCase().includes(q)
+      ).slice(0, 6);
+
+      if (matches.length === 0) {
+        el.searchDropdown.innerHTML = `<div style="padding:12px; text-align:center; color:var(--text-dim); font-size:12px;">Ничего не найдено</div>`;
+        el.searchDropdown.classList.add('open');
+        return;
+      }
+
+      el.searchDropdown.innerHTML = '';
+      matches.forEach(sat => {
+        const item = document.createElement('div');
+        item.className = 'search-item';
+        const catColor = CATEGORY_COLORS[sat.category] || '#10b981';
+
+        item.innerHTML = `
+          <div class="search-item-left">
+            <span class="sat-cat-dot" style="background:${catColor}"></span>
+            <span class="search-item-name">${sat.name}</span>
+            <span class="search-item-norad">#${sat.norad}</span>
+          </div>
+          <span class="search-item-cat" style="color:${catColor}; border-color:${catColor}55;">${sat.categoryLabel}</span>
+        `;
+
+        item.addEventListener('click', () => {
+          selectSatellite(sat.id);
+          el.topbarSearch.value = '';
+          el.searchDropdown.classList.remove('open');
+        });
+
+        el.searchDropdown.appendChild(item);
+      });
+
+      el.searchDropdown.classList.add('open');
+    }
+
+    // ========================================================================
+    // НАВЕШИВАНИЕ ОБРАБОТЧИКОВ СОБЫТИЙ
+    // ========================================================================
+    function bindEvents() {
+      el.cardCloseBtn.addEventListener('click', () => {
+        state.cardVisible = false;
+        el.satCard.classList.add('hidden');
+        el.focusBadge.classList.add('hidden');
+      });
+
+      el.focusCloseBtn.addEventListener('click', () => {
+        state.cardVisible = false;
+        el.satCard.classList.add('hidden');
+        el.focusBadge.classList.add('hidden');
+        el.satDotsLayer.querySelectorAll('.sat-dot').forEach(d => d.classList.remove('active'));
+      });
+
+      el.cardFavToggleBtn.addEventListener('click', () => {
+        toggleFavorite(state.selectedSatId);
+      });
+
+      el.topbarSearch.addEventListener('input', (e) => {
+        handleTopbarSearch(e.target.value);
+      });
+
+      el.avatarMenuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.userMenuOpen = !state.userMenuOpen;
+        el.userDropdown.classList.toggle('open', state.userMenuOpen);
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.user-menu-wrapper')) {
+          state.userMenuOpen = false;
+          el.userDropdown.classList.remove('open');
+        }
+        if (!e.target.closest('.topbar-center')) {
+          el.searchDropdown.classList.remove('open');
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          el.topbarSearch.focus();
+          el.topbarSearch.select();
+        } else if (e.key === 'Escape') {
+          el.searchDropdown.classList.remove('open');
+          state.userMenuOpen = false;
+          el.userDropdown.classList.remove('open');
+
+          if (document.activeElement === el.topbarSearch) {
+            el.topbarSearch.blur();
+          } else if (state.cardVisible) {
+            state.cardVisible = false;
+            el.satCard.classList.add('hidden');
+            el.focusBadge.classList.add('hidden');
+          }
+        }
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
