@@ -2003,18 +2003,14 @@
         controls.autoRotate = false;
       }
 
-      // 3. Материал сферы Земли: цвет бумаги (#F4F1EA)
-      const earthMat = globe.globeMaterial();
-      if (earthMat && earthMat.color) {
-        earthMat.color.set('#F4F1EA');
-        if (earthMat.emissive && earthMat.emissive.set) {
-          earthMat.emissive.set('#F4F1EA');
-        }
-        if ('roughness' in earthMat) earthMat.roughness = 1;
-        if ('metalness' in earthMat) earthMat.metalness = 0;
-        if ('shininess' in earthMat) earthMat.shininess = 0;
-        if (earthMat.specular && earthMat.specular.set) {
-          earthMat.specular.set('#000000');
+      // 3. Материал сферы Земли: цвет бумаги (#F4F1EA) через MeshBasicMaterial (без влияния света)
+      const THREE = Globe.THREE;
+      if (THREE && THREE.MeshBasicMaterial) {
+        globe.globeMaterial(new THREE.MeshBasicMaterial({ color: 0xF4F1EA }));
+      } else {
+        const earthMat = globe.globeMaterial();
+        if (earthMat && earthMat.color) {
+          earthMat.color.set('#F4F1EA');
         }
       }
 
@@ -2093,9 +2089,19 @@
         if (sceneObjectsInited) return;
 
         // Поиск globeMesh (сферы Земли) среди мешей с geometry.attributes.position
-        // Выбираем меш с максимальным числом вершин (position.count) и отключаем свет
+        // Выбираем меш с максимальным числом вершин (position.count) и гасим источники света
         let bestMesh = null;
         let maxVertexCount = -1;
+
+        const extinguishLights = (root) => {
+          if (!root || typeof root.traverse !== 'function') return;
+          root.traverse((obj) => {
+            if (obj.isLight) {
+              obj.intensity = 0;
+              obj.visible = false;
+            }
+          });
+        };
 
         globe.scene().traverse((obj) => {
           if (obj.isMesh && obj.geometry) {
@@ -2114,6 +2120,11 @@
           }
         });
 
+        // Гашение источников света во внешнем родителе (globe.scene().parent)
+        if (globe.scene().parent) {
+          extinguishLights(globe.scene().parent);
+        }
+
         if (!bestMesh || !bestMesh.geometry) return;
         globeMesh = bestMesh;
         sceneObjectsInited = true;
@@ -2131,24 +2142,17 @@
         });
         const targetGroup = globeGroup || globe.scene();
 
-        // Однотонный плоский цвет бумаги для сферы Земли (#F4F1EA)
-        if (globeMesh.material) {
-          if (globeMesh.material.color && globeMesh.material.color.set) globeMesh.material.color.set('#F4F1EA');
-          if (globeMesh.material.emissive && globeMesh.material.emissive.set) globeMesh.material.emissive.set('#F4F1EA');
-          if ('roughness' in globeMesh.material) globeMesh.material.roughness = 1;
-          if ('metalness' in globeMesh.material) globeMesh.material.metalness = 0;
-          if ('shininess' in globeMesh.material) globeMesh.material.shininess = 0;
-        }
+        // Однотонный плоский цвет бумаги для сферы Земли (#F4F1EA) без зависимости от освещения
+        globeMesh.material = new THREE.MeshBasicMaterial({ color: 0xF4F1EA });
 
-        // Силуэт: Inverted Hull (сфера радиуса R*1.008, BackSide, чёрная #0E0E0E)
-        const hullGeom = globeMesh.geometry.clone();
-        const hullMat = globeMesh.material.clone();
-        hullMat.color.set('#0E0E0E');
-        if (hullMat.emissive && hullMat.emissive.set) hullMat.emissive.set('#0E0E0E');
-        hullMat.side = THREE.BackSide !== undefined ? THREE.BackSide : 1; // Three.js BackSide = 1
+        // Силуэт: отдельная сфера Inverted Hull (R=100*1.012, 96x64, BackSide, чёрная #0E0E0E, обод 2-3px)
+        const hullGeom = new THREE.SphereGeometry(100 * 1.012, 96, 64);
+        const hullMat = new THREE.MeshBasicMaterial({
+          color: 0x0E0E0E,
+          side: THREE.BackSide !== undefined ? THREE.BackSide : 1
+        });
         const hull = new THREE.Mesh(hullGeom, hullMat);
-        hull.scale.setScalar(1.008);
-        globe.scene().add(hull);
+        targetGroup.add(hull);
 
         // Границы стран: построение или перенос в группу глобуса
         if (!borderMesh && window.COUNTRIES_GEOJSON) {
