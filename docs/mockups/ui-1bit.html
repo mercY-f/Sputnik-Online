@@ -1261,6 +1261,8 @@
       ].join('\n'),
     };
 
+    const SCHEMATIC_KEY_BY_LETTER = { I: 'I', S: 'S', O: 'S', R: 'S', N: 'N', T: 'T', W: 'W' };
+
     // Словарь подсказок orbitGlossary A4
     const ORBIT_GLOSSARY = {
       altitude: {
@@ -1357,7 +1359,10 @@
         orbits: true,
         atmosphere: true,
         labels: false,
+        track: true,
       },
+      orbitVisible: true,
+      trackVisible: true,
       trackActive: false,
       followActive: false,
     };
@@ -1676,8 +1681,7 @@
       // ASCII-схема A5
       const preEl = document.getElementById('schematic-pre');
       if (preEl) {
-        let schemeKey = sat.letter;
-        if (['S', 'O', 'R'].includes(schemeKey)) schemeKey = 'S';
+        let schemeKey = SCHEMATIC_KEY_BY_LETTER[sat.letter] || 'X';
         const art = SCHEMATICS[schemeKey] || SCHEMATICS.X;
         preEl.textContent = art;
       }
@@ -1765,15 +1769,31 @@
       });
     }
 
+    function toggleAction(action, isActive) {
+      if (action === 'orbit') {
+        state.orbitVisible = isActive;
+        state.layers.orbits = isActive;
+        if (window.APP && typeof window.APP.onLayersChange === 'function') {
+          window.APP.onLayersChange({ ...state.layers, orbits: state.orbitVisible, track: state.trackVisible });
+        }
+        window.APP?.hooks?.onOrbitToggle?.(isActive);
+      } else if (action === 'track') {
+        state.trackVisible = isActive;
+        state.layers.track = isActive;
+        if (window.APP && typeof window.APP.onLayersChange === 'function') {
+          window.APP.onLayersChange({ ...state.layers, orbits: state.orbitVisible, track: state.trackVisible });
+        }
+        window.APP?.hooks?.onTrackToggle?.(isActive);
+      }
+    }
+
     // Кнопки действий: Орбита / След / Следить / Поделиться
     const btnActOrbit = document.getElementById('btn-act-orbit');
     if (btnActOrbit) {
       btnActOrbit.addEventListener('click', () => {
         btnActOrbit.classList.toggle('active');
         const isActive = btnActOrbit.classList.contains('active');
-        if (window.APP && window.APP.hooks && typeof window.APP.hooks.onOrbitToggle === 'function') {
-          window.APP.hooks.onOrbitToggle(isActive);
-        }
+        toggleAction('orbit', isActive);
       });
     }
 
@@ -1781,10 +1801,9 @@
     if (btnActTrack) {
       btnActTrack.addEventListener('click', () => {
         btnActTrack.classList.toggle('active');
-        state.trackActive = btnActTrack.classList.contains('active');
-        if (window.APP && window.APP.hooks && typeof window.APP.hooks.onTrackToggle === 'function') {
-          window.APP.hooks.onTrackToggle(state.trackActive);
-        }
+        const isActive = btnActTrack.classList.contains('active');
+        state.trackActive = isActive;
+        toggleAction('track', isActive);
       });
     }
 
@@ -2067,6 +2086,7 @@
       let globeMesh = null;
       let gridMesh = null;
       let orbitMesh = null;
+      let trackMesh = null;
       let sceneObjectsInited = false;
 
       function initSceneObjects() {
@@ -2186,6 +2206,19 @@
         orbitMesh.visible = false;
         globe.scene().add(orbitMesh);
 
+        // Слой TRACK: пройденная часть траектории
+        const trackGeom = new THREE.BufferGeometry();
+        const trackMat = globeMesh.material.clone();
+        trackMat.color.set('#0E0E0E');
+        if (trackMat.emissive && trackMat.emissive.set) trackMat.emissive.set('#0E0E0E');
+        trackMat.transparent = true;
+        trackMat.opacity = 0.6;
+        trackMat.wireframe = true;
+        trackMesh = new THREE.Mesh(trackGeom, trackMat);
+        trackMesh.isLineSegments = true;
+        trackMesh.visible = false;
+        globe.scene().add(trackMesh);
+
         if (state.selectedId) {
           const sel = (window.REAL_SATS || []).find((s) => s.id === state.selectedId);
           if (sel) updateSelectedOrbit(sel);
@@ -2242,6 +2275,7 @@
         if (!orbitMesh || !globeMesh) return;
         if (!sat || !state.layers.orbits) {
           orbitMesh.visible = false;
+          if (trackMesh) trackMesh.visible = false;
           return;
         }
         // Приближённый трек орбиты (синусоида по наклонению, ~120 точек) — это иллюстрация, НЕ SGP4
@@ -2275,6 +2309,24 @@
         orbitMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         orbitMesh.geometry.attributes.position.needsUpdate = true;
         orbitMesh.visible = !!state.layers.orbits;
+
+        const trackPointsCount = Math.floor(steps * 0.4);
+        const trackPositions = positions.slice(0, trackPointsCount * 6);
+        if (!trackMesh) {
+          const trackGeom = new THREE.BufferGeometry();
+          const trackMat = globeMesh.material.clone();
+          trackMat.color.set('#0E0E0E');
+          if (trackMat.emissive && trackMat.emissive.set) trackMat.emissive.set('#0E0E0E');
+          trackMat.transparent = true;
+          trackMat.opacity = 0.6;
+          trackMat.wireframe = true;
+          trackMesh = new THREE.Mesh(trackGeom, trackMat);
+          trackMesh.isLineSegments = true;
+          globe.scene().add(trackMesh);
+        }
+        trackMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(trackPositions, 3));
+        trackMesh.geometry.attributes.position.needsUpdate = true;
+        trackMesh.visible = !!state.layers.track && !!state.layers.orbits;
       }
 
       // 13. LOD-константы для масштабирования спутников
@@ -2377,6 +2429,14 @@
       }
 
       function updateMarkersFrame() {
+        if (state.followActive && state.selectedId) {
+          const sat = (window.REAL_SATS || []).find((s) => s.id === state.selectedId);
+          if (sat && typeof sat.lat === 'number' && typeof sat.lng === 'number') {
+            const altFrac = Math.min(0.3, Math.max(0.02, (sat.alt || 400) / 6371));
+            globe.pointOfView({ lat: sat.lat, lng: sat.lng, altitude: 1.6 }, 0);
+          }
+        }
+
         const camera = globe.camera();
         if (!camera) {
           requestAnimationFrame(updateMarkersFrame);
@@ -2531,6 +2591,9 @@
         window.APP.layers = Object.assign({}, layers);
         if (gridMesh) {
           gridMesh.visible = !!layers.grid;
+        }
+        if (trackMesh) {
+          trackMesh.visible = !!layers.track && !!layers.orbits;
         }
         if (orbitMesh) {
           const sel = state.selectedId ? (window.REAL_SATS || []).find((s) => s.id === state.selectedId) : null;
