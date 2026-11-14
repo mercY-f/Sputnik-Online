@@ -2315,14 +2315,13 @@
         orbitMesh.visible = !!state.layers.orbits;
 
         // Наземный (подспутниковый) след строим отдельной геометрией НА ПОВЕРХНОСТИ Земли (alt ≈ 0.006)
-        // «Хвост» позади спутника: первая точка следа — текущая позиция, дальше назад по витку
         const trackAlt = 0.006;
         const trackPointsCount = Math.floor(steps * 0.4);
         const trackPositions = [];
 
         for (let i = 0; i < trackPointsCount; i++) {
-          const t1 = (-i / steps) * 2 * Math.PI;
-          const t2 = (-(i + 0.6) / steps) * 2 * Math.PI;
+          const t1 = (i / steps) * 2 * Math.PI;
+          const t2 = ((i + 0.6) / steps) * 2 * Math.PI;
 
           const lat1 = incVal * Math.sin(t1);
           const lng1 = sat.lng + (t1 * 180 / Math.PI) - (t1 / (2 * Math.PI)) * earthRotation;
