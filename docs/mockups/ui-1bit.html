@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EARTH ORBIT LIVE — 1-Bit Telemetry</title>
+  <style>
+    :root {
+      --paper: #F4F1EA;
+      --ink: #0E0E0E;
+      --ink-muted: #5C5A54;
+      --surface: #E8E4DA;
+      --bw-1: 1px;
+      --bw-2: 2px;
+      --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      border-radius: 0;
+    }
+
+    body {
+      background-color: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-mono);
+      min-height: 100vh;
+      overflow: hidden;
+      position: relative;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(#0E0E0E 0.5px, transparent 0.5px);
+      background-size: 20px 20px;
+      opacity: 0.08;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--ink);
+      outline-offset: 2px;
+    }
+
+    .btn {
+      background: var(--paper);
+      color: var(--ink);
+      border: 2px solid var(--ink);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 6px 12px;
+      cursor: pointer;
+      box-shadow: 2px 2px 0 var(--ink);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      text-decoration: none;
+    }
+
+    .btn:hover {
+      background: var(--surface);
+    }
+
+    .btn:active {
+      transform: translate(1px, 1px);
+      box-shadow: 1px 1px 0 var(--ink);
+    }
+
+    .btn.active {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .chip {
+      background: var(--paper);
+      color: var(--ink);
+      border: 1px solid var(--ink);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 4px 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+
+    .chip:hover {
+      background: var(--surface);
+    }
+
+    .chip.active {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .field {
+      background: var(--paper);
+      color: var(--ink);
+      border: 1px solid var(--ink);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 6px 10px;
+      outline: none;
+    }
+
+    .field:focus {
+      border: 2px solid var(--ink);
+      padding: 5px 9px;
+    }
+
+    .kv {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+    }
+
+    .kv-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--ink-muted);
+    }
+
+    .kv-value {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .num {
+      font-variant-numeric: tabular-nums;
+    }
+
+    #globe {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      background: transparent;
+    }
+
+    #globe .stub-label {
+      border: 1px dashed var(--ink-muted);
+      color: var(--ink-muted);
+      font-size: 12px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      padding: 8px 16px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="globe">
+    <div class="stub-label">[ ГЛОБУС — ШАГ A7 ]</div>
+  </div>
+
+  <script src="vendor/sats.js"></script>
+</body>
+</html>
