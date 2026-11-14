@@ -505,6 +505,227 @@
       background: var(--surface);
     }
 
+    /* Правая панель инспектора A4 */
+    .inspector-panel {
+      position: fixed;
+      top: 40px;
+      bottom: 0;
+      right: 0;
+      width: 320px;
+      background: var(--paper);
+      border-left: 2px solid var(--ink);
+      z-index: 45;
+      display: none;
+      flex-direction: column;
+      box-shadow: -2px 0 0 var(--ink);
+    }
+
+    .inspector-panel.open {
+      display: flex;
+    }
+
+    .inspector-header {
+      padding: 8px 10px;
+      border-bottom: 2px solid var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+    }
+
+    .inspector-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .inspector-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .inspector-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* ASCII-схемы A5 */
+    .schematic-box {
+      border: 1px solid var(--ink);
+      background: var(--surface);
+      padding: 8px 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .schematic-pre {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1;
+      color: var(--ink);
+      margin: 0;
+      white-space: pre;
+    }
+
+    /* Таблица параметров A4 */
+    .params-table {
+      border-top: 1px solid rgba(14, 14, 14, 0.2);
+      width: 100%;
+    }
+
+    .param-row {
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+    }
+
+    .param-main {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 5px 0;
+    }
+
+    .param-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--ink-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn-help {
+      background: transparent;
+      border: 1px solid var(--ink-muted);
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1;
+      width: 13px;
+      height: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .btn-help:hover {
+      background: var(--surface);
+      color: var(--ink);
+      border-color: var(--ink);
+    }
+
+    .param-val {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink);
+      text-align: right;
+    }
+
+    .param-tip {
+      display: none;
+      padding: 6px 8px;
+      background: var(--surface);
+      font-size: 10px;
+      line-height: 1.35;
+      color: var(--ink);
+      border-left: 2px solid var(--ink);
+      margin-bottom: 4px;
+    }
+
+    .param-tip.open {
+      display: block;
+    }
+
+    /* Действия и мини-график A4, A6 */
+    .actions-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+    }
+
+    .actions-row .btn {
+      padding: 6px 2px;
+      font-size: 9px;
+      letter-spacing: 0.04em;
+    }
+
+    .chart-box {
+      border: 1px solid var(--ink);
+      padding: 6px;
+      background: var(--paper);
+    }
+
+    .chart-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-muted);
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .chart-svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      shape-rendering: crispEdges;
+    }
+
+    /* Блок «Когда увидеть» */
+    .pass-box {
+      border: 1px solid var(--ink);
+      padding: 8px;
+      background: var(--surface);
+    }
+
+    .pass-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 6px;
+    }
+
+    .pass-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      border-bottom: 1px dashed rgba(14, 14, 14, 0.25);
+      font-size: 10px;
+    }
+
+    .pass-row:last-child {
+      border-bottom: none;
+    }
+
+    .inspector-footer {
+      padding: 8px 10px;
+      border-top: 2px solid var(--ink);
+      background: var(--paper);
+    }
+
+    .btn-full {
+      width: 100%;
+      padding: 8px 12px;
+    }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -557,12 +778,210 @@
     <div id="catalog-list" class="catalog-list"></div>
   </aside>
 
+  <!-- Правая карточка инспектора A4 -->
+  <aside id="inspector-panel" class="inspector-panel" aria-label="Панель телеметрии спутника">
+    <div class="inspector-header">
+      <div class="inspector-header-left">
+        <span id="inspector-badge" class="badge-square">I</span>
+        <span id="inspector-title" class="inspector-title">ISS (ZARYA)</span>
+      </div>
+      <button type="button" id="btn-inspector-close" class="btn-square" title="Закрыть">✕</button>
+    </div>
+
+    <div class="inspector-body">
+      <!-- ASCII-схема A5 -->
+      <div class="schematic-box">
+        <pre id="schematic-pre" class="schematic-pre"></pre>
+      </div>
+
+      <!-- Действия -->
+      <div class="actions-row">
+        <button type="button" id="btn-act-orbit" class="btn active" title="Показать орбиту">ОРБИТА</button>
+        <button type="button" id="btn-act-track" class="btn active" title="Показать след">СЛЕД</button>
+        <button type="button" id="btn-act-follow" class="btn" title="Следить за аппаратом">СЛЕДИТЬ</button>
+        <button type="button" id="btn-act-share" class="btn" title="Поделиться">ПОДЕЛИТЬСЯ</button>
+      </div>
+
+      <!-- Таблица параметров A4 -->
+      <div id="inspector-params" class="params-table"></div>
+
+      <!-- Мини-график орбиты A6 -->
+      <div class="chart-box">
+        <div class="chart-title">
+          <span>ВЫСОТА ПО ВРЕМЕНИ</span>
+          <span id="chart-period-sub" class="num" style="font-size: 9px;">92.9 мин</span>
+        </div>
+        <svg id="orbit-chart-svg" class="chart-svg" viewBox="0 0 296 100" width="296" height="100"></svg>
+      </div>
+
+      <!-- Блок «Когда увидеть» -->
+      <div class="pass-box">
+        <div class="pass-title">КОГДА УВИДЕТЬ</div>
+        <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
+          <label style="font-size: 10px; color: var(--ink-muted);">ГОРОД:</label>
+          <input type="text" id="pass-city-input" class="field" value="МОСКВА" style="font-size: 10px; padding: 2px 6px; text-transform: uppercase;">
+        </div>
+        <!-- ДАННЫЕ ЗАГЛУШКА: статический прогноз пролётов для макета -->
+        <div class="pass-row">
+          <span>СЕГОДНЯ 21:42</span>
+          <span class="num">МАКС 54°</span>
+          <span>ЮЗ → СВ</span>
+        </div>
+        <div class="pass-row">
+          <span>ЗАВТРА 05:14</span>
+          <span class="num">МАКС 28°</span>
+          <span>З → В</span>
+        </div>
+        <div class="pass-row">
+          <span>ЗАВТРА 20:55</span>
+          <span class="num">МАКС 72°</span>
+          <span>ЮЮЗ → ССВ</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="inspector-footer">
+      <button type="button" id="btn-toggle-fav-main" class="btn btn-full">В ИЗБРАННОЕ</button>
+    </div>
+  </aside>
+
   <div id="globe">
     <div class="stub-label">[ ГЛОБУС — ШАГ A7 ]</div>
   </div>
 
   <script src="vendor/sats.js"></script>
   <script>
+    // ASCII-схемы по классам A5
+    const SCHEMATICS = {
+      I: [
+        '      |---| |---|',
+        '  [===|   |=|   |===]',
+        '  [===|   |=|   |===]',
+        '      |---| |---|',
+        '         |   |',
+        '      ===| O |===',
+        '         |---|',
+      ].join('\n'),
+
+      S: [
+        '    +-------+-------+',
+        '[###|   |   |   |   |###]',
+        '[###|   |   |   |   |###]',
+        '    +-------+-------+',
+        '          | |',
+        '       +--[o]--+',
+        '       |   O   |',
+        '       +-------+',
+        '          / \\',
+      ].join('\n'),
+
+      N: [
+        '        +-------+',
+        '        |  NAV  |',
+        '  +====+|  (O)  |+====+',
+        '  |####||       ||####|',
+        '  +====+|  ===  |+====+',
+        '        +-------+',
+        '           | |',
+        '          /   \\',
+        '         o     o',
+      ].join('\n'),
+
+      T: [
+        '       +---------+',
+        '      /|         |\\',
+        '     / |  APERT  | \\',
+        '    |  |  [ O ]  |  |',
+        '    |  +---------+  |',
+        '    \\  |         |  /',
+        '     \\ |  INSTR  | /',
+        '      \\|         |/',
+        '       +====+====+',
+        '          [###]',
+      ].join('\n'),
+
+      W: [
+        '         +-----+',
+        '         | MET |',
+        '      +--+ [o] +--+',
+        '      |  |     |  |',
+        '      +--+ === +--+',
+        '         +-----+',
+        '            |',
+        '      [###########]',
+        '      [###########]',
+      ].join('\n'),
+
+      X: [
+        '         +-----+',
+        '        /|     |\\',
+        '       + |  O  | +',
+        '        \\|     |/',
+        '         +-----+',
+        '           / \\',
+        '          o   o',
+      ].join('\n'),
+    };
+
+    // Словарь подсказок orbitGlossary A4
+    const ORBIT_GLOSSARY = {
+      altitude: {
+        label: 'ВЫСОТА',
+        desc: 'Расстояние от поверхности Земли до космического аппарата в данный момент времени.',
+        tip: 'МКС летает на ~420 км, Starlink — на ~550 км, навигация — ~20 000 км, геостационарные — 35 786 км.',
+      },
+      speed: {
+        label: 'СКОРОСТЬ',
+        desc: 'Орбитальная скорость движения аппарата относительно центра Земли.',
+        tip: 'Первая космическая скорость у Земли ~7.9 км/с. Чем выше орбита, тем меньше скорость.',
+      },
+      inclination: {
+        label: 'НАКЛОНЕНИЕ',
+        desc: 'Угол между плоскостью орбиты и плоскостью земного экватора.',
+        tip: '0° — экватор, 90° — полярная орбита. У МКС 51.6° под космодромы Байконур и мыс Канаверал.',
+      },
+      period: {
+        label: 'ПЕРИОД',
+        desc: 'Время, за которое спутник делает один полный оборот вокруг Земли.',
+        tip: 'На низкой орбите виток 90–100 мин (МКС 92.9 мин), на геостационарной — ровно звёздные сутки.',
+      },
+      apogee: {
+        label: 'АПОГЕЙ / ПЕРИГЕЙ',
+        desc: 'Наивысшая и низшая точки орбиты над поверхностью Земли.',
+        tip: 'У круговых орбит разница минимальна; если перигей опускается ниже 150 км, аппарат сгорает.',
+      },
+      eccentricity: {
+        label: 'ЭКСЦЕНТРИСИТЕТ',
+        desc: 'Степень вытянутости орбиты (отклонение от окружности).',
+        tip: '0 — идеальный круг; до 0.01 — почти круговая орбита связи; > 0.25 — сильно вытянутая.',
+      },
+      coordinates: {
+        label: 'КООРДИНАТЫ',
+        desc: 'Географическая широта и долгота подспутниковой точки на поверхности Земли.',
+        tip: 'Положение аппарата в проекции на поверхность планеты.',
+      },
+      epoch: {
+        label: 'ЭПОХА TLE',
+        desc: 'Время с момента последнего измерения параметров орбиты сетью слежения NORAD.',
+        tip: 'Из-за торможения об атмосферу параметры актуальны в течение нескольких дней.',
+      },
+      country: {
+        label: 'СТРАНА',
+        desc: 'Принадлежность космического аппарата и оператор орбитальной миссии.',
+        tip: 'Юрисдикция запускающего государства или международного консорциума.',
+      },
+      launch: {
+        label: 'ЗАПУСК',
+        desc: 'Календарная дата вывода космического аппарата на рабочую орбиту.',
+        tip: 'Старт ракеты-носителя с полезной нагрузкой.',
+      },
+      purpose: {
+        label: 'НАЗНАЧЕНИЕ',
+        desc: 'Функциональная задача и класс полезной нагрузки космического аппарата.',
+        tip: 'Научные эксперименты, глобальная связь, дистанционное зондирование Земли.',
+      },
+    };
+
     // Категории чипов фильтра A2
     const CHIP_CATEGORIES = [
       { id: 'ALL', label: 'ВСЕ' },
@@ -834,6 +1253,223 @@
     });
 
     renderCatalogList();
+
+    // Мини-график орбиты A6
+    function renderOrbitChart(sat) {
+      const svg = document.getElementById('orbit-chart-svg');
+      const periodSub = document.getElementById('chart-period-sub');
+      if (!svg) return;
+
+      const altVal = Number(sat.alt) || 500;
+      const periodStr = sat.period || '90 мин';
+      if (periodSub) periodSub.textContent = periodStr;
+
+      const apParts = String(sat.ap || '').split('/');
+      let maxAlt = apParts[0] ? parseFloat(apParts[0].trim()) : altVal * 1.05;
+      let minAlt = apParts[1] ? parseFloat(apParts[1].replace('км', '').trim()) : altVal * 0.95;
+      if (isNaN(maxAlt)) maxAlt = altVal + 20;
+      if (isNaN(minAlt)) minAlt = altVal - 20;
+      if (maxAlt <= minAlt) maxAlt = minAlt + 10;
+
+      const w = 296;
+      const h = 100;
+      const padLeft = 46;
+      const padRight = 10;
+      const padTop = 14;
+      const padBottom = 20;
+      const plotW = w - padLeft - padRight;
+      const plotH = h - padTop - padBottom;
+
+      const steps = 18;
+      let pathD = '';
+      for (let i = 0; i <= steps; i++) {
+        const x = Math.round(padLeft + (i / steps) * plotW);
+        const normY = (Math.sin((i / steps) * Math.PI * 2) + 1) / 2;
+        const rawY = padTop + (1 - normY) * plotH;
+        const y = Math.round(rawY / 2) * 2;
+        if (i === 0) {
+          pathD += 'M ' + x + ' ' + y;
+        } else {
+          pathD += ' H ' + x + ' V ' + y;
+        }
+      }
+
+      svg.innerHTML = `
+        <line x1="${padLeft}" y1="${padTop}" x2="${w - padRight}" y2="${padTop}" stroke="rgba(14,14,14,0.15)" stroke-dasharray="2,2" />
+        <line x1="${padLeft}" y1="${padTop + plotH / 2}" x2="${w - padRight}" y2="${padTop + plotH / 2}" stroke="rgba(14,14,14,0.15)" stroke-dasharray="2,2" />
+        <line x1="${padLeft}" y1="${padTop + plotH}" x2="${w - padRight}" y2="${padTop + plotH}" stroke="rgba(14,14,14,0.15)" stroke-dasharray="2,2" />
+        <line x1="${padLeft + plotW * 0.33}" y1="${padTop}" x2="${padLeft + plotW * 0.33}" y2="${padTop + plotH}" stroke="rgba(14,14,14,0.15)" stroke-dasharray="2,2" />
+        <line x1="${padLeft + plotW * 0.66}" y1="${padTop}" x2="${padLeft + plotW * 0.66}" y2="${padTop + plotH}" stroke="rgba(14,14,14,0.15)" stroke-dasharray="2,2" />
+
+        <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + plotH}" stroke="#0E0E0E" stroke-width="1" />
+        <line x1="${padLeft}" y1="${padTop + plotH}" x2="${w - padRight}" y2="${padTop + plotH}" stroke="#0E0E0E" stroke-width="1" />
+
+        <text x="${padLeft - 4}" y="${padTop + 4}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="end" class="num">${Math.round(maxAlt)}</text>
+        <text x="${padLeft - 4}" y="${padTop + plotH / 2 + 3}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="end" class="num">${Math.round((maxAlt + minAlt) / 2)}</text>
+        <text x="${padLeft - 4}" y="${padTop + plotH}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="end" class="num">${Math.round(minAlt)}</text>
+
+        <text x="${padLeft}" y="${h - 6}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="start">0</text>
+        <text x="${padLeft + plotW * 0.33}" y="${h - 6}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="middle">1/3T</text>
+        <text x="${padLeft + plotW * 0.66}" y="${h - 6}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="middle">2/3T</text>
+        <text x="${w - padRight}" y="${h - 6}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="end">1T</text>
+
+        <path d="${pathD}" fill="none" stroke="#0E0E0E" stroke-width="1.5" />
+      `;
+    }
+
+    // Отрисовка правой панели инспектора A4
+    function renderInspectorPanel(sat) {
+      const panel = document.getElementById('inspector-panel');
+      if (!panel) return;
+      if (!sat) {
+        panel.classList.remove('open');
+        return;
+      }
+      panel.classList.add('open');
+
+      const titleEl = document.getElementById('inspector-title');
+      const badgeEl = document.getElementById('inspector-badge');
+      if (titleEl) titleEl.textContent = sat.name;
+      if (badgeEl) badgeEl.textContent = sat.letter;
+
+      // ASCII-схема A5
+      const preEl = document.getElementById('schematic-pre');
+      if (preEl) {
+        let schemeKey = sat.letter;
+        if (['S', 'O', 'R'].includes(schemeKey)) schemeKey = 'S';
+        const art = SCHEMATICS[schemeKey] || SCHEMATICS.X;
+        preEl.textContent = art;
+      }
+
+      // Таблица параметров A4
+      const paramsEl = document.getElementById('inspector-params');
+      if (paramsEl) {
+        const fields = [
+          { key: 'altitude', val: `${sat.alt} км` },
+          { key: 'speed', val: `${sat.speed} км/с` },
+          { key: 'inclination', val: sat.inc },
+          { key: 'period', val: sat.period },
+          { key: 'apogee', val: sat.ap },
+          { key: 'eccentricity', val: sat.ecc },
+          { key: 'coordinates', val: `${sat.lat}° / ${sat.lng}°` },
+          { key: 'epoch', val: sat.epoch },
+          { key: 'country', val: sat.country },
+          { key: 'launch', val: sat.launch },
+          { key: 'purpose', val: sat.purpose },
+        ];
+
+        paramsEl.innerHTML = fields.map((f) => {
+          const meta = ORBIT_GLOSSARY[f.key] || { label: f.key, desc: '', tip: '' };
+          return `
+            <div class="param-row" data-param-key="${f.key}">
+              <div class="param-main">
+                <span class="param-label">
+                  ${meta.label}
+                  <button type="button" class="btn-help" data-help="${f.key}" title="Справка">?</button>
+                </span>
+                <span class="param-val num">${f.val}</span>
+              </div>
+              <div class="param-tip" id="tip-${f.key}">
+                <strong>${meta.label}:</strong> ${meta.desc}<br>
+                <em>${meta.tip}</em>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      renderOrbitChart(sat);
+      updateInspectorFavButton(sat);
+    }
+
+    function updateInspectorFavButton(sat) {
+      const btn = document.getElementById('btn-toggle-fav-main');
+      if (btn && sat) {
+        btn.textContent = sat.fav ? 'УБРАТЬ ИЗ ИЗБРАННОГО' : 'В ИЗБРАННОЕ';
+        btn.classList.toggle('active', !!sat.fav);
+      }
+    }
+
+    // Слушатели событий панели инспектора
+    const btnInspectorClose = document.getElementById('btn-inspector-close');
+    if (btnInspectorClose) {
+      btnInspectorClose.addEventListener('click', () => {
+        state.selectedId = null;
+        renderInspectorPanel(null);
+        renderCatalogList();
+      });
+    }
+
+    const inspectorParamsEl = document.getElementById('inspector-params');
+    if (inspectorParamsEl) {
+      inspectorParamsEl.addEventListener('click', (e) => {
+        const helpBtn = e.target.closest('.btn-help');
+        if (helpBtn && helpBtn.dataset.help) {
+          const tip = document.getElementById('tip-' + helpBtn.dataset.help);
+          if (tip) {
+            tip.classList.toggle('open');
+          }
+        }
+      });
+    }
+
+    const btnToggleFavMain = document.getElementById('btn-toggle-fav-main');
+    if (btnToggleFavMain) {
+      btnToggleFavMain.addEventListener('click', () => {
+        if (!state.selectedId) return;
+        const sat = (window.REAL_SATS || []).find((s) => s.id === state.selectedId);
+        if (sat) {
+          sat.fav = !sat.fav;
+          updateInspectorFavButton(sat);
+          renderCatalogList();
+        }
+      });
+    }
+
+    // Кнопки действий: Орбита / След / Следить / Поделиться
+    const btnActOrbit = document.getElementById('btn-act-orbit');
+    if (btnActOrbit) {
+      btnActOrbit.addEventListener('click', () => {
+        btnActOrbit.classList.toggle('active');
+        const isActive = btnActOrbit.classList.contains('active');
+        if (window.APP && window.APP.hooks && typeof window.APP.hooks.onOrbitToggle === 'function') {
+          window.APP.hooks.onOrbitToggle(isActive);
+        }
+      });
+    }
+
+    const btnActTrack = document.getElementById('btn-act-track');
+    if (btnActTrack) {
+      btnActTrack.addEventListener('click', () => {
+        btnActTrack.classList.toggle('active');
+        state.trackActive = btnActTrack.classList.contains('active');
+        if (window.APP && window.APP.hooks && typeof window.APP.hooks.onTrackToggle === 'function') {
+          window.APP.hooks.onTrackToggle(state.trackActive);
+        }
+      });
+    }
+
+    const btnActFollow = document.getElementById('btn-act-follow');
+    if (btnActFollow) {
+      btnActFollow.addEventListener('click', () => {
+        btnActFollow.classList.toggle('active');
+        state.followActive = btnActFollow.classList.contains('active');
+        if (window.APP && window.APP.hooks && typeof window.APP.hooks.onFollowToggle === 'function') {
+          window.APP.hooks.onFollowToggle(state.followActive);
+        }
+      });
+    }
+
+    const btnActShare = document.getElementById('btn-act-share');
+    if (btnActShare) {
+      btnActShare.addEventListener('click', () => {
+        const origText = btnActShare.textContent;
+        btnActShare.textContent = 'ГОТОВО';
+        setTimeout(() => {
+          btnActShare.textContent = origText;
+        }, 1500);
+      });
+    }
 
     // Обработка поиска и выпадающего списка
     const searchInput = document.getElementById('search-input');
