@@ -173,6 +173,19 @@
       pointer-events: none;
     }
 
+    #borders-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      shape-rendering: crispEdges;
+      stroke: #0E0E0E;
+      stroke-width: 1;
+      fill: none;
+      opacity: 0.8;
+    }
+
     .globe-markers-layer {
       position: absolute;
       inset: 0;
@@ -1181,6 +1194,7 @@
   -->
   <div id="globe"></div>
   <div id="globe-overlay" class="globe-overlay" aria-hidden="true">
+    <svg id="borders-layer" class="globe-svg-layer" shape-rendering="crispEdges" stroke="#0E0E0E" stroke-width="1" fill="none" opacity="0.8"></svg>
     <svg id="globe-svg-layer" class="globe-svg-layer"></svg>
     <div id="globe-markers-layer" class="globe-markers-layer"></div>
   </div>
@@ -1998,36 +2012,138 @@
         }
       }
 
-      // 4. Границы стран из vendor/countries.json (pathsData по кольцам геометрий)
+      // 4. Границы стран из vendor/countries.json (SVG-оверлей с отсечкой за лимб)
+      const bordersLayer = document.getElementById('borders-layer');
+      const BorderVector3 = globe.camera().position.constructor;
+      const borderProjVec = new BorderVector3();
+      const borderPaths = [];
+      let bordersInited = false;
+      let bordersDirty = true;
+      let lastCamX = null;
+      let lastCamY = null;
+      let lastCamZ = null;
+
+      function updateBorders() {
+        bordersDirty = false;
+        if (!bordersInited) return;
+        const camera = globe.camera();
+        if (!camera) return;
+
+        const camPos = camera.position;
+        lastCamX = camPos.x;
+        lastCamY = camPos.y;
+        lastCamZ = camPos.z;
+
+        const cx = camPos.x;
+        const cy = camPos.y;
+        const cz = camPos.z;
+
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+
+        // Точная граница горизонта: dot(P, C) > R² с небольшим запасом R² * 1.01 (R = 100)
+        const LIMB_THRESHOLD = 100 * 100 * 1.01;
+
+        for (let i = 0; i < borderPaths.length; i++) {
+          const item = borderPaths[i];
+          const pts = item.points;
+          const len = pts.length;
+          if (len < 2) {
+            item.el.setAttribute('d', '');
+            continue;
+          }
+
+          let d = '';
+          let inRun = false;
+
+          const p0 = pts[0];
+          let visPrev = (p0.x * cx + p0.y * cy + p0.z * cz) > LIMB_THRESHOLD;
+          let sxPrev = 0;
+          let syPrev = 0;
+          if (visPrev) {
+            borderProjVec.set(p0.x, p0.y, p0.z).project(camera);
+            sxPrev = (borderProjVec.x * 0.5 + 0.5) * width;
+            syPrev = (-borderProjVec.y * 0.5 + 0.5) * height;
+          }
+
+          for (let j = 1; j < len; j++) {
+            const pj = pts[j];
+            const visNext = (pj.x * cx + pj.y * cy + pj.z * cz) > LIMB_THRESHOLD;
+            let sxNext = 0;
+            let syNext = 0;
+            if (visNext) {
+              borderProjVec.set(pj.x, pj.y, pj.z).project(camera);
+              sxNext = (borderProjVec.x * 0.5 + 0.5) * width;
+              syNext = (-borderProjVec.y * 0.5 + 0.5) * height;
+            }
+
+            if (visPrev && visNext) {
+              if (inRun) {
+                d += 'L' + sxNext.toFixed(1) + ' ' + syNext.toFixed(1);
+              } else {
+                d += 'M' + sxPrev.toFixed(1) + ' ' + syPrev.toFixed(1) + 'L' + sxNext.toFixed(1) + ' ' + syNext.toFixed(1);
+                inRun = true;
+              }
+            } else {
+              inRun = false;
+            }
+
+            visPrev = visNext;
+            sxPrev = sxNext;
+            syPrev = syNext;
+          }
+
+          item.el.setAttribute('d', d);
+        }
+      }
+
       fetch('vendor/countries.json')
         .then((res) => {
           if (!res.ok) throw new Error('HTTP ' + res.status);
           return res.json();
         })
         .then((countries) => {
-          const paths = [];
+          const rawRings = [];
           (countries.features || []).forEach((f) => {
             const g = f.geometry;
             if (!g) return;
             if (g.type === 'Polygon') {
-              g.coordinates.forEach((ring) => paths.push(ring));
+              g.coordinates.forEach((ring) => rawRings.push(ring));
             } else if (g.type === 'MultiPolygon') {
-              g.coordinates.forEach((poly) => poly.forEach((ring) => paths.push(ring)));
+              g.coordinates.forEach((poly) => poly.forEach((ring) => rawRings.push(ring)));
             }
           });
-          globe
-            .pathsData(paths)
-            .pathPoints((d) => d)
-            .pathPointLat((p) => p[1])
-            .pathPointLng((p) => p[0])
-            .pathPointAlt(0.005)
-            .pathColor(() => '#0E0E0E')
-            .pathStroke(0.7)
-            .pathTransitionDuration(0);
+
+          rawRings.forEach((ring) => {
+            const pts3d = [];
+            for (let i = 0; i < ring.length; i++) {
+              const p = ring[i];
+              const p3d = globe.getCoords(p[1], p[0], 0.006);
+              if (p3d) {
+                pts3d.push({ x: p3d.x, y: p3d.y, z: p3d.z });
+              }
+            }
+            if (pts3d.length >= 2) {
+              const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+              if (bordersLayer) bordersLayer.appendChild(pathEl);
+              borderPaths.push({ el: pathEl, points: pts3d });
+            }
+          });
+
+          bordersInited = true;
+          bordersDirty = true;
+          updateBorders();
         })
         .catch((err) => {
           console.error('Ошибка загрузки vendor/countries.json:', err);
         });
+
+      if (controls) {
+        controls.addEventListener('change', () => {
+          bordersDirty = true;
+          updateBorders();
+        });
+      }
 
       // 5. Инициализация мешей сцены (onGlobeReady): силуэт, сетка GRID, трек ORBITS
       let globeMesh = null;
@@ -2143,6 +2259,8 @@
       // 6. Ресайз окна — обновление размеров холста
       window.addEventListener('resize', () => {
         globe.width(window.innerWidth).height(window.innerHeight);
+        bordersDirty = true;
+        updateBorders();
       });
 
       // 7. Двойной клик по холсту — сброс вида pointOfView({lat:25,lng:60,altitude:1.9},800)
@@ -2328,6 +2446,10 @@
         const camPos = camera.position;
         const camDist = camPos.length();
         const distR = camDist / 100;
+
+        if (bordersDirty || camPos.x !== lastCamX || camPos.y !== lastCamY || camPos.z !== lastCamZ) {
+          updateBorders();
+        }
 
         const activeSats = getActiveSatellites();
         const visibleSats = [];
