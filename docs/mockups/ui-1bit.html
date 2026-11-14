@@ -726,6 +726,54 @@
       padding: 8px 12px;
     }
 
+    /* Слои A8 */
+    .layer-controls {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      z-index: 40;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      padding: 4px 8px;
+      box-shadow: 2px 2px 0 var(--ink);
+      transition: right 0.15s ease-out;
+    }
+
+    body.inspector-open .layer-controls {
+      right: 332px;
+    }
+
+    .layer-checkbox {
+      background: transparent;
+      border: none;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 4px;
+    }
+
+    .layer-checkbox:hover {
+      color: var(--ink);
+      background: var(--surface);
+    }
+
+    .layer-checkbox.checked {
+      color: var(--ink);
+    }
+
+    .layer-checkbox .check-box {
+      font-size: 11px;
+      line-height: 1;
+    }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -844,6 +892,22 @@
       <button type="button" id="btn-toggle-fav-main" class="btn btn-full">В ИЗБРАННОЕ</button>
     </div>
   </aside>
+
+  <!-- Чекбоксы слоёв A8 -->
+  <div class="layer-controls" role="group" aria-label="Слои отображения">
+    <button type="button" role="checkbox" aria-checked="true" class="layer-checkbox checked" data-layer="grid">
+      <span class="check-box">[■]</span> GRID
+    </button>
+    <button type="button" role="checkbox" aria-checked="true" class="layer-checkbox checked" data-layer="orbits">
+      <span class="check-box">[■]</span> ORBITS
+    </button>
+    <button type="button" role="checkbox" aria-checked="true" class="layer-checkbox checked" data-layer="atmosphere">
+      <span class="check-box">[■]</span> ATMOSPHERE
+    </button>
+    <button type="button" role="checkbox" aria-checked="false" class="layer-checkbox" data-layer="labels">
+      <span class="check-box">[ ]</span> LABELS
+    </button>
+  </div>
 
   <div id="globe">
     <div class="stub-label">[ ГЛОБУС — ШАГ A7 ]</div>
@@ -1321,6 +1385,7 @@
     function renderInspectorPanel(sat) {
       const panel = document.getElementById('inspector-panel');
       if (!panel) return;
+      document.body.classList.toggle('inspector-open', !!sat);
       if (!sat) {
         panel.classList.remove('open');
         return;
@@ -1470,6 +1535,63 @@
         }, 1500);
       });
     }
+
+    // Управление слоями A8
+    function toggleLayer(layerKey) {
+      if (typeof state.layers[layerKey] === 'boolean') {
+        state.layers[layerKey] = !state.layers[layerKey];
+        const btn = document.querySelector(`.layer-checkbox[data-layer="${layerKey}"]`);
+        if (btn) {
+          const isChecked = state.layers[layerKey];
+          btn.setAttribute('aria-checked', String(isChecked));
+          btn.classList.toggle('checked', isChecked);
+          const box = btn.querySelector('.check-box');
+          if (box) {
+            box.textContent = isChecked ? '[■]' : '[ ]';
+          }
+        }
+        if (window.APP && typeof window.APP.onLayersChange === 'function') {
+          window.APP.onLayersChange(state.layers);
+        }
+      }
+    }
+
+    const layerControlsEl = document.querySelector('.layer-controls');
+    if (layerControlsEl) {
+      layerControlsEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('.layer-checkbox');
+        if (btn && btn.dataset.layer) {
+          toggleLayer(btn.dataset.layer);
+        }
+      });
+      layerControlsEl.addEventListener('keydown', (e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          const btn = e.target.closest('.layer-checkbox');
+          if (btn && btn.dataset.layer) {
+            e.preventDefault();
+            toggleLayer(btn.dataset.layer);
+          }
+        }
+      });
+    }
+
+    // Глобальные функции-контракты для шага A7
+    window.APP = {
+      state,
+      sats: window.REAL_SATS || [],
+      selectSatellite,
+      onFilterChange: function(filter) {
+        if (window.APP.hooks && typeof window.APP.hooks.onFilterChange === 'function') {
+          window.APP.hooks.onFilterChange(filter);
+        }
+      },
+      onLayersChange: function(layers) {
+        if (window.APP.hooks && typeof window.APP.hooks.onLayersChange === 'function') {
+          window.APP.hooks.onLayersChange(layers);
+        }
+      },
+      hooks: {},
+    };
 
     // Обработка поиска и выпадающего списка
     const searchInput = document.getElementById('search-input');
