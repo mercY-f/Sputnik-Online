@@ -173,19 +173,6 @@
       pointer-events: none;
     }
 
-    #borders-layer {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      shape-rendering: crispEdges;
-      stroke: #0E0E0E;
-      stroke-width: 1;
-      fill: none;
-      opacity: 0.8;
-    }
-
     .globe-markers-layer {
       position: absolute;
       inset: 0;
@@ -1194,7 +1181,6 @@
   -->
   <div id="globe"></div>
   <div id="globe-overlay" class="globe-overlay" aria-hidden="true">
-    <svg id="borders-layer" class="globe-svg-layer" shape-rendering="crispEdges" stroke="#0E0E0E" stroke-width="1" fill="none" opacity="0.8"></svg>
     <svg id="globe-svg-layer" class="globe-svg-layer"></svg>
     <div id="globe-markers-layer" class="globe-markers-layer"></div>
   </div>
@@ -2013,146 +1999,68 @@
         }
       }
 
-      // 4. Границы стран из vendor/countries.json (SVG-оверлей с отсечкой за лимб)
-      const bordersLayer = document.getElementById('borders-layer');
-      const BorderVector3 = globe.camera().position.constructor;
-      const borderProjVec = new BorderVector3();
-      const borderPaths = [];
-      let bordersInited = false;
-      let bordersDirty = true;
-      let lastCamX = null;
-      let lastCamY = null;
-      let lastCamZ = null;
-
-      function updateBorders() {
-        bordersDirty = false;
-        if (!bordersInited) return;
-        const camera = globe.camera();
-        if (!camera) return;
-
-        const camPos = camera.position;
-        lastCamX = camPos.x;
-        lastCamY = camPos.y;
-        lastCamZ = camPos.z;
-
-        const cx = camPos.x;
-        const cy = camPos.y;
-        const cz = camPos.z;
-
-        const width = window.innerWidth;
-        const height = window.innerHeight;
-
-        // Точная граница горизонта: dot(P, C) > R² с небольшим запасом R² * 1.01 (R = 100)
-        const LIMB_THRESHOLD = 100 * 100 * 1.01;
-
-        for (let i = 0; i < borderPaths.length; i++) {
-          const item = borderPaths[i];
-          const pts = item.points;
-          const len = pts.length;
-          if (len < 2) {
-            item.el.setAttribute('d', '');
-            continue;
-          }
-
-          let d = '';
-          let inRun = false;
-
-          const p0 = pts[0];
-          let visPrev = (p0.x * cx + p0.y * cy + p0.z * cz) > LIMB_THRESHOLD;
-          let sxPrev = 0;
-          let syPrev = 0;
-          if (visPrev) {
-            borderProjVec.set(p0.x, p0.y, p0.z).project(camera);
-            sxPrev = (borderProjVec.x * 0.5 + 0.5) * width;
-            syPrev = (-borderProjVec.y * 0.5 + 0.5) * height;
-          }
-
-          for (let j = 1; j < len; j++) {
-            const pj = pts[j];
-            const visNext = (pj.x * cx + pj.y * cy + pj.z * cz) > LIMB_THRESHOLD;
-            let sxNext = 0;
-            let syNext = 0;
-            if (visNext) {
-              borderProjVec.set(pj.x, pj.y, pj.z).project(camera);
-              sxNext = (borderProjVec.x * 0.5 + 0.5) * width;
-              syNext = (-borderProjVec.y * 0.5 + 0.5) * height;
-            }
-
-            if (visPrev && visNext) {
-              if (inRun) {
-                d += 'L' + sxNext.toFixed(1) + ' ' + syNext.toFixed(1);
-              } else {
-                d += 'M' + sxPrev.toFixed(1) + ' ' + syPrev.toFixed(1) + 'L' + sxNext.toFixed(1) + ' ' + syNext.toFixed(1);
-                inRun = true;
-              }
-            } else {
-              inRun = false;
-            }
-
-            visPrev = visNext;
-            sxPrev = sxNext;
-            syPrev = syNext;
-          }
-
-          item.el.setAttribute('d', d);
-        }
-      }
+      // 4. Границы стран (WebGL LineSegments внутри сцены)
+      let borderMesh = null;
 
       function applyCountriesGeoJson(countries) {
-        if (!countries || !countries.features) return;
+        if (!countries || !countries.features || borderMesh) return;
+        const THREE = Globe.THREE;
+        if (!THREE) return;
+
         const rawRings = [];
         (countries.features || []).forEach((f) => {
           const g = f.geometry;
           if (!g) return;
           if (g.type === 'Polygon') {
-            g.coordinates.forEach((ring) => rawRings.push(ring));
+            (g.coordinates || []).forEach((ring) => rawRings.push(ring));
           } else if (g.type === 'MultiPolygon') {
-            g.coordinates.forEach((poly) => poly.forEach((ring) => rawRings.push(ring)));
+            (g.coordinates || []).forEach((poly) => (poly || []).forEach((ring) => rawRings.push(ring)));
           }
         });
 
+        // Сборка отрезков границ: пары вершин [p0, p1, p1, p2, ...] для THREE.LineSegments
+        const borderPositions = [];
         rawRings.forEach((ring) => {
-          const pts3d = [];
-          for (let i = 0; i < ring.length; i++) {
-            const p = ring[i];
-            const p3d = globe.getCoords(p[1], p[0], 0.006);
-            if (p3d) {
-              pts3d.push({ x: p3d.x, y: p3d.y, z: p3d.z });
+          for (let i = 0; i < ring.length - 1; i++) {
+            const p1 = ring[i];
+            const p2 = ring[i + 1];
+            const c1 = globe.getCoords(p1[1], p1[0], 0.006);
+            const c2 = globe.getCoords(p2[1], p2[0], 0.006);
+            if (c1 && c2) {
+              borderPositions.push(c1.x, c1.y, c1.z, c2.x, c2.y, c2.z);
             }
           }
-          if (pts3d.length >= 2) {
-            const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            if (bordersLayer) bordersLayer.appendChild(pathEl);
-            borderPaths.push({ el: pathEl, points: pts3d });
+        });
+
+        if (borderPositions.length === 0) return;
+
+        const borderGeom = new THREE.BufferGeometry();
+        borderGeom.setAttribute('position', new THREE.Float32BufferAttribute(borderPositions, 3));
+        borderGeom.computeBoundingSphere();
+
+        // 1px hairline контуры цвета туши #0E0E0E с включённым depthTest (сфера Земли отсекает невидимую сторону)
+        const borderMat = new THREE.LineBasicMaterial({
+          color: 0x0E0E0E,
+          depthTest: true
+        });
+
+        borderMesh = new THREE.LineSegments(borderGeom, borderMat);
+        borderMesh.frustumCulled = false;
+
+        // Прикрепляем к группе глобуса для согласованного вращения
+        let globeGroup = null;
+        globe.scene().traverse((o) => {
+          if (o.__globeObjType === 'globe') {
+            globeGroup = o.parent;
           }
         });
-
-        bordersInited = true;
-        bordersDirty = true;
-        updateBorders();
+        const targetGroup = globeGroup || globe.scene();
+        targetGroup.add(borderMesh);
       }
 
+      // Загрузка границ стран: первично из window.COUNTRIES_GEOJSON (vendor/countries.js для обхода file:// CORS)
       if (window.COUNTRIES_GEOJSON) {
         applyCountriesGeoJson(window.COUNTRIES_GEOJSON);
-      } else {
-        fetch('vendor/countries.json')
-          .then((res) => {
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            return res.json();
-          })
-          .then((countries) => {
-            applyCountriesGeoJson(countries);
-          })
-          .catch((err) => {
-            console.error('Ошибка загрузки vendor/countries.json:', err);
-          });
-      }
-
-      if (controls) {
-        controls.addEventListener('change', () => {
-          bordersDirty = true;
-          updateBorders();
-        });
       }
 
       // 5. Инициализация мешей сцены (onGlobeReady): силуэт, сетка GRID, трек ORBITS
@@ -2187,13 +2095,21 @@
         });
 
         if (!bestMesh || !bestMesh.geometry) return;
-        const posAttr = bestMesh.geometry.attributes && bestMesh.geometry.attributes.position
-          ? bestMesh.geometry.attributes.position
-          : (typeof bestMesh.geometry.getAttribute === 'function' ? bestMesh.geometry.getAttribute('position') : null);
-        if (!posAttr) return;
-
         globeMesh = bestMesh;
         sceneObjectsInited = true;
+
+        // Three.js конструкторы через Globe.THREE (UMD-экспорт)
+        const THREE = Globe.THREE;
+        if (!THREE) return;
+
+        // Поиск группы глобуса через traverse(o.__globeObjType === 'globe') и parent
+        let globeGroup = null;
+        globe.scene().traverse((o) => {
+          if (o.__globeObjType === 'globe') {
+            globeGroup = o.parent;
+          }
+        });
+        const targetGroup = globeGroup || globe.scene();
 
         // Однотонный плоский цвет бумаги для сферы Земли (#F4F1EA)
         if (globeMesh.material) {
@@ -2204,20 +2120,22 @@
           if ('shininess' in globeMesh.material) globeMesh.material.shininess = 0;
         }
 
-        // Three.js конструкторы через прототипную цепочку globeMesh
-        const BufferGeometry = Object.getPrototypeOf(Object.getPrototypeOf(globeMesh.geometry)).constructor;
-        const Float32BufferAttribute = posAttr ? posAttr.constructor : (globeMesh.geometry.attributes && globeMesh.geometry.attributes.position ? globeMesh.geometry.attributes.position.constructor : null);
-        if (!Float32BufferAttribute) return;
-
         // Силуэт: Inverted Hull (сфера радиуса R*1.008, BackSide, чёрная #0E0E0E)
         const hullGeom = globeMesh.geometry.clone();
         const hullMat = globeMesh.material.clone();
         hullMat.color.set('#0E0E0E');
         if (hullMat.emissive && hullMat.emissive.set) hullMat.emissive.set('#0E0E0E');
-        hullMat.side = 1; // Three.js BackSide = 1
-        const hull = new globeMesh.constructor(hullGeom, hullMat);
+        hullMat.side = THREE.BackSide !== undefined ? THREE.BackSide : 1; // Three.js BackSide = 1
+        const hull = new THREE.Mesh(hullGeom, hullMat);
         hull.scale.setScalar(1.008);
         globe.scene().add(hull);
+
+        // Границы стран: построение или перенос в группу глобуса
+        if (!borderMesh && window.COUNTRIES_GEOJSON) {
+          applyCountriesGeoJson(window.COUNTRIES_GEOJSON);
+        } else if (borderMesh && globeGroup && borderMesh.parent !== globeGroup) {
+          globeGroup.add(borderMesh);
+        }
 
         // Сетка: пунктирные линии с шагом 30°, opacity 0.25, altitude 0.005 (слой GRID)
         const gridPositions = [];
@@ -2242,28 +2160,28 @@
           }
         }
 
-        const gridGeom = new BufferGeometry();
-        gridGeom.setAttribute('position', new Float32BufferAttribute(gridPositions, 3));
+        const gridGeom = new THREE.BufferGeometry();
+        gridGeom.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
         const gridMat = globeMesh.material.clone();
         gridMat.color.set('#0E0E0E');
         if (gridMat.emissive && gridMat.emissive.set) gridMat.emissive.set('#0E0E0E');
         gridMat.transparent = true;
         gridMat.opacity = 0.25;
         gridMat.wireframe = true;
-        gridMesh = new globeMesh.constructor(gridGeom, gridMat);
+        gridMesh = new THREE.Mesh(gridGeom, gridMat);
         gridMesh.isLineSegments = true;
         gridMesh.visible = !!state.layers.grid;
         globe.scene().add(gridMesh);
 
         // Слой ORBITS: трек орбиты выбранного спутника (~120 точек)
-        const orbitGeom = new BufferGeometry();
+        const orbitGeom = new THREE.BufferGeometry();
         const orbitMat = globeMesh.material.clone();
         orbitMat.color.set('#0E0E0E');
         if (orbitMat.emissive && orbitMat.emissive.set) orbitMat.emissive.set('#0E0E0E');
         orbitMat.transparent = true;
         orbitMat.opacity = 0.6;
         orbitMat.wireframe = true;
-        orbitMesh = new globeMesh.constructor(orbitGeom, orbitMat);
+        orbitMesh = new THREE.Mesh(orbitGeom, orbitMat);
         orbitMesh.isLineSegments = true;
         orbitMesh.visible = false;
         globe.scene().add(orbitMesh);
@@ -2287,8 +2205,6 @@
       // 6. Ресайз окна — обновление размеров холста
       window.addEventListener('resize', () => {
         globe.width(window.innerWidth).height(window.innerHeight);
-        bordersDirty = true;
-        updateBorders();
       });
 
       // 7. Двойной клик по холсту — сброс вида pointOfView({lat:25,lng:60,altitude:1.9},800)
@@ -2354,11 +2270,9 @@
           }
         }
 
-        const Float32BufferAttribute = (globeMesh.geometry && globeMesh.geometry.attributes && globeMesh.geometry.attributes.position)
-          ? globeMesh.geometry.attributes.position.constructor
-          : null;
-        if (!Float32BufferAttribute) return;
-        orbitMesh.geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+        const THREE = Globe.THREE;
+        if (!THREE) return;
+        orbitMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         orbitMesh.geometry.attributes.position.needsUpdate = true;
         orbitMesh.visible = !!state.layers.orbits;
       }
@@ -2477,10 +2391,6 @@
         const camPos = camera.position;
         const camDist = camPos.length();
         const distR = camDist / 100;
-
-        if (bordersDirty || camPos.x !== lastCamX || camPos.y !== lastCamY || camPos.z !== lastCamZ) {
-          updateBorders();
-        }
 
         const activeSats = getActiveSatellites();
         const visibleSats = [];
