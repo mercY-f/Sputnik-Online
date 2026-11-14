@@ -2186,42 +2186,42 @@
 
         const gridGeom = new THREE.BufferGeometry();
         gridGeom.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
-        const gridMat = globeMesh.material.clone();
-        gridMat.color.set('#0E0E0E');
-        if (gridMat.emissive && gridMat.emissive.set) gridMat.emissive.set('#0E0E0E');
-        gridMat.transparent = true;
-        gridMat.opacity = 0.25;
-        gridMat.wireframe = true;
-        gridMesh = new THREE.Mesh(gridGeom, gridMat);
-        gridMesh.isLineSegments = true;
+        const gridMat = new THREE.LineBasicMaterial({
+          color: 0x0E0E0E,
+          transparent: true,
+          opacity: 0.25,
+          depthTest: true
+        });
+        gridMesh = new THREE.LineSegments(gridGeom, gridMat);
+        gridMesh.frustumCulled = false;
         gridMesh.visible = !!state.layers.grid;
-        globe.scene().add(gridMesh);
+        targetGroup.add(gridMesh);
 
-        // Слой ORBITS: трек орбиты выбранного спутника (~120 точек)
+        // Слой ORBITS: трек орбиты выбранного спутника (~120 точек в космосе)
         const orbitGeom = new THREE.BufferGeometry();
-        const orbitMat = globeMesh.material.clone();
-        orbitMat.color.set('#0E0E0E');
-        if (orbitMat.emissive && orbitMat.emissive.set) orbitMat.emissive.set('#0E0E0E');
-        orbitMat.transparent = true;
-        orbitMat.opacity = 0.6;
-        orbitMat.wireframe = true;
-        orbitMesh = new THREE.Mesh(orbitGeom, orbitMat);
-        orbitMesh.isLineSegments = true;
+        const orbitMat = new THREE.LineBasicMaterial({
+          color: 0x0E0E0E,
+          transparent: true,
+          opacity: 0.6,
+          depthTest: true
+        });
+        orbitMesh = new THREE.LineSegments(orbitGeom, orbitMat);
+        orbitMesh.frustumCulled = false;
         orbitMesh.visible = false;
-        globe.scene().add(orbitMesh);
+        targetGroup.add(orbitMesh);
 
-        // Слой TRACK: пройденная часть траектории
+        // Слой TRACK: наземный подспутниковый след (на сфере Земли)
         const trackGeom = new THREE.BufferGeometry();
-        const trackMat = globeMesh.material.clone();
-        trackMat.color.set('#0E0E0E');
-        if (trackMat.emissive && trackMat.emissive.set) trackMat.emissive.set('#0E0E0E');
-        trackMat.transparent = true;
-        trackMat.opacity = 0.6;
-        trackMat.wireframe = true;
-        trackMesh = new THREE.Mesh(trackGeom, trackMat);
-        trackMesh.isLineSegments = true;
+        const trackMat = new THREE.LineBasicMaterial({
+          color: 0x0E0E0E,
+          transparent: true,
+          opacity: 0.8,
+          depthTest: true
+        });
+        trackMesh = new THREE.LineSegments(trackGeom, trackMat);
+        trackMesh.frustumCulled = false;
         trackMesh.visible = false;
-        globe.scene().add(trackMesh);
+        targetGroup.add(trackMesh);
 
         if (state.selectedId) {
           const sel = (window.REAL_SATS || []).find((s) => s.id === state.selectedId);
@@ -2314,19 +2314,44 @@
         orbitMesh.geometry.attributes.position.needsUpdate = true;
         orbitMesh.visible = !!state.layers.orbits;
 
+        // Наземный (подспутниковый) след строим отдельной геометрией НА ПОВЕРХНОСТИ Земли (alt ≈ 0.006)
+        const trackAlt = 0.006;
         const trackPointsCount = Math.floor(steps * 0.4);
-        const trackPositions = positions.slice(0, trackPointsCount * 6);
+        const trackPositions = [];
+
+        for (let i = 0; i < trackPointsCount; i++) {
+          const t1 = (i / steps) * 2 * Math.PI;
+          const t2 = ((i + 0.6) / steps) * 2 * Math.PI;
+
+          const lat1 = incVal * Math.sin(t1);
+          const lng1 = sat.lng + (t1 * 180 / Math.PI) - (t1 / (2 * Math.PI)) * earthRotation;
+          const p1 = globe.getCoords(lat1, lng1, trackAlt);
+
+          const lat2 = incVal * Math.sin(t2);
+          const lng2 = sat.lng + (t2 * 180 / Math.PI) - (t2 / (2 * Math.PI)) * earthRotation;
+          const p2 = globe.getCoords(lat2, lng2, trackAlt);
+
+          if (p1 && p2) {
+            trackPositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+          }
+        }
+
         if (!trackMesh) {
           const trackGeom = new THREE.BufferGeometry();
-          const trackMat = globeMesh.material.clone();
-          trackMat.color.set('#0E0E0E');
-          if (trackMat.emissive && trackMat.emissive.set) trackMat.emissive.set('#0E0E0E');
-          trackMat.transparent = true;
-          trackMat.opacity = 0.6;
-          trackMat.wireframe = true;
-          trackMesh = new THREE.Mesh(trackGeom, trackMat);
-          trackMesh.isLineSegments = true;
-          globe.scene().add(trackMesh);
+          const trackMat = new THREE.LineBasicMaterial({
+            color: 0x0E0E0E,
+            transparent: true,
+            opacity: 0.8,
+            depthTest: true
+          });
+          trackMesh = new THREE.LineSegments(trackGeom, trackMat);
+          trackMesh.frustumCulled = false;
+          let globeGroup = null;
+          globe.scene().traverse((o) => {
+            if (o.__globeObjType === 'globe') globeGroup = o.parent;
+          });
+          const targetGroup = globeGroup || globe.scene();
+          targetGroup.add(trackMesh);
         }
         trackMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(trackPositions, 3));
         trackMesh.geometry.attributes.position.needsUpdate = true;
