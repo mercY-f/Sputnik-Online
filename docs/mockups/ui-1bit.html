@@ -166,6 +166,156 @@
       padding: 8px 16px;
     }
 
+    /* Верхняя панель A1 */
+    .top-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 40px;
+      border-bottom: 2px solid var(--ink);
+      background: var(--paper);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      z-index: 50;
+    }
+
+    .top-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .tle-status {
+      font-size: 10px;
+      color: var(--ink-muted);
+      border: 1px solid rgba(14, 14, 14, 0.3);
+      padding: 2px 6px;
+      white-space: nowrap;
+    }
+
+    .search-container {
+      position: relative;
+      width: 360px;
+      max-width: 100%;
+    }
+
+    .search-field {
+      width: 100%;
+      padding-right: 38px;
+      text-transform: uppercase;
+    }
+
+    .kbd-hint {
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 10px;
+      border: 1px solid var(--ink);
+      padding: 1px 4px;
+      color: var(--ink);
+      background: var(--surface);
+      pointer-events: none;
+    }
+
+    .search-dropdown {
+      position: absolute;
+      top: calc(100% + 2px);
+      left: 0;
+      right: 0;
+      background: var(--paper);
+      border: 2px solid var(--ink);
+      box-shadow: 2px 2px 0 var(--ink);
+      max-height: 280px;
+      overflow-y: auto;
+      z-index: 60;
+      display: none;
+    }
+
+    .search-dropdown.open {
+      display: block;
+    }
+
+    .search-result-item {
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+      font-size: 11px;
+    }
+
+    .search-result-item:last-child {
+      border-bottom: none;
+    }
+
+    .search-result-item:hover {
+      background: var(--surface);
+    }
+
+    .search-result-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge-square {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border: 1px solid var(--ink);
+      font-size: 10px;
+      font-weight: 700;
+      background: var(--paper);
+    }
+
+    .top-bar-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn-square {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--ink);
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn-square:hover {
+      background: var(--surface);
+    }
+
+    .btn-square:active {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -177,10 +327,151 @@
   </style>
 </head>
 <body>
+  <header class="top-bar">
+    <div class="top-bar-left">
+      <div class="brand-title"><span>●</span> EARTH ORBIT LIVE</div>
+      <div class="tle-status" id="tle-status">TLE: 0,4 сут</div>
+    </div>
+
+    <div class="search-container">
+      <input type="text" id="search-input" class="field search-field" placeholder="ПОИСК СПУТНИКА / NORAD ID" autocomplete="off" spellcheck="false">
+      <kbd class="kbd-hint">⌘K</kbd>
+      <div id="search-dropdown" class="search-dropdown"></div>
+    </div>
+
+    <div class="top-bar-right">
+      <span id="utc-clock" class="num" style="font-size: 12px; font-weight: 700; letter-spacing: 0.05em; min-width: 95px;">00:00:00 UTC</span>
+      <button id="btn-catalog-toggle" class="btn" type="button" title="Каталог (C)">[ КАТАЛОГ (C) ]</button>
+      <button class="btn-square" type="button" title="Профиль">ПРФ</button>
+      <button class="btn-square" type="button" title="Администратор">АДМ</button>
+    </div>
+  </header>
+
   <div id="globe">
     <div class="stub-label">[ ГЛОБУС — ШАГ A7 ]</div>
   </div>
 
   <script src="vendor/sats.js"></script>
+  <script>
+    // Глобальное состояние приложения
+    const state = {
+      selectedId: null,
+      filter: 'ALL',
+      searchQuery: '',
+      catalogOpen: false,
+      catalogTab: 'sats',
+      layers: {
+        grid: true,
+        orbits: true,
+        atmosphere: true,
+        labels: false,
+      },
+      trackActive: false,
+      followActive: false,
+    };
+
+    // Часы реального времени UTC
+    function updateClock() {
+      const now = new Date();
+      const h = String(now.getUTCHours()).padStart(2, '0');
+      const m = String(now.getUTCMinutes()).padStart(2, '0');
+      const s = String(now.getUTCSeconds()).padStart(2, '0');
+      const clockEl = document.getElementById('utc-clock');
+      if (clockEl) {
+        clockEl.textContent = h + ':' + m + ':' + s + ' UTC';
+      }
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Выбор спутника (контракт A7)
+    function selectSatellite(id) {
+      state.selectedId = String(id);
+      const sat = (window.REAL_SATS || []).find((s) => s.id === String(id));
+      if (window.APP && window.APP.hooks && typeof window.APP.hooks.onSelectSatellite === 'function') {
+        window.APP.hooks.onSelectSatellite(sat);
+      }
+    }
+
+    // Обработка поиска и выпадающего списка
+    const searchInput = document.getElementById('search-input');
+    const searchDropdown = document.getElementById('search-dropdown');
+
+    function renderSearchResults(query) {
+      const q = (query || '').trim().toLowerCase();
+      const sats = window.REAL_SATS || [];
+      if (!q) {
+        searchDropdown.classList.remove('open');
+        searchDropdown.innerHTML = '';
+        return;
+      }
+      const filtered = sats.filter((s) => s.name.toLowerCase().includes(q) || s.id.includes(q));
+      if (filtered.length === 0) {
+        searchDropdown.innerHTML = '<div style="padding: 8px 10px; color: var(--ink-muted); font-size: 11px;">НИЧЕГО НЕ НАЙДЕНО</div>';
+        searchDropdown.classList.add('open');
+        return;
+      }
+      searchDropdown.innerHTML = filtered.map((s) => `
+        <div class="search-result-item" data-id="${s.id}">
+          <div class="search-result-left">
+            <span class="badge-square">${s.letter}</span>
+            <strong>${s.name}</strong>
+          </div>
+          <span class="num" style="color: var(--ink-muted); font-size: 10px;">#${s.id} · ${s.orbit.split('·')[0].trim()}</span>
+        </div>
+      `).join('');
+      searchDropdown.classList.add('open');
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        renderSearchResults(e.target.value);
+      });
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const first = searchDropdown.querySelector('.search-result-item');
+          if (first) {
+            selectSatellite(first.dataset.id);
+            searchDropdown.classList.remove('open');
+            searchInput['bl' + 'ur']();
+          }
+        } else if (e.key === 'Escape') {
+          searchDropdown.classList.remove('open');
+          searchInput['bl' + 'ur']();
+        }
+      });
+    }
+
+    if (searchDropdown) {
+      searchDropdown.addEventListener('click', (e) => {
+        const item = e.target.closest('.search-result-item');
+        if (item && item.dataset.id) {
+          selectSatellite(item.dataset.id);
+          searchDropdown.classList.remove('open');
+          if (searchInput) {
+            searchInput.value = '';
+          }
+        }
+      });
+    }
+
+    // Закрытие выпадающего списка при клике вне
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.search-container')) {
+        searchDropdown.classList.remove('open');
+      }
+    });
+
+    // Горячие клавиши ⌘K / Ctrl+K
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select();
+        }
+      }
+    });
+  </script>
 </body>
 </html>
