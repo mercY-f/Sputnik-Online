@@ -156,6 +156,119 @@
       cursor: crosshair;
     }
 
+    /* Оверлей 3D-глобуса: глифы спутников, плашка выбора, лидер-линия */
+    .globe-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .globe-svg-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .globe-markers-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .sat-marker {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      pointer-events: auto;
+      cursor: crosshair;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    .sat-marker.hidden {
+      display: none;
+    }
+
+    /* 2px чёрная квадратная точка для дальнего зума (> 2.2R) */
+    .sat-dot {
+      display: block;
+      width: 2px;
+      height: 2px;
+      background: var(--ink);
+    }
+
+    /* 1-битный глиф категории (буква) */
+    .sat-glyph {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 15px;
+      height: 15px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--ink);
+    }
+
+    .sat-marker:hover .sat-glyph {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    /* Выбранный спутник: маркер [ ● ] */
+    .sat-reticle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      padding: 1px 3px;
+    }
+
+    /* Подпись спутника (слой LABELS) */
+    .sat-label-tag {
+      position: absolute;
+      left: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      margin-left: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      line-height: 1;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      padding: 1px 3px;
+      white-space: nowrap;
+    }
+
+    /* HTML-плашка выбранного спутника с лидер-линией */
+    .sat-selected-badge {
+      position: absolute;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      padding: 3px 6px;
+      white-space: nowrap;
+      pointer-events: auto;
+      z-index: 2;
+    }
+
     /* Верхняя панель A1 */
     .top-bar {
       position: fixed;
@@ -1067,6 +1180,10 @@
     (Просмотр через file:// не поддерживается из-за ограничений CORS/WebGL)
   -->
   <div id="globe"></div>
+  <div id="globe-overlay" class="globe-overlay" aria-hidden="true">
+    <svg id="globe-svg-layer" class="globe-svg-layer"></svg>
+    <div id="globe-markers-layer" class="globe-markers-layer"></div>
+  </div>
 
   <script src="vendor/globe.gl.min.js"></script>
   <script src="vendor/sats.js"></script>
@@ -1295,8 +1412,8 @@
 
     // Выбор спутника (контракт A7)
     function selectSatellite(id) {
-      state.selectedId = String(id);
-      const sat = (window.REAL_SATS || []).find((s) => s.id === String(id));
+      state.selectedId = id ? String(id) : null;
+      const sat = state.selectedId ? (window.REAL_SATS || []).find((s) => s.id === state.selectedId) : null;
       renderCatalogList();
       if (typeof renderInspectorPanel === 'function') {
         renderInspectorPanel(sat);
@@ -1616,9 +1733,7 @@
     const btnInspectorClose = document.getElementById('btn-inspector-close');
     if (btnInspectorClose) {
       btnInspectorClose.addEventListener('click', () => {
-        state.selectedId = null;
-        renderInspectorPanel(null);
-        renderCatalogList();
+        selectSatellite(null);
       });
     }
 
@@ -2026,7 +2141,319 @@
         globe.pointOfView({ lat: 25, lng: 60, altitude: 1.9 }, duration);
       });
 
-      // 11. Контракт window.APP для шагов A7 и A8
+      // 11. Атлас глифов 8 клеток (S O N T I R W ×) в Canvas 2D (п.7 плана PLAN-1BIT)
+      function createGlyphAtlas() {
+        const atlasCanvas = document.createElement('canvas');
+        atlasCanvas.width = 256;
+        atlasCanvas.height = 32;
+        const ctx = atlasCanvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, 256, 32);
+          ctx.fillStyle = '#0E0E0E';
+          ctx.font = 'bold 20px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const glyphLetters = ['S', 'O', 'N', 'T', 'I', 'R', 'W', '×'];
+          glyphLetters.forEach((l, idx) => {
+            ctx.fillText(l, idx * 32 + 16, 17);
+          });
+        }
+        return atlasCanvas;
+      }
+      const glyphAtlasCanvas = createGlyphAtlas();
+
+      // 12. Слой ORBITS: пунктирный трек орбиты выбранного спутника (~120 точек)
+      let orbitMesh = null;
+      if (graticulesObj && globeMesh) {
+        const LineSegments = graticulesObj.constructor;
+        const BufferGeometry = graticulesObj.geometry.constructor;
+        const LineBasicMaterial = graticulesObj.material.constructor;
+        const orbitGeom = new BufferGeometry();
+        const orbitMat = new LineBasicMaterial({
+          color: '#0E0E0E',
+          transparent: true,
+          opacity: 0.6,
+        });
+        orbitMesh = new LineSegments(orbitGeom, orbitMat);
+        orbitMesh.visible = false;
+        globe.scene().add(orbitMesh);
+      }
+
+      function updateSelectedOrbit(sat) {
+        if (!orbitMesh || !graticulesObj) return;
+        if (!sat || !state.layers.orbits) {
+          orbitMesh.visible = false;
+          return;
+        }
+        // Приближённый трек орбиты (синусоида по наклонению, ~120 точек) — это иллюстрация, НЕ SGP4
+        const incVal = parseFloat(sat.inc) || 51.64;
+        const periodMin = parseFloat(sat.period) || 95.0;
+        const altFrac = Math.max(0.02, (sat.alt || 400) / 6371);
+        const steps = 120;
+        const positions = [];
+        const earthRotation = (periodMin / 1440) * 360;
+
+        for (let i = 0; i < steps; i++) {
+          const t1 = (i / steps) * 2 * Math.PI;
+          const t2 = ((i + 0.6) / steps) * 2 * Math.PI;
+
+          const lat1 = incVal * Math.sin(t1);
+          const lng1 = sat.lng + (t1 * 180 / Math.PI) - (t1 / (2 * Math.PI)) * earthRotation;
+          const p1 = globe.getCoords(lat1, lng1, altFrac);
+
+          const lat2 = incVal * Math.sin(t2);
+          const lng2 = sat.lng + (t2 * 180 / Math.PI) - (t2 / (2 * Math.PI)) * earthRotation;
+          const p2 = globe.getCoords(lat2, lng2, altFrac);
+
+          if (p1 && p2) {
+            positions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+          }
+        }
+
+        const Float32BufferAttribute = graticulesObj.geometry.attributes.position.constructor;
+        orbitMesh.geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+        orbitMesh.geometry.attributes.position.needsUpdate = true;
+        orbitMesh.visible = !!state.layers.orbits;
+      }
+
+      // 13. LOD-константы для масштабирования спутников
+      const LOD = {
+        FAR: 2.2,          // > 2.2R: 2px квадратные точки
+        MID: 1.4,          // 1.4 - 2.2R: глифы ближайших к центру экрана
+        MAX_MID_GLYPHS: 6, // Лимит глифов в промежуточном зуме
+      };
+
+      function getActiveSatellites() {
+        const allSats = window.REAL_SATS || [];
+        const currentFilter = window.APP.filter || state.filter || 'ALL';
+        return allSats.filter((sat) => {
+          if (currentFilter === 'FAV' || currentFilter === 'FAVORITES') {
+            return !!sat.fav;
+          }
+          return matchesFilter(sat, currentFilter);
+        });
+      }
+
+      // 14. Рендеринг глифов, выбор, LOD и проекция через camera.project()
+      const markersLayer = document.getElementById('globe-markers-layer');
+      const svgLayer = document.getElementById('globe-svg-layer');
+      const Vector3 = globe.camera().position.constructor;
+      const projVec = new Vector3();
+
+      let pointerDownX = 0;
+      let pointerDownY = 0;
+
+      globeContainer.addEventListener('pointerdown', (e) => {
+        pointerDownX = e.clientX;
+        pointerDownY = e.clientY;
+      });
+
+      // Рейкаст по точкам (порог 10px), курсор crosshair над точками
+      globeContainer.addEventListener('pointermove', (e) => {
+        if (e.target.closest('.top-bar, .chip-ribbon-container, .catalog-drawer, .inspector-panel, .layer-controls, .search-container')) {
+          return;
+        }
+        const mx = e.clientX;
+        const my = e.clientY;
+        let isOverSat = false;
+        const activeSats = getActiveSatellites();
+
+        for (let i = 0; i < activeSats.length; i++) {
+          const s = activeSats[i];
+          if (s._screenX != null && s._screenY != null && !s._isOccluded) {
+            const d = Math.hypot(mx - s._screenX, my - s._screenY);
+            if (d <= 10) {
+              isOverSat = true;
+              break;
+            }
+          }
+        }
+        globeContainer.style.cursor = isOverSat ? 'crosshair' : 'default';
+      });
+
+      // Клик по спутнику или пустому месту
+      globeContainer.addEventListener('pointerup', (e) => {
+        if (e.target.closest('.top-bar, .chip-ribbon-container, .catalog-drawer, .inspector-panel, .layer-controls, .search-container')) {
+          return;
+        }
+        const dragDist = Math.hypot(e.clientX - pointerDownX, e.clientY - pointerDownY);
+        if (dragDist > 5) {
+          return;
+        }
+
+        const mx = e.clientX;
+        const my = e.clientY;
+        const activeSats = getActiveSatellites();
+        let clickedSat = null;
+        let minD = 10;
+
+        for (let i = 0; i < activeSats.length; i++) {
+          const s = activeSats[i];
+          if (s._screenX != null && s._screenY != null && !s._isOccluded) {
+            const d = Math.hypot(mx - s._screenX, my - s._screenY);
+            if (d <= minD) {
+              minD = d;
+              clickedSat = s;
+            }
+          }
+        }
+
+        if (clickedSat) {
+          selectSatellite(clickedSat.id);
+        } else {
+          // Клик по пустому месту — снять выбор, убрать трек и плашку, камеру не двигать
+          selectSatellite(null);
+        }
+      });
+
+      if (markersLayer) {
+        markersLayer.addEventListener('click', (e) => {
+          const marker = e.target.closest('.sat-marker');
+          if (marker && marker.dataset.id) {
+            selectSatellite(marker.dataset.id);
+          }
+        });
+      }
+
+      function updateMarkersFrame() {
+        const camera = globe.camera();
+        if (!camera) {
+          requestAnimationFrame(updateMarkersFrame);
+          return;
+        }
+
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        const centerX = width / 2;
+        const centerY = height / 2;
+
+        const camPos = camera.position;
+        const camDist = camPos.length();
+        const distR = camDist / 100;
+
+        const activeSats = getActiveSatellites();
+        const visibleSats = [];
+
+        for (let i = 0; i < activeSats.length; i++) {
+          const s = activeSats[i];
+          const altFrac = Math.max(0.02, (s.alt || 400) / 6371);
+          const p3d = globe.getCoords(s.lat, s.lng, altFrac);
+          if (!p3d) continue;
+
+          // Проверка захода за лимб сферы Земли
+          const dot = p3d.x * camPos.x + p3d.y * camPos.y + p3d.z * camPos.z;
+          const pLen = Math.hypot(p3d.x, p3d.y, p3d.z);
+          const cosAngle = dot / (pLen * camDist);
+          const horizonCos = 100 / camDist;
+
+          if (dot <= 0 || cosAngle < horizonCos * 0.98) {
+            s._isOccluded = true;
+            s._screenX = null;
+            s._screenY = null;
+            continue;
+          }
+
+          s._isOccluded = false;
+          projVec.set(p3d.x, p3d.y, p3d.z).project(camera);
+
+          if (projVec.z > 1.0) {
+            s._isOccluded = true;
+            s._screenX = null;
+            s._screenY = null;
+            continue;
+          }
+
+          const sx = (projVec.x * 0.5 + 0.5) * width;
+          const sy = (-projVec.y * 0.5 + 0.5) * height;
+          s._screenX = sx;
+          s._screenY = sy;
+          s._distFromCenter = Math.hypot(sx - centerX, sy - centerY);
+          visibleSats.push(s);
+        }
+
+        let lodMode = 'CLOSE';
+        if (distR > LOD.FAR) {
+          lodMode = 'FAR';
+        } else if (distR >= LOD.MID) {
+          lodMode = 'MID';
+        }
+
+        let midGlyphIds = new Set();
+        if (lodMode === 'MID') {
+          const sorted = visibleSats.slice().sort((a, b) => a._distFromCenter - b._distFromCenter);
+          sorted.slice(0, LOD.MAX_MID_GLYPHS).forEach((s) => midGlyphIds.add(s.id));
+        }
+
+        let markersHtml = '';
+        let svgContent = '';
+        const isLabelsOn = !!state.layers.labels;
+        const selectedId = state.selectedId;
+
+        for (let i = 0; i < visibleSats.length; i++) {
+          const s = visibleSats[i];
+          const isSelected = selectedId === s.id;
+          const sx = Math.round(s._screenX);
+          const sy = Math.round(s._screenY);
+
+          let innerContent = '';
+          if (isSelected) {
+            innerContent = '<span class="sat-reticle">[ ● ]</span>';
+          } else if (lodMode === 'FAR') {
+            innerContent = '<span class="sat-dot"></span>';
+          } else if (lodMode === 'MID' && !midGlyphIds.has(s.id)) {
+            innerContent = '<span class="sat-dot"></span>';
+          } else {
+            innerContent = `<span class="sat-glyph">${s.letter || '×'}</span>`;
+          }
+
+          let labelTag = '';
+          if (isLabelsOn && !isSelected) {
+            if (lodMode === 'CLOSE' || (lodMode === 'MID' && midGlyphIds.has(s.id))) {
+              labelTag = `<span class="sat-label-tag">${s.name} [${s.letter || '×'}]</span>`;
+            }
+          }
+
+          markersHtml += `<div class="sat-marker ${isSelected ? 'selected' : ''}" data-id="${s.id}" style="left:${sx}px;top:${sy}px;">${innerContent}${labelTag}</div>`;
+
+          // HTML-плашка с лидер-линией для выбранного спутника
+          if (isSelected) {
+            const badgeOffsetLeft = 32;
+            const badgeOffsetTop = -28;
+            const bx = sx + badgeOffsetLeft;
+            const by = sy + badgeOffsetTop;
+
+            svgContent += `<polyline points="${sx},${sy} ${bx},${by + 10} ${bx + 30},${by + 10}" stroke="#0E0E0E" stroke-width="1" stroke-dasharray="2,2" fill="none"/>`;
+            markersHtml += `<div class="sat-selected-badge" style="left:${bx}px;top:${by}px;">${s.name} [${s.letter || '×'}]</div>`;
+          }
+        }
+
+        if (markersLayer) markersLayer.innerHTML = markersHtml;
+        if (svgLayer) svgLayer.innerHTML = svgContent;
+
+        requestAnimationFrame(updateMarkersFrame);
+      }
+      requestAnimationFrame(updateMarkersFrame);
+
+      // 15. Движение спутников: простая линейная прокрутка долготы (макет, не SGP4)
+      function stepSatelliteMovement() {
+        if (isReducedMotion) return;
+        const sats = window.REAL_SATS || [];
+        sats.forEach((sat) => {
+          const periodMin = parseFloat(sat.period) || 95.0;
+          const deltaLng = 360 / (periodMin * 60);
+          sat.lng += deltaLng;
+          if (sat.lng > 180) sat.lng -= 360;
+          if (sat.lng < -180) sat.lng += 360;
+        });
+
+        if (state.selectedId) {
+          const sel = sats.find((s) => s.id === state.selectedId);
+          if (sel) updateSelectedOrbit(sel);
+        }
+      }
+      setInterval(stepSatelliteMovement, 1000);
+
+      // 16. Контракт window.APP для шагов A7 и A8
       window.APP.globe = globe;
       window.APP.layers = Object.assign({}, state.layers);
       window.APP.filter = state.filter;
@@ -2039,6 +2466,10 @@
         if (atmosphereMesh) {
           atmosphereMesh.visible = !!layers.atmosphere;
         }
+        if (orbitMesh) {
+          const sel = state.selectedId ? (window.REAL_SATS || []).find((s) => s.id === state.selectedId) : null;
+          updateSelectedOrbit(sel);
+        }
       };
 
       window.APP.hooks.onFilterChange = function(filter) {
@@ -2049,6 +2480,9 @@
         if (sat && typeof sat.lat === 'number' && typeof sat.lng === 'number') {
           const duration = isReducedMotion ? 0 : 700;
           globe.pointOfView({ lat: sat.lat, lng: sat.lng, altitude: 1.6 }, duration);
+          updateSelectedOrbit(sat);
+        } else {
+          updateSelectedOrbit(null);
         }
       };
     })();
