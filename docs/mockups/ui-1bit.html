@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EARTH ORBIT LIVE — 1-Bit Telemetry</title>
+  <title>Спутник-Онлайн — макет 1 бит</title>
   <style>
     :root {
       --paper: #F4F1EA;
@@ -309,6 +309,8 @@
       justify-content: center;
     }
 
+    .btn-square-wide { width: auto; padding: 0 8px; }
+
     .btn-square:hover {
       background: var(--surface);
     }
@@ -457,7 +459,7 @@
     }
 
     .catalog-bullet {
-      font-size: 8px;
+      font-size: 11px;
       color: var(--ink);
       line-height: 1;
     }
@@ -612,11 +614,11 @@
       border: 1px solid var(--ink-muted);
       color: var(--ink-muted);
       font-family: var(--font-mono);
-      font-size: 9px;
+      font-size: 11px;
       font-weight: 700;
       line-height: 1;
-      width: 13px;
-      height: 13px;
+      width: 15px;
+      height: 15px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
@@ -655,13 +657,13 @@
     /* Действия и мини-график A4, A6 */
     .actions-row {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(2, 1fr);
       gap: 4px;
     }
 
     .actions-row .btn {
-      padding: 6px 2px;
-      font-size: 9px;
+      padding: 6px 4px;
+      font-size: 11px;
       letter-spacing: 0.04em;
     }
 
@@ -959,8 +961,8 @@
     <div class="top-bar-right">
       <span id="utc-clock" class="num" style="font-size: 12px; font-weight: 700; letter-spacing: 0.05em; min-width: 95px;">00:00:00 UTC</span>
       <button id="btn-catalog-toggle" class="btn" type="button" title="Каталог (C)">[ КАТАЛОГ (C) ]</button>
-      <button class="btn-square" type="button" title="Профиль">ПРФ</button>
-      <button class="btn-square" type="button" title="Администратор">АДМ</button>
+      <button class="btn-square btn-square-wide" type="button" title="Профиль">ПРОФИЛЬ</button>
+      <button class="btn-square btn-square-wide" type="button" title="Администратор">АДМИН</button>
     </div>
   </header>
 
@@ -1016,7 +1018,7 @@
       <div class="chart-box">
         <div class="chart-title">
           <span>ВЫСОТА ПО ВРЕМЕНИ</span>
-          <span id="chart-period-sub" class="num" style="font-size: 9px;">92.9 мин</span>
+          <span id="chart-period-sub" class="num" style="font-size: 11px;">92.9 мин</span>
         </div>
         <svg id="orbit-chart-svg" class="chart-svg" viewBox="0 0 296 100" width="296" height="100"></svg>
       </div>
@@ -1025,8 +1027,8 @@
       <div class="pass-box">
         <div class="pass-title">КОГДА УВИДЕТЬ</div>
         <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
-          <label style="font-size: 10px; color: var(--ink-muted);">ГОРОД:</label>
-          <input type="text" id="pass-city-input" class="field" value="МОСКВА" style="font-size: 10px; padding: 2px 6px; text-transform: uppercase;">
+          <label style="font-size: 11px; color: var(--ink-muted);">ГОРОД:</label>
+          <input type="text" id="pass-city-input" class="field" value="МОСКВА" style="font-size: 11px; padding: 2px 6px; text-transform: uppercase;">
         </div>
         <!-- ДАННЫЕ ЗАГЛУШКА: статический прогноз пролётов для макета -->
         <div class="pass-row">
@@ -1069,7 +1071,7 @@
   </div>
 
   <div id="globe">
-    <div class="stub-label">[ ГЛОБУС — ШАГ A7 ]</div>
+    <div class="stub-label">[ ГЛОБУС — ШАГ А7 ]</div>
   </div>
 
   <script src="vendor/sats.js"></script>
@@ -1208,7 +1210,7 @@
     // Категории чипов фильтра A2
     const CHIP_CATEGORIES = [
       { id: 'ALL', label: 'ВСЕ' },
-      { id: 'ISS', label: 'МКС' },
+      { id: 'ISS', label: 'СТАНЦИИ' },
       { id: 'STARLINK', label: 'STARLINK' },
       { id: 'ONEWEB', label: 'ONEWEB' },
       { id: 'NAVIGATION', label: 'НАВИГАЦИЯ' },
@@ -1360,12 +1362,12 @@
 
       if (state.catalogTab === 'groups') {
         const groups = [
-          { id: 'ISS', name: 'МКС', letter: 'I' },
+          { id: 'ISS', name: 'СТАНЦИИ', letter: 'I' },
           { id: 'STARLINK', name: 'STARLINK', letter: 'S' },
           { id: 'ONEWEB', name: 'ONEWEB', letter: 'O' },
           { id: 'NAVIGATION', name: 'НАВИГАЦИЯ', letter: 'N' },
           { id: 'TELESCOPE', name: 'ТЕЛЕСКОПЫ', letter: 'T' },
-          { id: 'OTHER', name: 'ДРУГОЕ (IRIDIUM, ПОГОДА)', letter: '×' },
+          { id: 'OTHER', name: 'ДРУГОЕ', letter: '×' },
         ];
         listEl.innerHTML = groups.map((g) => {
           const count = sats.filter((s) => matchesFilter(s, g.id)).length;
@@ -1413,7 +1415,7 @@
               <span class="catalog-bullet">▪</span>
               <div class="catalog-row-info">
                 <div class="catalog-row-name">${s.name}</div>
-                <div class="catalog-row-sub">${s.alt} км · ${s.orbit.split('·')[0].trim()}</div>
+                <div class="catalog-row-sub">${String(s.alt).replace(/(\d)\.(\d)/g, '$1,$2')} км · ${s.orbit.split('·')[0].trim()}</div>
               </div>
             </div>
             <div class="catalog-row-actions">
@@ -1484,7 +1486,8 @@
       if (!svg) return;
 
       const altVal = Number(sat.alt) || 500;
-      const periodStr = sat.period || '90 мин';
+      const ru = (v) => String(v).replace(/(\d)\.(\d)/g, '$1,$2');
+      const periodStr = ru(sat.period || '90 мин');
       if (periodSub) periodSub.textContent = periodStr;
 
       const apParts = String(sat.ap || '').split('/');
@@ -1527,14 +1530,14 @@
         <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + plotH}" stroke="#0E0E0E" stroke-width="1" />
         <line x1="${padLeft}" y1="${padTop + plotH}" x2="${w - padRight}" y2="${padTop + plotH}" stroke="#0E0E0E" stroke-width="1" />
 
-        <text x="${padLeft - 4}" y="${padTop + 4}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="end" class="num">${Math.round(maxAlt)}</text>
-        <text x="${padLeft - 4}" y="${padTop + plotH / 2 + 3}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="end" class="num">${Math.round((maxAlt + minAlt) / 2)}</text>
-        <text x="${padLeft - 4}" y="${padTop + plotH}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="end" class="num">${Math.round(minAlt)}</text>
+        <text x="${padLeft - 4}" y="${padTop + 4}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="end" class="num">${Math.round(maxAlt)}</text>
+        <text x="${padLeft - 4}" y="${padTop + plotH / 2 + 3}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="end" class="num">${Math.round((maxAlt + minAlt) / 2)}</text>
+        <text x="${padLeft - 4}" y="${padTop + plotH}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="end" class="num">${Math.round(minAlt)}</text>
 
-        <text x="${padLeft}" y="${h - 6}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="start">0</text>
-        <text x="${padLeft + plotW * 0.33}" y="${h - 6}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="middle">1/3T</text>
-        <text x="${padLeft + plotW * 0.66}" y="${h - 6}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="middle">2/3T</text>
-        <text x="${w - padRight}" y="${h - 6}" font-family="var(--font-mono)" font-size="8" fill="#5C5A54" text-anchor="end">1T</text>
+        <text x="${padLeft}" y="${h - 6}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="start">0</text>
+        <text x="${padLeft + plotW * 0.33}" y="${h - 6}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="middle">1/3T</text>
+        <text x="${padLeft + plotW * 0.66}" y="${h - 6}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="middle">2/3T</text>
+        <text x="${w - padRight}" y="${h - 6}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="end">1T</text>
 
         <path d="${pathD}" fill="none" stroke="#0E0E0E" stroke-width="1.5" />
       `;
@@ -1569,14 +1572,14 @@
       const paramsEl = document.getElementById('inspector-params');
       if (paramsEl) {
         const fields = [
-          { key: 'altitude', val: `${sat.alt} км` },
-          { key: 'speed', val: `${sat.speed} км/с` },
-          { key: 'inclination', val: sat.inc },
-          { key: 'period', val: sat.period },
-          { key: 'apogee', val: sat.ap },
-          { key: 'eccentricity', val: sat.ecc },
-          { key: 'coordinates', val: `${sat.lat}° / ${sat.lng}°` },
-          { key: 'epoch', val: sat.epoch },
+          { key: 'altitude', val: `${ru(sat.alt)} км` },
+          { key: 'speed', val: `${ru(sat.speed)} км/с` },
+          { key: 'inclination', val: ru(sat.inc) },
+          { key: 'period', val: ru(sat.period) },
+          { key: 'apogee', val: ru(sat.ap) },
+          { key: 'eccentricity', val: ru(sat.ecc) },
+          { key: 'coordinates', val: `${ru(sat.lat)}° / ${ru(sat.lng)}°` },
+          { key: 'epoch', val: ru(sat.epoch) },
           { key: 'country', val: sat.country },
           { key: 'launch', val: sat.launch },
           { key: 'purpose', val: sat.purpose },
