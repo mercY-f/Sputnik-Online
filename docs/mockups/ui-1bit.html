@@ -152,20 +152,8 @@
       position: fixed;
       inset: 0;
       z-index: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: none;
       background: transparent;
-    }
-
-    #globe .stub-label {
-      border: 1px dashed var(--ink-muted);
-      color: var(--ink-muted);
-      font-size: 12px;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      padding: 8px 16px;
+      cursor: crosshair;
     }
 
     /* Верхняя панель A1 */
@@ -1070,10 +1058,17 @@
     </button>
   </div>
 
-  <div id="globe">
-    <div class="stub-label">[ ГЛОБУС — ШАГ А7 ]</div>
-  </div>
+  <!--
+    3D-ГЛОБУС (ШАГ A7)
+    Открытие: из корня репозитория запустить локальный HTTP-сервер:
+      python3 -m http.server 8080
+    Затем открыть в браузере:
+      http://localhost:8080/docs/mockups/ui-1bit.html
+    (Просмотр через file:// не поддерживается из-за ограничений CORS/WebGL)
+  -->
+  <div id="globe"></div>
 
+  <script src="vendor/globe.gl.min.js"></script>
   <script src="vendor/sats.js"></script>
   <script>
     // ASCII-схемы по классам A5
@@ -1834,6 +1829,229 @@
         }
       }
     });
+
+    // =========================================================================
+    // 3D-ГЛОБУС: ШАГ A7 — каркас: бумажная сфера, границы, сетка, управление
+    // Запуск: python3 -m http.server 8080 -> http://localhost:8080/docs/mockups/ui-1bit.html
+    // =========================================================================
+    (function initGlobeScene() {
+      const globeContainer = document.getElementById('globe');
+      if (!globeContainer || typeof Globe !== 'function') {
+        return;
+      }
+
+      const isReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      // 1. Инициализация экземпляра Globe (ровно один вызов)
+      const globe = Globe()(globeContainer)
+        .width(window.innerWidth)
+        .height(window.innerHeight)
+        .backgroundColor('rgba(0,0,0,0)')
+        .showAtmosphere(false)
+        .showGraticules(false)
+        .globeImageUrl(null);
+
+      // Стартовая позиция камеры (Земля целиком)
+      globe.pointOfView({ lat: 25, lng: 60, altitude: 1.9 });
+
+      // 2. Настройка встроенного OrbitControls
+      const controls = globe.controls();
+      if (controls) {
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.enablePan = false;
+        controls.rotateSpeed = 0.6;
+        controls.zoomSpeed = 0.8;
+        controls.minDistance = 135;
+        controls.maxDistance = 700;
+        controls.autoRotate = false;
+      }
+
+      // 3. Материал сферы Земли: цвет бумаги (#F4F1EA)
+      const earthMat = globe.globeMaterial();
+      if (earthMat && earthMat.color) {
+        earthMat.color.set('#F4F1EA');
+        if ('roughness' in earthMat) earthMat.roughness = 1;
+        if ('metalness' in earthMat) earthMat.metalness = 0;
+        if ('shininess' in earthMat) earthMat.shininess = 0;
+        if (earthMat.specular && earthMat.specular.set) {
+          earthMat.specular.set('#000000');
+        }
+      }
+
+      // 4. Поиск мешей в сцене для получения конструкторов Three.js
+      let globeMesh = null;
+      let graticulesObj = null;
+      globe.scene().traverse((obj) => {
+        if (obj.isMesh && !globeMesh) {
+          globeMesh = obj;
+        }
+        if (obj.isLineSegments && !graticulesObj) {
+          graticulesObj = obj;
+        }
+      });
+
+      // 5. Силуэт: Inverted Hull (вторая сфера радиуса R*1.008, side: BackSide, чёрная #0E0E0E)
+      if (globeMesh && globeMesh.geometry) {
+        const hull = new globeMesh.constructor(globeMesh.geometry.clone(), globeMesh.material.clone());
+        hull.material.color.set('#0E0E0E');
+        hull.material.side = 1; // Three.js BackSide = 1
+        hull.scale.setScalar(1.008);
+        globe.scene().add(hull);
+      }
+
+      // 6. Границы стран из vendor/countries.json (polygonsData)
+      fetch('vendor/countries.json')
+        .then((res) => {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then((countries) => {
+          globe
+            .polygonsData(countries.features)
+            .polygonCapColor(() => 'rgba(0,0,0,0)')
+            .polygonSideColor(() => 'rgba(0,0,0,0)')
+            .polygonStrokeColor(() => '#0E0E0E')
+            .polygonAltitude(0.001)
+            .polygonsTransitionDuration(0);
+        })
+        .catch((err) => {
+          console.error('Ошибка загрузки vendor/countries.json:', err);
+        });
+
+      // 7. Сетка: пунктирные линии с шагом 30°, opacity 0.25 (слой GRID)
+      let gridMesh = null;
+      if (graticulesObj && globeMesh) {
+        const LineSegments = graticulesObj.constructor;
+        const BufferGeometry = graticulesObj.geometry.constructor;
+        const LineBasicMaterial = graticulesObj.material.constructor;
+        const Float32BufferAttribute = graticulesObj.geometry.attributes.position.constructor;
+
+        const gridPositions = [];
+
+        // Параллели с шагом 30°: от -60° до 60°
+        for (let lat = -60; lat <= 60; lat += 30) {
+          for (let lng = -180; lng < 180; lng += 5) {
+            const p1 = globe.getCoords(lat, lng, 0.001);
+            const p2 = globe.getCoords(lat, lng + 2.5, 0.001);
+            if (p1 && p2) {
+              gridPositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+            }
+          }
+        }
+
+        // Меридианы с шагом 30°: от -180° до 150°
+        for (let lng = -180; lng < 180; lng += 30) {
+          for (let lat = -85; lat < 85; lat += 5) {
+            const p1 = globe.getCoords(lat, lng, 0.001);
+            const p2 = globe.getCoords(lat + 2.5, lng, 0.001);
+            if (p1 && p2) {
+              gridPositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+            }
+          }
+        }
+
+        const gridGeom = new BufferGeometry();
+        gridGeom.setAttribute('position', new Float32BufferAttribute(gridPositions, 3));
+        const gridMat = new LineBasicMaterial({
+          color: '#0E0E0E',
+          transparent: true,
+          opacity: 0.25,
+        });
+        gridMesh = new LineSegments(gridGeom, gridMat);
+        gridMesh.visible = !!state.layers.grid;
+        globe.scene().add(gridMesh);
+      }
+
+      // 8. Слой ATMOSPHERE: тонкое пунктирное кольцо второго радиуса (R*1.08 = 108)
+      let atmosphereMesh = null;
+      if (graticulesObj && globeMesh) {
+        const LineSegments = graticulesObj.constructor;
+        const BufferGeometry = graticulesObj.geometry.constructor;
+        const LineBasicMaterial = graticulesObj.material.constructor;
+        const Float32BufferAttribute = graticulesObj.geometry.attributes.position.constructor;
+
+        const atmPositions = [];
+        const R_atm = 108; // Второй радиус: R * 1.08
+        // 48 штрихов: шаг 7.5° (4° штрих, 3.5° пропуск)
+        for (let deg = 0; deg < 360; deg += 7.5) {
+          const rad1 = deg * Math.PI / 180;
+          const rad2 = (deg + 4) * Math.PI / 180;
+          atmPositions.push(
+            Math.cos(rad1) * R_atm, Math.sin(rad1) * R_atm, 0,
+            Math.cos(rad2) * R_atm, Math.sin(rad2) * R_atm, 0
+          );
+        }
+
+        const atmGeom = new BufferGeometry();
+        atmGeom.setAttribute('position', new Float32BufferAttribute(atmPositions, 3));
+        const atmMat = new LineBasicMaterial({
+          color: '#0E0E0E',
+          transparent: true,
+          opacity: 0.35,
+        });
+        atmosphereMesh = new LineSegments(atmGeom, atmMat);
+        atmosphereMesh.visible = !!state.layers.atmosphere;
+        globe.scene().add(atmosphereMesh);
+
+        function updateAtmosphereOrientation() {
+          if (atmosphereMesh && globe.camera()) {
+            atmosphereMesh.quaternion.copy(globe.camera().quaternion);
+          }
+        }
+        updateAtmosphereOrientation();
+        if (controls) {
+          controls.addEventListener('change', updateAtmosphereOrientation);
+        }
+        if (typeof requestAnimationFrame === 'function') {
+          function loopAtmosphere() {
+            updateAtmosphereOrientation();
+            requestAnimationFrame(loopAtmosphere);
+          }
+          requestAnimationFrame(loopAtmosphere);
+        }
+      }
+
+      // 9. Ресайз окна — обновление размеров холста
+      window.addEventListener('resize', () => {
+        globe.width(window.innerWidth).height(window.innerHeight);
+      });
+
+      // 10. Двойной клик по холсту — сброс вида pointOfView({lat:25,lng:60,altitude:1.9},800)
+      globeContainer.addEventListener('dblclick', (e) => {
+        if (e.target.closest('.top-bar, .chip-ribbon-container, .catalog-drawer, .inspector-panel, .layer-controls, .search-container')) {
+          return;
+        }
+        const duration = isReducedMotion ? 0 : 800;
+        globe.pointOfView({ lat: 25, lng: 60, altitude: 1.9 }, duration);
+      });
+
+      // 11. Контракт window.APP для шагов A7 и A8
+      window.APP.globe = globe;
+      window.APP.layers = Object.assign({}, state.layers);
+      window.APP.filter = state.filter;
+
+      window.APP.hooks.onLayersChange = function(layers) {
+        window.APP.layers = Object.assign({}, layers);
+        if (gridMesh) {
+          gridMesh.visible = !!layers.grid;
+        }
+        if (atmosphereMesh) {
+          atmosphereMesh.visible = !!layers.atmosphere;
+        }
+      };
+
+      window.APP.hooks.onFilterChange = function(filter) {
+        window.APP.filter = filter;
+      };
+
+      window.APP.hooks.onSelectSatellite = function(sat) {
+        if (sat && typeof sat.lat === 'number' && typeof sat.lng === 'number') {
+          const duration = isReducedMotion ? 0 : 700;
+          globe.pointOfView({ lat: sat.lat, lng: sat.lng, altitude: 1.6 }, duration);
+        }
+      };
+    })();
   </script>
 </body>
 </html>
