@@ -316,6 +316,37 @@
       color: var(--paper);
     }
 
+    /* Лента чипов A2 */
+    .chip-ribbon-bar {
+      position: fixed;
+      top: 48px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      z-index: 40;
+      pointer-events: none;
+    }
+
+    .chip-ribbon {
+      pointer-events: auto;
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      padding: 4px 6px;
+      box-shadow: 2px 2px 0 var(--ink);
+      max-width: calc(100vw - 24px);
+    }
+
+    .chip-count {
+      font-size: 10px;
+      padding: 1px 4px;
+      border: 1px solid currentColor;
+      margin-left: 4px;
+    }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -347,12 +378,40 @@
     </div>
   </header>
 
+  <div class="chip-ribbon-bar">
+    <nav id="chip-ribbon" class="chip-ribbon" role="toolbar" aria-label="Фильтр категорий"></nav>
+  </div>
+
   <div id="globe">
     <div class="stub-label">[ ГЛОБУС — ШАГ A7 ]</div>
   </div>
 
   <script src="vendor/sats.js"></script>
   <script>
+    // Категории чипов фильтра A2
+    const CHIP_CATEGORIES = [
+      { id: 'ALL', label: 'ВСЕ' },
+      { id: 'ISS', label: 'МКС' },
+      { id: 'STARLINK', label: 'STARLINK' },
+      { id: 'ONEWEB', label: 'ONEWEB' },
+      { id: 'NAVIGATION', label: 'НАВИГАЦИЯ' },
+      { id: 'TELESCOPE', label: 'ТЕЛЕСКОПЫ' },
+      { id: 'OTHER', label: 'ДРУГОЕ' },
+    ];
+
+    function matchesFilter(sat, filter) {
+      if (filter === 'ALL') return true;
+      if (filter === 'ISS') return sat.cat === 'ISS';
+      if (filter === 'STARLINK') return sat.cat === 'STARLINK';
+      if (filter === 'ONEWEB') return sat.cat === 'ONEWEB';
+      if (filter === 'NAVIGATION') return sat.cat === 'NAVIGATION';
+      if (filter === 'TELESCOPE') return sat.cat === 'TELESCOPE';
+      if (filter === 'OTHER') {
+        return sat.cat !== 'ISS' && sat.cat !== 'STARLINK' && sat.cat !== 'ONEWEB' && sat.cat !== 'NAVIGATION' && sat.cat !== 'TELESCOPE';
+      }
+      return true;
+    }
+
     // Глобальное состояние приложения
     const state = {
       selectedId: null,
@@ -383,6 +442,41 @@
     }
     setInterval(updateClock, 1000);
     updateClock();
+
+    // Отрисовка ленты чипов A2
+    function renderChips() {
+      const ribbon = document.getElementById('chip-ribbon');
+      if (!ribbon) return;
+      const sats = window.REAL_SATS || [];
+      ribbon.innerHTML = CHIP_CATEGORIES.map((cat) => {
+        const count = sats.filter((s) => matchesFilter(s, cat.id)).length;
+        const isActive = state.filter === cat.id;
+        return `
+          <button type="button" class="chip ${isActive ? 'active' : ''}" data-filter="${cat.id}">
+            <span>${cat.label}</span>
+            <span class="chip-count num">${count}</span>
+          </button>
+        `;
+      }).join('');
+    }
+
+    const ribbonEl = document.getElementById('chip-ribbon');
+    if (ribbonEl) {
+      ribbonEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('.chip');
+        if (btn && btn.dataset.filter) {
+          state.filter = btn.dataset.filter;
+          renderChips();
+          if (typeof renderCatalogList === 'function') {
+            renderCatalogList();
+          }
+          if (window.APP && typeof window.APP.onFilterChange === 'function') {
+            window.APP.onFilterChange(state.filter);
+          }
+        }
+      });
+    }
+    renderChips();
 
     // Выбор спутника (контракт A7)
     function selectSatellite(id) {
