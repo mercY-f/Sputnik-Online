@@ -1200,6 +1200,7 @@
   </div>
 
   <script src="vendor/globe.gl.min.js"></script>
+  <script src="vendor/countries.js"></script>
   <script src="vendor/sats.js"></script>
   <script>
     // ASCII-схемы по классам A5
@@ -2097,46 +2098,55 @@
         }
       }
 
-      fetch('vendor/countries.json')
-        .then((res) => {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.json();
-        })
-        .then((countries) => {
-          const rawRings = [];
-          (countries.features || []).forEach((f) => {
-            const g = f.geometry;
-            if (!g) return;
-            if (g.type === 'Polygon') {
-              g.coordinates.forEach((ring) => rawRings.push(ring));
-            } else if (g.type === 'MultiPolygon') {
-              g.coordinates.forEach((poly) => poly.forEach((ring) => rawRings.push(ring)));
-            }
-          });
-
-          rawRings.forEach((ring) => {
-            const pts3d = [];
-            for (let i = 0; i < ring.length; i++) {
-              const p = ring[i];
-              const p3d = globe.getCoords(p[1], p[0], 0.006);
-              if (p3d) {
-                pts3d.push({ x: p3d.x, y: p3d.y, z: p3d.z });
-              }
-            }
-            if (pts3d.length >= 2) {
-              const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-              if (bordersLayer) bordersLayer.appendChild(pathEl);
-              borderPaths.push({ el: pathEl, points: pts3d });
-            }
-          });
-
-          bordersInited = true;
-          bordersDirty = true;
-          updateBorders();
-        })
-        .catch((err) => {
-          console.error('Ошибка загрузки vendor/countries.json:', err);
+      function applyCountriesGeoJson(countries) {
+        if (!countries || !countries.features) return;
+        const rawRings = [];
+        (countries.features || []).forEach((f) => {
+          const g = f.geometry;
+          if (!g) return;
+          if (g.type === 'Polygon') {
+            g.coordinates.forEach((ring) => rawRings.push(ring));
+          } else if (g.type === 'MultiPolygon') {
+            g.coordinates.forEach((poly) => poly.forEach((ring) => rawRings.push(ring)));
+          }
         });
+
+        rawRings.forEach((ring) => {
+          const pts3d = [];
+          for (let i = 0; i < ring.length; i++) {
+            const p = ring[i];
+            const p3d = globe.getCoords(p[1], p[0], 0.006);
+            if (p3d) {
+              pts3d.push({ x: p3d.x, y: p3d.y, z: p3d.z });
+            }
+          }
+          if (pts3d.length >= 2) {
+            const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            if (bordersLayer) bordersLayer.appendChild(pathEl);
+            borderPaths.push({ el: pathEl, points: pts3d });
+          }
+        });
+
+        bordersInited = true;
+        bordersDirty = true;
+        updateBorders();
+      }
+
+      if (window.COUNTRIES_GEOJSON) {
+        applyCountriesGeoJson(window.COUNTRIES_GEOJSON);
+      } else {
+        fetch('vendor/countries.json')
+          .then((res) => {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+          })
+          .then((countries) => {
+            applyCountriesGeoJson(countries);
+          })
+          .catch((err) => {
+            console.error('Ошибка загрузки vendor/countries.json:', err);
+          });
+      }
 
       if (controls) {
         controls.addEventListener('change', () => {
@@ -2154,10 +2164,21 @@
       function initSceneObjects() {
         if (sceneObjectsInited) return;
 
-        // Поиск globeMesh и отключение источников света сцены (плоский 1-битный свет)
+        // Поиск globeMesh (сферы Земли) среди мешей с geometry.attributes.position
+        // Выбираем меш с максимальным числом вершин (position.count) и отключаем свет
+        let bestMesh = null;
+        let maxVertexCount = -1;
+
         globe.scene().traverse((obj) => {
-          if (obj.isMesh && !globeMesh) {
-            globeMesh = obj;
+          if (obj.isMesh && obj.geometry) {
+            const pos = obj.geometry.attributes && obj.geometry.attributes.position
+              ? obj.geometry.attributes.position
+              : (typeof obj.geometry.getAttribute === 'function' ? obj.geometry.getAttribute('position') : null);
+            const count = pos && typeof pos.count === 'number' ? pos.count : 0;
+            if (count > maxVertexCount) {
+              maxVertexCount = count;
+              bestMesh = obj;
+            }
           }
           if (obj.isLight) {
             obj.intensity = 0;
@@ -2165,7 +2186,13 @@
           }
         });
 
-        if (!globeMesh || !globeMesh.geometry) return;
+        if (!bestMesh || !bestMesh.geometry) return;
+        const posAttr = bestMesh.geometry.attributes && bestMesh.geometry.attributes.position
+          ? bestMesh.geometry.attributes.position
+          : (typeof bestMesh.geometry.getAttribute === 'function' ? bestMesh.geometry.getAttribute('position') : null);
+        if (!posAttr) return;
+
+        globeMesh = bestMesh;
         sceneObjectsInited = true;
 
         // Однотонный плоский цвет бумаги для сферы Земли (#F4F1EA)
@@ -2179,7 +2206,8 @@
 
         // Three.js конструкторы через прототипную цепочку globeMesh
         const BufferGeometry = Object.getPrototypeOf(Object.getPrototypeOf(globeMesh.geometry)).constructor;
-        const Float32BufferAttribute = globeMesh.geometry.attributes.position.constructor;
+        const Float32BufferAttribute = posAttr ? posAttr.constructor : (globeMesh.geometry.attributes && globeMesh.geometry.attributes.position ? globeMesh.geometry.attributes.position.constructor : null);
+        if (!Float32BufferAttribute) return;
 
         // Силуэт: Inverted Hull (сфера радиуса R*1.008, BackSide, чёрная #0E0E0E)
         const hullGeom = globeMesh.geometry.clone();
@@ -2326,7 +2354,10 @@
           }
         }
 
-        const Float32BufferAttribute = globeMesh.geometry.attributes.position.constructor;
+        const Float32BufferAttribute = (globeMesh.geometry && globeMesh.geometry.attributes && globeMesh.geometry.attributes.position)
+          ? globeMesh.geometry.attributes.position.constructor
+          : null;
+        if (!Float32BufferAttribute) return;
         orbitMesh.geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
         orbitMesh.geometry.attributes.position.needsUpdate = true;
         orbitMesh.visible = !!state.layers.orbits;
