@@ -347,6 +347,164 @@
       margin-left: 4px;
     }
 
+    /* Каталог-ящик A3 */
+    .catalog-drawer {
+      position: fixed;
+      top: 40px;
+      bottom: 0;
+      left: 0;
+      width: 288px;
+      background: var(--paper);
+      border-right: 2px solid var(--ink);
+      z-index: 45;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(-100%);
+      transition: transform 0.15s ease-out;
+      box-shadow: 2px 0 0 var(--ink);
+    }
+
+    .catalog-drawer.open {
+      transform: translateX(0);
+    }
+
+    .catalog-header {
+      padding: 8px 10px;
+      border-bottom: 2px solid var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+    }
+
+    .catalog-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .catalog-search-box {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+    }
+
+    .catalog-tabs {
+      display: flex;
+      border-bottom: 2px solid var(--ink);
+      background: var(--paper);
+    }
+
+    .catalog-tab {
+      flex: 1;
+      padding: 6px 4px;
+      background: var(--paper);
+      color: var(--ink-muted);
+      border: none;
+      border-right: 1px solid rgba(14, 14, 14, 0.2);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      text-align: center;
+    }
+
+    .catalog-tab:last-child {
+      border-right: none;
+    }
+
+    .catalog-tab.active {
+      background: var(--surface);
+      color: var(--ink);
+      border-bottom: 2px solid var(--ink);
+    }
+
+    .catalog-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .catalog-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+      cursor: pointer;
+      border-left: 4px solid transparent;
+      user-select: none;
+    }
+
+    .catalog-row:hover {
+      background: var(--surface);
+    }
+
+    .catalog-row.active {
+      border-left: 4px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .catalog-row-main {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .catalog-bullet {
+      font-size: 8px;
+      color: var(--ink);
+      line-height: 1;
+    }
+
+    .catalog-row-info {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .catalog-row-name {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .catalog-row-sub {
+      font-size: 10px;
+      color: var(--ink-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .catalog-row-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 6px;
+    }
+
+    .btn-fav {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      color: var(--ink);
+      padding: 2px 4px;
+      font-family: inherit;
+    }
+
+    .btn-fav:hover {
+      color: var(--ink);
+      background: var(--surface);
+    }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -381,6 +539,23 @@
   <div class="chip-ribbon-bar">
     <nav id="chip-ribbon" class="chip-ribbon" role="toolbar" aria-label="Фильтр категорий"></nav>
   </div>
+
+  <!-- Каталог-ящик A3 -->
+  <aside id="catalog-drawer" class="catalog-drawer" aria-label="Каталог космических аппаратов">
+    <div class="catalog-header">
+      <span class="catalog-title">КАТАЛОГ ОБЪЕКТОВ</span>
+      <button type="button" id="btn-catalog-close" class="btn-square" title="Закрыть">✕</button>
+    </div>
+    <div class="catalog-search-box">
+      <input type="text" id="catalog-filter-input" class="field" placeholder="ФИЛЬТР ПО СПИСКУ..." autocomplete="off">
+    </div>
+    <div class="catalog-tabs">
+      <button type="button" class="catalog-tab active" data-tab="sats">Спутники</button>
+      <button type="button" class="catalog-tab" data-tab="groups">Группировки</button>
+      <button type="button" class="catalog-tab" data-tab="favs">Избранное</button>
+    </div>
+    <div id="catalog-list" class="catalog-list"></div>
+  </aside>
 
   <div id="globe">
     <div class="stub-label">[ ГЛОБУС — ШАГ A7 ]</div>
@@ -417,6 +592,7 @@
       selectedId: null,
       filter: 'ALL',
       searchQuery: '',
+      catalogFilterText: '',
       catalogOpen: false,
       catalogTab: 'sats',
       layers: {
@@ -482,10 +658,182 @@
     function selectSatellite(id) {
       state.selectedId = String(id);
       const sat = (window.REAL_SATS || []).find((s) => s.id === String(id));
+      renderCatalogList();
+      if (typeof renderInspectorPanel === 'function') {
+        renderInspectorPanel(sat);
+      }
       if (window.APP && window.APP.hooks && typeof window.APP.hooks.onSelectSatellite === 'function') {
         window.APP.hooks.onSelectSatellite(sat);
       }
     }
+
+    // Управление каталогом A3
+    function toggleCatalog(force) {
+      state.catalogOpen = typeof force === 'boolean' ? force : !state.catalogOpen;
+      const drawer = document.getElementById('catalog-drawer');
+      const toggleBtn = document.getElementById('btn-catalog-toggle');
+      if (drawer) {
+        drawer.classList.toggle('open', state.catalogOpen);
+      }
+      if (toggleBtn) {
+        toggleBtn.classList.toggle('active', state.catalogOpen);
+      }
+    }
+
+    const btnCatalogToggle = document.getElementById('btn-catalog-toggle');
+    if (btnCatalogToggle) {
+      btnCatalogToggle.addEventListener('click', () => toggleCatalog());
+    }
+
+    const btnCatalogClose = document.getElementById('btn-catalog-close');
+    if (btnCatalogClose) {
+      btnCatalogClose.addEventListener('click', () => toggleCatalog(false));
+    }
+
+    const catalogFilterInput = document.getElementById('catalog-filter-input');
+    if (catalogFilterInput) {
+      catalogFilterInput.addEventListener('input', (e) => {
+        state.catalogFilterText = e.target.value.trim().toLowerCase();
+        renderCatalogList();
+      });
+    }
+
+    const catalogTabsEl = document.querySelector('.catalog-tabs');
+    if (catalogTabsEl) {
+      catalogTabsEl.addEventListener('click', (e) => {
+        const tabBtn = e.target.closest('.catalog-tab');
+        if (tabBtn && tabBtn.dataset.tab) {
+          state.catalogTab = tabBtn.dataset.tab;
+          catalogTabsEl.querySelectorAll('.catalog-tab').forEach((t) => t.classList.remove('active'));
+          tabBtn.classList.add('active');
+          renderCatalogList();
+        }
+      });
+    }
+
+    function renderCatalogList() {
+      const listEl = document.getElementById('catalog-list');
+      if (!listEl) return;
+      const sats = window.REAL_SATS || [];
+
+      if (state.catalogTab === 'groups') {
+        const groups = [
+          { id: 'ISS', name: 'МКС', letter: 'I' },
+          { id: 'STARLINK', name: 'STARLINK', letter: 'S' },
+          { id: 'ONEWEB', name: 'ONEWEB', letter: 'O' },
+          { id: 'NAVIGATION', name: 'НАВИГАЦИЯ', letter: 'N' },
+          { id: 'TELESCOPE', name: 'ТЕЛЕСКОПЫ', letter: 'T' },
+          { id: 'OTHER', name: 'ДРУГОЕ (IRIDIUM, ПОГОДА)', letter: '×' },
+        ];
+        listEl.innerHTML = groups.map((g) => {
+          const count = sats.filter((s) => matchesFilter(s, g.id)).length;
+          const isActive = state.filter === g.id;
+          return `
+            <div class="catalog-row ${isActive ? 'active' : ''}" data-group-id="${g.id}">
+              <div class="catalog-row-main">
+                <span class="catalog-bullet">▪</span>
+                <div class="catalog-row-info">
+                  <div class="catalog-row-name">${g.name}</div>
+                  <div class="catalog-row-sub">Группировка объектов</div>
+                </div>
+              </div>
+              <div class="catalog-row-actions">
+                <span class="badge-square">${g.letter}</span>
+                <span class="num" style="font-size: 11px; font-weight: 700; padding: 2px 6px; border: 1px solid var(--ink); background: var(--surface);">${count}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+        return;
+      }
+
+      let filtered = sats;
+      if (state.catalogTab === 'favs') {
+        filtered = filtered.filter((s) => s.fav);
+      } else {
+        filtered = filtered.filter((s) => matchesFilter(s, state.filter));
+      }
+
+      if (state.catalogFilterText) {
+        filtered = filtered.filter((s) => s.name.toLowerCase().includes(state.catalogFilterText) || s.id.includes(state.catalogFilterText));
+      }
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = `<div style="padding: 24px 12px; color: var(--ink-muted); font-size: 11px; text-align: center;">${state.catalogTab === 'favs' ? 'НЕТ ИЗБРАННЫХ ОБЪЕКТОВ' : 'ОБЪЕКТЫ НЕ НАЙДЕНЫ'}</div>`;
+        return;
+      }
+
+      listEl.innerHTML = filtered.map((s) => {
+        const isSelected = state.selectedId === s.id;
+        return `
+          <div class="catalog-row ${isSelected ? 'active' : ''}" data-id="${s.id}">
+            <div class="catalog-row-main">
+              <span class="catalog-bullet">▪</span>
+              <div class="catalog-row-info">
+                <div class="catalog-row-name">${s.name}</div>
+                <div class="catalog-row-sub">${s.alt} км · ${s.orbit.split('·')[0].trim()}</div>
+              </div>
+            </div>
+            <div class="catalog-row-actions">
+              <span class="badge-square">${s.letter}</span>
+              <button type="button" class="btn-fav" data-fav-id="${s.id}" title="${s.fav ? 'Убрать из избранного' : 'В избранное'}">${s.fav ? '★' : '☆'}</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    const catalogListEl = document.getElementById('catalog-list');
+    if (catalogListEl) {
+      catalogListEl.addEventListener('click', (e) => {
+        const favBtn = e.target.closest('.btn-fav');
+        if (favBtn && favBtn.dataset.favId) {
+          e.stopPropagation();
+          const targetSat = (window.REAL_SATS || []).find((s) => s.id === favBtn.dataset.favId);
+          if (targetSat) {
+            targetSat.fav = !targetSat.fav;
+            renderCatalogList();
+            if (typeof updateInspectorFavButton === 'function') {
+              updateInspectorFavButton(targetSat);
+            }
+          }
+          return;
+        }
+
+        const groupRow = e.target.closest('[data-group-id]');
+        if (groupRow) {
+          state.filter = groupRow.dataset.groupId;
+          state.catalogTab = 'sats';
+          const tabBtn = document.querySelector('.catalog-tab[data-tab="sats"]');
+          if (tabBtn) {
+            document.querySelectorAll('.catalog-tab').forEach((t) => t.classList.remove('active'));
+            tabBtn.classList.add('active');
+          }
+          renderChips();
+          renderCatalogList();
+          if (window.APP && typeof window.APP.onFilterChange === 'function') {
+            window.APP.onFilterChange(state.filter);
+          }
+          return;
+        }
+
+        const row = e.target.closest('.catalog-row[data-id]');
+        if (row && row.dataset.id) {
+          selectSatellite(row.dataset.id);
+        }
+      });
+    }
+
+    // Клавиша C для каталога
+    window.addEventListener('keydown', (e) => {
+      const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+      if (e.key.toLowerCase() === 'c' && activeTag !== 'input' && activeTag !== 'textarea') {
+        e.preventDefault();
+        toggleCatalog();
+      }
+    });
+
+    renderCatalogList();
 
     // Обработка поиска и выпадающего списка
     const searchInput = document.getElementById('search-input');
