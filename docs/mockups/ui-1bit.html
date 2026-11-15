@@ -755,6 +755,86 @@
       display: block;
     }
 
+    /* Стадия 4: верстка назначения и монохромные плашки стран */
+    .param-row-block .param-main {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 6px 0;
+    }
+
+    .param-val-text {
+      font-size: 11px;
+      font-weight: 400;
+      line-height: 1.45;
+      color: var(--ink);
+      text-align: left;
+      word-break: break-word;
+      white-space: normal;
+    }
+
+    .country-badge-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      text-align: right;
+    }
+
+    .country-badge {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 1px 5px;
+      border: 1px solid var(--ink);
+      background: var(--surface);
+      color: var(--ink);
+      line-height: 1.2;
+    }
+
+    .country-name-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .country-badges-inline {
+      display: inline-flex;
+      gap: 3px;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+
+    .country-badge-sm {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0 3px;
+      border: 1px solid var(--ink);
+      background: var(--surface);
+      color: var(--ink);
+      line-height: 1.2;
+    }
+
+    .group-count-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border: 1px solid var(--ink);
+      background: var(--surface);
+      color: var(--ink);
+      line-height: 1;
+    }
+
     /* Действия и мини-график A4, A6 */
     .actions-row {
       display: grid;
@@ -1529,6 +1609,84 @@
       });
     }
 
+    const ru = (v) => String(v).replace(/(\d)\.(\d)/g, '$1,$2');
+
+    const COUNTRY_MAP = {
+      'RU': { code: 'RUS', name: 'РОССИЯ' },
+      'US': { code: 'USA', name: 'США' },
+      'CN': { code: 'CHN', name: 'КИТАЙ' },
+      'GB': { code: 'GBR', name: 'ВЕЛИКОБРИТАНИЯ' },
+      'EU': { code: 'ESA', name: 'ESA' },
+      'JP': { code: 'JPN', name: 'ЯПОНИЯ' },
+      'IN': { code: 'IND', name: 'ИНДИЯ' },
+      'FR': { code: 'FRA', name: 'ФРАНЦИЯ' },
+      'DE': { code: 'DEU', name: 'ГЕРМАНИЯ' },
+      'KZ': { code: 'KAZ', name: 'КАЗАХСТАН' },
+      'РОССИЯ': { code: 'RUS', name: 'РОССИЯ' },
+      'РФ': { code: 'RUS', name: 'РОССИЯ' },
+      'США': { code: 'USA', name: 'США' },
+      'КИТАЙ': { code: 'CHN', name: 'КИТАЙ' },
+      'ВЕЛИКОБРИТАНИЯ': { code: 'GBR', name: 'ВЕЛИКОБРИТАНИЯ' },
+      'ESA': { code: 'ESA', name: 'ESA' },
+      'ЕКА': { code: 'ESA', name: 'ESA' },
+    };
+
+    function parseCountries(raw) {
+      if (!raw || typeof raw !== 'string') return [];
+      const results = [];
+      const seen = new Set();
+      function add(item) {
+        if (!item || !item.code || seen.has(item.code)) return;
+        seen.add(item.code);
+        results.push(item);
+      }
+      const flagRegex = /\uD83C[\uDDE6-\uDDFF]\uD83C[\uDDE6-\uDDFF]/g;
+      let m;
+      while ((m = flagRegex.exec(raw)) !== null) {
+        const flag = m[0];
+        const c1 = String.fromCharCode(flag.charCodeAt(1) - 0xDDE6 + 65);
+        const c2 = String.fromCharCode(flag.charCodeAt(3) - 0xDDE6 + 65);
+        const iso = c1 + c2;
+        if (COUNTRY_MAP[iso]) add(COUNTRY_MAP[iso]);
+      }
+      const clean = raw.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim();
+      const parts = clean.split(/[\/,·]+/).map((s) => s.trim()).filter(Boolean);
+      for (const p of parts) {
+        const up = p.toUpperCase();
+        if (COUNTRY_MAP[up]) {
+          add(COUNTRY_MAP[up]);
+        } else {
+          let matched = false;
+          for (const k of Object.keys(COUNTRY_MAP)) {
+            if (up.includes(k)) {
+              add(COUNTRY_MAP[k]);
+              matched = true;
+              break;
+            }
+          }
+          if (!matched && up.length > 0) {
+            add({ code: up.slice(0, 3), name: up });
+          }
+        }
+      }
+      return results;
+    }
+
+    function renderCountryParam(raw) {
+      const list = parseCountries(raw);
+      if (!list || list.length === 0) {
+        return '<span class="param-val num">—</span>';
+      }
+      const badges = list.map((c) => `<span class="country-badge" title="${c.name}">${c.code}</span>`).join('');
+      const names = list.map((c) => c.name).join(' / ');
+      return `
+        <div class="param-val country-badge-group">
+          ${badges}
+          <span class="country-name-label">${names}</span>
+        </div>
+      `;
+    }
+
     function renderCatalogList() {
       const listEl = document.getElementById('catalog-list');
       if (!listEl) return;
@@ -1536,6 +1694,7 @@
 
       if (state.catalogTab === 'groups') {
         const groups = [
+          { id: 'ALL', name: 'ВСЕ ОБЪЕКТЫ', letter: '●' },
           { id: 'ISS', name: 'СТАНЦИИ', letter: 'I' },
           { id: 'STARLINK', name: 'STARLINK', letter: 'S' },
           { id: 'ONEWEB', name: 'ONEWEB', letter: 'O' },
@@ -1543,8 +1702,21 @@
           { id: 'TELESCOPE', name: 'ТЕЛЕСКОПЫ', letter: 'T' },
           { id: 'OTHER', name: 'ДРУГОЕ', letter: '×' },
         ];
-        listEl.innerHTML = groups.map((g) => {
-          const count = sats.filter((s) => matchesFilter(s, g.id)).length;
+
+        let filteredGroups = groups;
+        if (state.catalogFilterText) {
+          filteredGroups = filteredGroups.filter(
+            (g) => g.name.toLowerCase().includes(state.catalogFilterText) || g.id.toLowerCase().includes(state.catalogFilterText)
+          );
+        }
+
+        if (filteredGroups.length === 0) {
+          listEl.innerHTML = '<div style="padding: 24px 12px; color: var(--ink-muted); font-size: 11px; text-align: center;">ГРУППИРОВКИ НЕ НАЙДЕНЫ</div>';
+          return;
+        }
+
+        listEl.innerHTML = filteredGroups.map((g) => {
+          const count = g.id === 'ALL' ? sats.length : sats.filter((s) => matchesFilter(s, g.id)).length;
           const isActive = state.filter === g.id;
           return `
             <div class="catalog-row ${isActive ? 'active' : ''}" data-group-id="${g.id}">
@@ -1552,12 +1724,12 @@
                 <span class="catalog-bullet">▪</span>
                 <div class="catalog-row-info">
                   <div class="catalog-row-name">${g.name}</div>
-                  <div class="catalog-row-sub">Группировка объектов</div>
+                  <div class="catalog-row-sub">${g.id === 'ALL' ? 'Все космические аппараты' : 'Группировка объектов'}</div>
                 </div>
               </div>
               <div class="catalog-row-actions">
                 <span class="badge-square">${g.letter}</span>
-                <span class="num" style="font-size: 11px; font-weight: 700; padding: 2px 6px; border: 1px solid var(--ink); background: var(--surface);">${count}</span>
+                <span class="num group-count-badge">${count}</span>
               </div>
             </div>
           `;
@@ -1573,23 +1745,42 @@
       }
 
       if (state.catalogFilterText) {
-        filtered = filtered.filter((s) => s.name.toLowerCase().includes(state.catalogFilterText) || s.id.includes(state.catalogFilterText));
+        filtered = filtered.filter((s) => {
+          const text = state.catalogFilterText;
+          const countries = parseCountries(s.country);
+          const countryMatch = countries.some(
+            (c) => c.code.toLowerCase().includes(text) || c.name.toLowerCase().includes(text)
+          );
+          return (
+            s.name.toLowerCase().includes(text) ||
+            s.id.includes(text) ||
+            countryMatch
+          );
+        });
       }
 
       if (filtered.length === 0) {
-        listEl.innerHTML = `<div style="padding: 24px 12px; color: var(--ink-muted); font-size: 11px; text-align: center;">${state.catalogTab === 'favs' ? 'НЕТ ИЗБРАННЫХ ОБЪЕКТОВ' : 'ОБЪЕКТЫ НЕ НАЙДЕНЫ'}</div>`;
+        const totalFavs = sats.filter((s) => s.fav).length;
+        const msg = (state.catalogTab === 'favs' && totalFavs === 0)
+          ? 'НЕТ ИЗБРАННЫХ ОБЪЕКТОВ'
+          : 'ОБЪЕКТЫ НЕ НАЙДЕНЫ';
+        listEl.innerHTML = `<div style="padding: 24px 12px; color: var(--ink-muted); font-size: 11px; text-align: center;">${msg}</div>`;
         return;
       }
 
       listEl.innerHTML = filtered.map((s) => {
         const isSelected = state.selectedId === s.id;
+        const cList = parseCountries(s.country);
+        const countryBadgesHtml = cList.length > 0
+          ? `<span class="country-badges-inline">${cList.map(c => `<span class="country-badge-sm">${c.code}</span>`).join('')}</span>`
+          : '';
         return `
           <div class="catalog-row ${isSelected ? 'active' : ''}" data-id="${s.id}">
             <div class="catalog-row-main">
               <span class="catalog-bullet">▪</span>
               <div class="catalog-row-info">
                 <div class="catalog-row-name">${s.name}</div>
-                <div class="catalog-row-sub">${String(s.alt).replace(/(\d)\.(\d)/g, '$1,$2')} км · ${s.orbit.split('·')[0].trim()}</div>
+                <div class="catalog-row-sub">${countryBadgesHtml}${ru(s.alt)} км · ${s.orbit.split('·')[0].trim()}</div>
               </div>
             </div>
             <div class="catalog-row-actions">
@@ -1652,8 +1843,6 @@
     });
 
     renderCatalogList();
-
-    const ru = (v) => String(v).replace(/(\d)\.(\d)/g, '$1,$2');
 
     // Мини-график орбиты A6
     function renderOrbitChart(sat) {
@@ -1761,6 +1950,42 @@
 
         paramsEl.innerHTML = fields.map((f) => {
           const meta = ORBIT_GLOSSARY[f.key] || { label: f.key, desc: '', tip: '' };
+          if (f.key === 'purpose') {
+            return `
+              <div class="param-row param-row-block" data-param-key="purpose">
+                <div class="param-main">
+                  <span class="param-label">
+                    ${meta.label}
+                    <button type="button" class="btn-help" data-help="${f.key}" title="Справка">?</button>
+                  </span>
+                  <div class="param-val-text">${f.val || '—'}</div>
+                </div>
+                <div class="param-tip" id="tip-${f.key}">
+                  <strong>${meta.label}:</strong> ${meta.desc}<br>
+                  <em>${meta.tip}</em>
+                </div>
+              </div>
+            `;
+          }
+
+          if (f.key === 'country') {
+            return `
+              <div class="param-row" data-param-key="country">
+                <div class="param-main">
+                  <span class="param-label">
+                    ${meta.label}
+                    <button type="button" class="btn-help" data-help="${f.key}" title="Справка">?</button>
+                  </span>
+                  ${renderCountryParam(f.val)}
+                </div>
+                <div class="param-tip" id="tip-${f.key}">
+                  <strong>${meta.label}:</strong> ${meta.desc}<br>
+                  <em>${meta.tip}</em>
+                </div>
+              </div>
+            `;
+          }
+
           return `
             <div class="param-row" data-param-key="${f.key}">
               <div class="param-main">
@@ -1785,10 +2010,11 @@
 
     function updateInspectorFavButton(sat) {
       const btn = document.getElementById('btn-toggle-fav-main');
-      if (btn && sat) {
-        btn.textContent = sat.fav ? 'УБРАТЬ ИЗ ИЗБРАННОГО' : 'В ИЗБРАННОЕ';
-        btn.classList.toggle('active', !!sat.fav);
-      }
+      if (!btn) return;
+      const curSat = sat || (window.REAL_SATS || []).find((s) => s.id === state.selectedId);
+      if (!curSat || (sat && state.selectedId && sat.id !== state.selectedId)) return;
+      btn.textContent = curSat.fav ? 'УБРАТЬ ИЗ ИЗБРАННОГО' : 'В ИЗБРАННОЕ';
+      btn.classList.toggle('active', !!curSat.fav);
     }
 
     // Слушатели событий панели инспектора
