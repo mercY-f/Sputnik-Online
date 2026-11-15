@@ -1166,6 +1166,9 @@
     <button type="button" role="checkbox" aria-checked="true" class="layer-checkbox checked" data-layer="atmosphere">
       <span class="check-box">[■]</span> ATMOSPHERE
     </button>
+    <button type="button" role="checkbox" aria-checked="true" class="layer-checkbox checked" data-layer="terminator">
+      <span class="check-box">[■]</span> TERMINATOR
+    </button>
     <button type="button" role="checkbox" aria-checked="false" class="layer-checkbox" data-layer="labels">
       <span class="check-box">[ ]</span> LABELS
     </button>
@@ -1185,12 +1188,36 @@
     <div id="globe-markers-layer" class="globe-markers-layer"></div>
   </div>
 
-  <script src="vendor/globe.gl.min.js"></script>
-  <script src="vendor/countries.js"></script>
-  <script src="vendor/sats.js"></script>
+  <!-- Модульный boot-скрипт (THREE.js модуль -> window.THREE -> динамическая загрузка UMD vendor) -->
+  <script type="module">
+    import * as THREE from './vendor/three.module.min.js';
+    window.THREE = THREE;
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = () => resolve();
+        s.onerror = (e) => reject(new Error('Failed to load ' + src));
+        document.body.appendChild(s);
+      });
+    }
+
+    (async () => {
+      try {
+        await loadScript('vendor/globe.gl.min.js');
+        await loadScript('vendor/countries.js');
+        await loadScript('vendor/sats.js');
+        window.dispatchEvent(new Event('vendor-ready'));
+      } catch (err) {
+        console.error('Vendor scripts load error:', err);
+      }
+    })();
+  </script>
   <script>
-    // ASCII-схемы по классам A5
-    const SCHEMATICS = {
+    function boot() {
+      // ASCII-схемы по классам A5
+      const SCHEMATICS = {
       I: [
         '      |---| |---|',
         '  [===|   |=|   |===]',
@@ -1358,6 +1385,7 @@
         grid: true,
         orbits: true,
         atmosphere: true,
+        terminator: true,
         labels: false,
         track: true,
       },
@@ -1366,6 +1394,49 @@
       trackActive: false,
       followActive: false,
     };
+
+    // Низкоточная формула NOAA для расчёта субсолнечной точки (lat, lng) по текущему UTC
+    function getSubsolarCoords(date) {
+      const now = date || new Date();
+      const timeMs = now.getTime();
+      const jd = 2440587.5 + timeMs / 86400000.0;
+      const t = (jd - 2451545.0) / 36525.0;
+
+      const l0 = (280.46646 + t * (36000.76983 + t * 0.0003032)) % 360.0;
+      const m = (357.52911 + t * (35999.05029 - 0.0001537 * t)) % 360.0;
+      const mRad = m * Math.PI / 180.0;
+      const l0Rad = l0 * Math.PI / 180.0;
+      const e = 0.016708634 - t * (0.000042037 + 0.0000001267 * t);
+
+      const c = Math.sin(mRad) * (1.914602 - t * (0.004817 + 0.000014 * t)) +
+                Math.sin(2 * mRad) * (0.019993 - 0.000101 * t) +
+                Math.sin(3 * mRad) * 0.000289;
+      const sunTrueLon = l0 + c;
+      const obliq = 23.439291 - 0.0130042 * t;
+      const obliqRad = obliq * Math.PI / 180.0;
+
+      const sinDec = Math.sin(obliqRad) * Math.sin(sunTrueLon * Math.PI / 180.0);
+      const decDeg = Math.asin(sinDec) * 180.0 / Math.PI;
+
+      const y = Math.pow(Math.tan(obliqRad / 2.0), 2);
+      const eqTime = 4.0 * (180.0 / Math.PI) * (
+        y * Math.sin(2 * l0Rad) -
+        2 * e * Math.sin(mRad) +
+        4 * e * y * Math.sin(mRad) * Math.cos(2 * l0Rad) -
+        0.5 * Math.pow(y, 2) * Math.sin(4 * l0Rad) -
+        1.25 * Math.pow(e, 2) * Math.sin(2 * mRad)
+      );
+
+      const utHours = now.getUTCHours() + now.getUTCMinutes() / 60.0 + now.getUTCSeconds() / 3600.0;
+      const solarNoon = 12.0 - eqTime / 60.0;
+      let lngDeg = -(utHours - solarNoon) * 15.0;
+      lngDeg = ((lngDeg + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
+
+      return { lat: decDeg, lng: lngDeg };
+    }
+
+    let terminatorMaterial = null;
+    let updateSunPosition = null;
 
     // Часы реального времени UTC
     function updateClock() {
@@ -1376,6 +1447,9 @@
       const clockEl = document.getElementById('utc-clock');
       if (clockEl) {
         clockEl.textContent = h + ':' + m + ':' + s + ' UTC';
+      }
+      if (typeof updateSunPosition === 'function') {
+        updateSunPosition(now);
       }
     }
     setInterval(updateClock, 1000);
@@ -2088,10 +2162,8 @@
       function initSceneObjects() {
         if (sceneObjectsInited) return;
 
-        // Поиск globeMesh (сферы Земли) среди мешей с geometry.attributes.position
-        // Выбираем меш с максимальным числом вершин (position.count) и гасим источники света
+        // Поиск globeMesh (сферы Земли)
         let bestMesh = null;
-        let maxVertexCount = -1;
 
         const extinguishLights = (root) => {
           if (!root || typeof root.traverse !== 'function') return;
@@ -2104,21 +2176,22 @@
         };
 
         globe.scene().traverse((obj) => {
-          if (obj.isMesh && obj.geometry) {
-            const pos = obj.geometry.attributes && obj.geometry.attributes.position
-              ? obj.geometry.attributes.position
-              : (typeof obj.geometry.getAttribute === 'function' ? obj.geometry.getAttribute('position') : null);
-            const count = pos && typeof pos.count === 'number' ? pos.count : 0;
-            if (count > maxVertexCount) {
-              maxVertexCount = count;
-              bestMesh = obj;
-            }
+          if (obj.isMesh && obj.parent && obj.parent.__globeObjType === 'globe') {
+            bestMesh = obj;
           }
           if (obj.isLight) {
             obj.intensity = 0;
             obj.visible = false;
           }
         });
+
+        if (!bestMesh) {
+          globe.scene().traverse((obj) => {
+            if (obj.isMesh && obj.geometry && obj.geometry.parameters && obj.geometry.parameters.radius === 100 && obj.__globeObjType !== 'atmosphere') {
+              bestMesh = obj;
+            }
+          });
+        }
 
         // Гашение источников света во внешнем родителе (globe.scene().parent)
         if (globe.scene().parent) {
@@ -2142,8 +2215,95 @@
         });
         const targetGroup = globeGroup || globe.scene();
 
-        // Однотонный плоский цвет бумаги для сферы Земли (#F4F1EA) без зависимости от освещения
-        globeMesh.material = new THREE.MeshBasicMaterial({ color: 0xF4F1EA });
+        // Терминатор (Bayer 4x4): кастомный ShaderMaterial (Стадия 3, §3.1 п.6)
+        const terminatorUniforms = {
+          uSunDir: { value: new THREE.Vector3(1, 0, 0) },
+          uDayColor: { value: new THREE.Vector3(244 / 255, 241 / 255, 234 / 255) },
+          uNightColor: { value: new THREE.Vector3(14 / 255, 14 / 255, 14 / 255) },
+          uNightMaxDensity: { value: 0.75 },
+          uEnabled: { value: state.layers.terminator ? 1.0 : 0.0 }
+        };
+
+        const terminatorVertexShader = `
+          varying vec3 vWorldNormal;
+          void main() {
+            vWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `;
+
+        const terminatorFragmentShader = `
+          precision highp float;
+          uniform vec3 uSunDir;
+          uniform vec3 uDayColor;
+          uniform vec3 uNightColor;
+          uniform float uNightMaxDensity;
+          uniform float uEnabled;
+          varying vec3 vWorldNormal;
+
+          float getBayer4x4(vec2 pos) {
+            int x = int(mod(pos.x, 4.0));
+            int y = int(mod(pos.y, 4.0));
+            if (y == 0) {
+              if (x == 0) return 0.5 / 16.0;
+              if (x == 1) return 8.5 / 16.0;
+              if (x == 2) return 2.5 / 16.0;
+              return 10.5 / 16.0;
+            }
+            if (y == 1) {
+              if (x == 0) return 12.5 / 16.0;
+              if (x == 1) return 4.5 / 16.0;
+              if (x == 2) return 14.5 / 16.0;
+              return 6.5 / 16.0;
+            }
+            if (y == 2) {
+              if (x == 0) return 3.5 / 16.0;
+              if (x == 1) return 11.5 / 16.0;
+              if (x == 2) return 1.5 / 16.0;
+              return 9.5 / 16.0;
+            }
+            if (x == 0) return 15.5 / 16.0;
+            if (x == 1) return 7.5 / 16.0;
+            if (x == 2) return 13.5 / 16.0;
+            return 5.5 / 16.0;
+          }
+
+          void main() {
+            if (uEnabled < 0.5) {
+              gl_FragColor = vec4(uDayColor, 1.0);
+              return;
+            }
+            vec3 norm = normalize(vWorldNormal);
+            float b = dot(norm, normalize(uSunDir));
+            float shade = 1.0 - smoothstep(-0.15, 0.15, b);
+            shade = min(shade, uNightMaxDensity);
+
+            float bayer = getBayer4x4(gl_FragCoord.xy);
+            vec3 col = (shade > bayer) ? uNightColor : uDayColor;
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `;
+
+        terminatorMaterial = new THREE.ShaderMaterial({
+          uniforms: terminatorUniforms,
+          vertexShader: terminatorVertexShader,
+          fragmentShader: terminatorFragmentShader
+        });
+        globeMesh.material = terminatorMaterial;
+        if (typeof globe.globeMaterial === 'function') {
+          globe.globeMaterial(terminatorMaterial);
+        }
+
+        updateSunPosition = function(date) {
+          if (!terminatorMaterial || !globe || typeof globe.getCoords !== 'function') return;
+          const subsolar = getSubsolarCoords(date);
+          const sc = globe.getCoords(subsolar.lat, subsolar.lng, 1);
+          if (sc && terminatorMaterial.uniforms && terminatorMaterial.uniforms.uSunDir) {
+            terminatorMaterial.uniforms.uSunDir.value.set(sc.x, sc.y, sc.z).normalize();
+          }
+        };
+        if (window.APP) window.APP.updateSunPosition = updateSunPosition;
+        updateSunPosition();
 
         // Силуэт: отдельная сфера Inverted Hull (R=100*1.012, 96x64, BackSide, чёрная #0E0E0E, обод 2-3px)
         const hullGeom = new THREE.SphereGeometry(100 * 1.012, 96, 64);
@@ -2232,11 +2392,15 @@
       if (typeof globe.onGlobeReady === 'function') {
         globe.onGlobeReady(initSceneObjects);
       }
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => {
+      const sceneInitInterval = setInterval(() => {
+        if (sceneObjectsInited) {
+          clearInterval(sceneInitInterval);
+        } else {
           initSceneObjects();
-          requestAnimationFrame(initSceneObjects);
-        });
+        }
+      }, 50);
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(initSceneObjects);
       }
 
       // 6. Ресайз окна — обновление размеров холста
@@ -2628,6 +2792,9 @@
           const sel = state.selectedId ? (window.REAL_SATS || []).find((s) => s.id === state.selectedId) : null;
           updateSelectedOrbit(sel);
         }
+        if (terminatorMaterial && terminatorMaterial.uniforms && terminatorMaterial.uniforms.uEnabled) {
+          terminatorMaterial.uniforms.uEnabled.value = layers.terminator ? 1.0 : 0.0;
+        }
       };
 
       window.APP.hooks.onFilterChange = function(filter) {
@@ -2643,7 +2810,15 @@
           updateSelectedOrbit(null);
         }
       };
+      window.APP.updateSunPosition = updateSunPosition;
     })();
+    }
+
+    if (window.Globe && window.COUNTRIES_GEOJSON && window.REAL_SATS) {
+      boot();
+    } else {
+      window.addEventListener('vendor-ready', boot, { once: true });
+    }
   </script>
 </body>
 </html>
