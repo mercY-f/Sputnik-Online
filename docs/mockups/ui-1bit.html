@@ -160,7 +160,7 @@
     .globe-overlay {
       position: fixed;
       inset: 0;
-      z-index: 1;
+      z-index: 10;
       pointer-events: none;
       overflow: hidden;
     }
@@ -171,12 +171,14 @@
       width: 100%;
       height: 100%;
       pointer-events: none;
+      z-index: 1;
     }
 
     .globe-markers-layer {
       position: absolute;
       inset: 0;
       pointer-events: none;
+      z-index: 2;
     }
 
     .sat-marker {
@@ -186,13 +188,19 @@
       cursor: crosshair;
       user-select: none;
       white-space: nowrap;
+      z-index: 2;
+      opacity: 1;
+    }
+
+    .sat-marker.selected {
+      z-index: 5;
     }
 
     .sat-marker.hidden {
       display: none;
     }
 
-    /* 2px чёрная квадратная точка для дальнего зума (> 2.2R) */
+    /* 2px чёрная квадратная точка для дальнего зума (> 3.0R) */
     .sat-dot {
       display: block;
       width: 2px;
@@ -207,13 +215,17 @@
       justify-content: center;
       width: 15px;
       height: 15px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: var(--font-mono);
       font-size: 11px;
       font-weight: 700;
       line-height: 1;
+      font-variant-numeric: tabular-nums;
       color: var(--ink);
       background: var(--paper);
       border: 1px solid var(--ink);
+      box-sizing: border-box;
+      opacity: 1;
+      user-select: none;
     }
 
     .sat-marker:hover .sat-glyph {
@@ -226,14 +238,24 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: var(--font-mono);
       font-size: 11px;
       font-weight: 700;
       line-height: 1;
+      font-variant-numeric: tabular-nums;
       color: var(--ink);
       background: var(--paper);
       border: 1px solid var(--ink);
       padding: 1px 3px;
+      box-sizing: border-box;
+      opacity: 1;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .sat-marker:hover .sat-reticle {
+      background: var(--ink);
+      color: var(--paper);
     }
 
     /* Подпись спутника (слой LABELS) */
@@ -242,31 +264,59 @@
       left: 100%;
       top: 50%;
       transform: translateY(-50%);
-      margin-left: 4px;
-      font-family: 'JetBrains Mono', monospace;
+      margin-left: 5px;
+      font-family: var(--font-mono);
       font-size: 9px;
+      font-weight: 700;
       line-height: 1;
+      font-variant-numeric: tabular-nums;
       color: var(--ink);
       background: var(--paper);
       border: 1px solid var(--ink);
-      padding: 1px 3px;
+      padding: 1px 4px;
       white-space: nowrap;
+      pointer-events: none;
+      opacity: 1;
+      box-sizing: border-box;
+      z-index: 3;
+    }
+
+    /* Лидер-линия выбранного спутника (SVG): подложка цвета бумаги 3px + пунктир 1px чернил */
+    .sat-leader-line-bg {
+      stroke: var(--paper);
+      stroke-width: 3px;
+      stroke-linecap: square;
+      stroke-linejoin: miter;
+      fill: none;
+    }
+
+    .sat-leader-line-fg {
+      stroke: var(--ink);
+      stroke-width: 1px;
+      stroke-dasharray: 2, 2;
+      stroke-linecap: square;
+      stroke-linejoin: miter;
+      fill: none;
     }
 
     /* HTML-плашка выбранного спутника с лидер-линией */
     .sat-selected-badge {
       position: absolute;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: var(--font-mono);
       font-size: 11px;
       font-weight: 700;
       line-height: 1.2;
+      font-variant-numeric: tabular-nums;
       color: var(--ink);
       background: var(--paper);
       border: 1px solid var(--ink);
       padding: 3px 6px;
       white-space: nowrap;
       pointer-events: auto;
-      z-index: 2;
+      z-index: 6;
+      opacity: 1;
+      box-sizing: border-box;
+      box-shadow: 2px 2px 0 var(--ink);
     }
 
     /* Верхняя панель A1 */
@@ -2732,9 +2782,9 @@
 
       // 13. LOD-константы для масштабирования спутников
       const LOD = {
-        FAR: 2.2,          // > 2.2R: 2px квадратные точки
-        MID: 1.4,          // 1.4 - 2.2R: глифы ближайших к центру экрана
-        MAX_MID_GLYPHS: 6, // Лимит глифов в промежуточном зуме
+        FAR: 3.0,          // > 3.0R: 2px квадратные точки
+        MID: 1.6,          // 1.6 - 3.0R: глифы ближайших к центру экрана
+        MAX_MID_GLYPHS: 8, // Лимит глифов в промежуточном зуме
       };
 
       function getActiveSatellites() {
@@ -2945,14 +2995,16 @@
 
           markersHtml += `<div class="sat-marker ${isSelected ? 'selected' : ''}" data-id="${s.id}" style="left:${sx}px;top:${sy}px;">${innerContent}${labelTag}</div>`;
 
-          // HTML-плашка с лидер-линией для выбранного спутника
+          // HTML-плашка с лидер-линией для выбранного спутника (подложка 3px цвета бумаги + пунктир 1px чернил)
           if (isSelected) {
             const badgeOffsetLeft = 32;
             const badgeOffsetTop = -28;
             const bx = sx + badgeOffsetLeft;
             const by = sy + badgeOffsetTop;
 
-            svgContent += `<polyline points="${sx},${sy} ${bx},${by + 10} ${bx + 30},${by + 10}" stroke="#0E0E0E" stroke-width="1" stroke-dasharray="2,2" fill="none"/>`;
+            const pts = `${sx},${sy} ${bx},${by + 10} ${bx + 30},${by + 10}`;
+            svgContent += `<polyline class="sat-leader-line-bg" points="${pts}" stroke="var(--paper)" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>`;
+            svgContent += `<polyline class="sat-leader-line-fg" points="${pts}" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2,2" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>`;
             markersHtml += `<div class="sat-selected-badge" style="left:${bx}px;top:${by}px;">${s.name} [${s.letter || '×'}]</div>`;
           }
         }
