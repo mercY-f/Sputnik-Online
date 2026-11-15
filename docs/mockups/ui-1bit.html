@@ -1188,32 +1188,14 @@
     <div id="globe-markers-layer" class="globe-markers-layer"></div>
   </div>
 
-  <!-- Модульный boot-скрипт (THREE.js модуль -> window.THREE -> динамическая загрузка UMD vendor) -->
-  <script type="module">
-    import * as THREE from './vendor/three.module.min.js';
-    window.THREE = THREE;
-
-    function loadScript(src) {
-      return new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = src;
-        s.onload = () => resolve();
-        s.onerror = (e) => reject(new Error('Failed to load ' + src));
-        document.body.appendChild(s);
-      });
-    }
-
-    (async () => {
-      try {
-        await loadScript('vendor/globe.gl.min.js');
-        await loadScript('vendor/countries.js');
-        await loadScript('vendor/sats.js');
-        window.dispatchEvent(new Event('vendor-ready'));
-      } catch (err) {
-        console.error('Vendor scripts load error:', err);
-      }
-    })();
-  </script>
+  <!-- Vendor: классические скрипты (работают и на http, и на file:// — без CORS у ES-модулей) -->
+  <!-- three.iife.min.js = three 0.183.2 (IIFE), выставляет window.THREE ДО globe.gl.min.js:
+       бандл globe.gl при наличии window.THREE использует его целиком → полный THREE в Globe.THREE -->
+  <script src="vendor/three.iife.min.js"></script>
+  <script>window.THREE = THREE_BUNDLE;</script>
+  <script src="vendor/globe.gl.min.js"></script>
+  <script src="vendor/countries.js"></script>
+  <script src="vendor/sats.js"></script>
   <script>
     function boot() {
       // ASCII-схемы по классам A5
@@ -2814,11 +2796,8 @@
     })();
     }
 
-    if (window.Globe && window.COUNTRIES_GEOJSON && window.REAL_SATS) {
-      boot();
-    } else {
-      window.addEventListener('vendor-ready', boot, { once: true });
-    }
+    // Все vendor-скрипты загружены синхронно выше — глобус можно поднимать сразу
+    boot();
   </script>
 </body>
 </html>
