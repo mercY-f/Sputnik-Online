@@ -353,6 +353,10 @@
       white-space: nowrap;
     }
 
+    .brand-short {
+      display: none;
+    }
+
     .tle-status {
       font-size: 11px;
       color: var(--ink-muted);
@@ -384,6 +388,21 @@
       color: var(--ink);
       background: var(--surface);
       pointer-events: none;
+    }
+
+    #btn-catalog-toggle .kbd-hint {
+      position: static;
+      transform: none;
+      border: none;
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      font: inherit;
+      pointer-events: auto;
+    }
+
+    .catalog-btn-icon {
+      display: none;
     }
 
     .search-dropdown {
@@ -505,7 +524,8 @@
       max-width: calc(100vw - 24px);
       /* Ширина ограничена доступным коридором между панелями —
          inline-flex ужимается до max-width, лента не наезжает на инспектор/каталог */
-      overflow: hidden;
+      overflow-x: auto;
+      overflow-y: hidden;
     }
 
     body.inspector-open .chip-ribbon,
@@ -1082,12 +1102,13 @@
     @media (max-width: 640px) {
       .top-bar {
         height: 48px;
-        padding: 0 8px;
-        gap: 6px;
+        padding: 0 6px;
+        gap: 4px;
       }
 
       .top-bar-left {
         gap: 6px;
+        flex-shrink: 0;
       }
 
       .tle-status {
@@ -1096,6 +1117,17 @@
 
       .brand-title {
         font-size: 11px;
+      }
+
+      .brand-full {
+        display: none;
+      }
+
+      .brand-short {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
       }
 
       .search-container {
@@ -1107,9 +1139,10 @@
       .search-field,
       #search-input {
         font-size: 11px;
-        padding: 6px 28px 6px 6px;
+        padding: 6px 8px;
         min-height: 40px;
-        min-width: 40px;
+        min-width: 0;
+        width: 100%;
         box-sizing: border-box;
       }
 
@@ -1119,6 +1152,9 @@
 
       .top-bar-right {
         gap: 6px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
       }
 
       #utc-clock {
@@ -1131,6 +1167,7 @@
         min-width: 40px;
         min-height: 40px;
         font-size: 11px;
+        flex-shrink: 0;
       }
 
       .btn-square-wide {
@@ -1138,6 +1175,8 @@
         min-width: 40px;
         min-height: 40px;
         padding: 0 8px;
+        flex-shrink: 0;
+        white-space: nowrap;
       }
 
       #btn-catalog-toggle {
@@ -1145,6 +1184,8 @@
         font-size: 11px;
         min-height: 40px;
         min-width: 40px;
+        flex-shrink: 0;
+        white-space: nowrap;
       }
 
       /* Лента чипов: горизонтальный скролл */
@@ -1258,6 +1299,30 @@
       }
     }
 
+    /* Компактная шапка на узких экранах (<= 420px, напр. 390px) */
+    @media (max-width: 420px) {
+      #btn-catalog-toggle {
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+        min-height: 40px;
+        padding: 0;
+        justify-content: center;
+      }
+
+      #btn-catalog-toggle .catalog-btn-text {
+        display: none;
+      }
+
+      #btn-catalog-toggle .catalog-btn-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        line-height: 1;
+      }
+    }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -1271,7 +1336,10 @@
 <body>
   <header class="top-bar">
     <div class="top-bar-left">
-      <div class="brand-title"><span>●</span> EARTH ORBIT LIVE</div>
+      <div class="brand-title">
+        <span class="brand-full"><span>●</span> EARTH ORBIT LIVE</span>
+        <span class="brand-short"><span>●</span> EOL</span>
+      </div>
       <div class="tle-status" id="tle-status">TLE: 0,4 сут</div>
     </div>
 
@@ -1283,7 +1351,7 @@
 
     <div class="top-bar-right">
       <span id="utc-clock" class="num" style="font-size: 12px; font-weight: 700; letter-spacing: 0.05em; min-width: 95px;">00:00:00 UTC</span>
-      <button id="btn-catalog-toggle" class="btn" type="button" title="Каталог (C)">[ КАТАЛОГ (C) ]</button>
+      <button id="btn-catalog-toggle" class="btn" type="button" title="Каталог (C)" aria-label="КАТАЛОГ"><span class="catalog-btn-text">[ КАТАЛОГ <span class="kbd-hint">(C)</span> ]</span><span class="catalog-btn-icon" aria-hidden="true">☰</span></button>
       <button class="btn-square btn-square-wide" type="button" title="Профиль">ПРОФИЛЬ</button>
       <button class="btn-square btn-square-wide" type="button" title="Администратор">АДМИН</button>
     </div>
@@ -1688,7 +1756,7 @@
 
     // Выбор спутника (контракт A7)
     function selectSatellite(id) {
-      if (id && (window.innerWidth <= 640 || state.catalogOpen)) {
+      if (id && window.innerWidth <= 640) {
         toggleCatalog(false);
       }
       state.selectedId = id ? String(id) : null;
@@ -2090,7 +2158,7 @@
           { key: 'period', val: ru(sat.period) },
           { key: 'apogee', val: ru(sat.ap) },
           { key: 'eccentricity', val: ru(sat.ecc) },
-          { key: 'coordinates', val: `${ru(sat.lat)}° / ${ru(sat.lng)}°` },
+          { key: 'coordinates', val: `${ru(Number(sat.lat).toFixed(2))}° / ${ru(Number(sat.lng).toFixed(2))}°` },
           { key: 'epoch', val: ru(sat.epoch) },
           { key: 'country', val: sat.country },
           { key: 'launch', val: sat.launch },
@@ -2975,6 +3043,12 @@
         const sinRatio = Math.abs(sinInc) > 1e-4 ? Math.sin(satLatRad) / sinInc : 0;
         const phase = Math.asin(Math.max(-1, Math.min(1, sinRatio)));
 
+        // Сферическая параметризация орбиты через аргумент широты u = t + phase.
+        // lng0 вычитается из atan2, чтобы при t=0 точка (lat, lng) строго совпадала с текущей
+        // подспутниковой точкой (sat.lat, sat.lng) (погрешность < 0.001°), исключая искажения «восьмёрки».
+        const u0 = phase;
+        const lng0 = Math.atan2(Math.cos(incRad) * Math.sin(u0), Math.cos(u0));
+
         const periodMin = parseFloat(sat.period) || 95.0;
         const steps = 120;
 
@@ -2988,12 +3062,16 @@
             const t1 = (i / steps) * 2 * Math.PI;
             const t2 = ((i + 0.6) / steps) * 2 * Math.PI;
 
-            const lat1 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(t1 + phase)))) * (180 / Math.PI);
-            const lng1 = sat.lng + (t1 * 180 / Math.PI);
+            const u1 = t1 + phase;
+            const lat1 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(u1)))) * (180 / Math.PI);
+            const lngOffset1 = (Math.atan2(Math.cos(incRad) * Math.sin(u1), Math.cos(u1)) - lng0) * (180 / Math.PI);
+            const lng1 = sat.lng + lngOffset1;
             const p1 = globe.getCoords(lat1, lng1, altFrac);
 
-            const lat2 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(t2 + phase)))) * (180 / Math.PI);
-            const lng2 = sat.lng + (t2 * 180 / Math.PI);
+            const u2 = t2 + phase;
+            const lat2 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(u2)))) * (180 / Math.PI);
+            const lngOffset2 = (Math.atan2(Math.cos(incRad) * Math.sin(u2), Math.cos(u2)) - lng0) * (180 / Math.PI);
+            const lng2 = sat.lng + lngOffset2;
             const p2 = globe.getCoords(lat2, lng2, altFrac);
 
             if (p1 && p2) {
@@ -3016,12 +3094,16 @@
             const t1 = (i / steps) * 2 * Math.PI;
             const t2 = ((i + 0.6) / steps) * 2 * Math.PI;
 
-            const lat1 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(t1 + phase)))) * (180 / Math.PI);
-            const lng1 = sat.lng + (t1 * 180 / Math.PI) - (t1 / (2 * Math.PI)) * earthRotation;
+            const u1 = t1 + phase;
+            const lat1 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(u1)))) * (180 / Math.PI);
+            const lngOffset1 = (Math.atan2(Math.cos(incRad) * Math.sin(u1), Math.cos(u1)) - lng0) * (180 / Math.PI);
+            const lng1 = sat.lng + lngOffset1 - (t1 / (2 * Math.PI)) * earthRotation;
             const p1 = globe.getCoords(lat1, lng1, trackAlt);
 
-            const lat2 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(t2 + phase)))) * (180 / Math.PI);
-            const lng2 = sat.lng + (t2 * 180 / Math.PI) - (t2 / (2 * Math.PI)) * earthRotation;
+            const u2 = t2 + phase;
+            const lat2 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(u2)))) * (180 / Math.PI);
+            const lngOffset2 = (Math.atan2(Math.cos(incRad) * Math.sin(u2), Math.cos(u2)) - lng0) * (180 / Math.PI);
+            const lng2 = sat.lng + lngOffset2 - (t2 / (2 * Math.PI)) * earthRotation;
             const p2 = globe.getCoords(lat2, lng2, trackAlt);
 
             if (p1 && p2) {
@@ -3178,6 +3260,7 @@
         const camPos = camera.position;
         const camDist = camPos.length();
         const distR = camDist / 100;
+        const altR = distR - 1.0;
 
         const camDir = new Vector3();
         camera.getWorldDirection(camDir);
@@ -3250,9 +3333,9 @@
         }
 
         let lodMode = 'CLOSE';
-        if (distR > LOD.FAR) {
+        if (altR > LOD.FAR) {
           lodMode = 'FAR';
-        } else if (distR >= LOD.MID) {
+        } else if (altR >= LOD.MID) {
           lodMode = 'MID';
         }
 
@@ -3268,7 +3351,7 @@
         // Кольцо ATMOSPHERE: перспективный лимб сферы радиуса 101.2 (силуэт)
         if (state.layers.atmosphere && camera) {
           const fovRad = (camera.fov * Math.PI) / 180;
-          const rAtm = 101.25;
+          const rAtm = 104.0;
           const denom = Math.tan(fovRad / 2) * Math.sqrt(Math.max(1, camDist * camDist - rAtm * rAtm));
           const screenRadius = (rAtm * (height / 2)) / denom;
 
