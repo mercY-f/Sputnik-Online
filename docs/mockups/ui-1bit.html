@@ -937,17 +937,61 @@
       margin-bottom: 6px;
     }
 
-    .pass-row {
+    .pass-city-row {
       display: flex;
-      justify-content: space-between;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .pass-city-label {
+      font-size: 11px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+    }
+
+    .pass-table {
+      width: 100%;
+      border-top: 1px solid var(--ink);
+      margin-top: 6px;
+    }
+
+    .pass-table-head {
+      display: grid;
+      grid-template-columns: 2.3fr 0.8fr 1.3fr 1fr;
+      gap: 4px;
+      padding: 4px 0;
+      border-bottom: 1px solid var(--ink);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    .pass-row {
+      display: grid;
+      grid-template-columns: 2.3fr 0.8fr 1.3fr 1fr;
+      gap: 4px;
       align-items: center;
       padding: 4px 0;
-      border-bottom: 1px dashed rgba(14, 14, 14, 0.25);
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
       font-size: 10px;
     }
 
     .pass-row:last-child {
       border-bottom: none;
+    }
+
+    .pass-head-num,
+    .pass-cell-el,
+    .pass-cell-dur {
+      text-align: right;
+    }
+
+    /* «ПОСЛЕЗАВТРА HH:MM» не должно переноситься на вторую строку ячейки */
+    .pass-row > span:first-child {
+      white-space: nowrap;
     }
 
     .inspector-footer {
@@ -1236,10 +1280,10 @@
 
       <!-- Действия -->
       <div class="actions-row">
-        <button type="button" id="btn-act-orbit" class="btn active" title="Показать орбиту">ОРБИТА</button>
-        <button type="button" id="btn-act-track" class="btn active" title="Показать след">СЛЕД</button>
-        <button type="button" id="btn-act-follow" class="btn" title="Следить за аппаратом">СЛЕДИТЬ</button>
-        <button type="button" id="btn-act-share" class="btn" title="Поделиться">ПОДЕЛИТЬСЯ</button>
+        <button type="button" id="btn-act-orbit" class="btn active" title="Показать орбиту" data-action="orbit" aria-pressed="true">ОРБИТА</button>
+        <button type="button" id="btn-act-track" class="btn active" title="Показать след" data-action="track" aria-pressed="true">СЛЕД</button>
+        <button type="button" id="btn-act-follow" class="btn" title="Следить за аппаратом" data-action="follow" aria-pressed="false">СЛЕДИТЬ</button>
+        <button type="button" id="btn-act-share" class="btn" title="Поделиться" data-action="share">ПОДЕЛИТЬСЯ</button>
       </div>
 
       <!-- Таблица параметров A4 -->
@@ -1256,26 +1300,21 @@
 
       <!-- Блок «Когда увидеть» -->
       <div class="pass-box">
-        <div class="pass-title">КОГДА УВИДЕТЬ</div>
-        <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
-          <label style="font-size: 11px; color: var(--ink-muted);">ГОРОД:</label>
+        <div class="pass-title" id="pass-box-title">КОГДА УВИДЕТЬ: МОСКВА</div>
+        <div class="pass-city-row">
+          <label class="pass-city-label" for="pass-city-input">ГОРОД:</label>
           <input type="text" id="pass-city-input" class="field" value="МОСКВА" style="font-size: 11px; padding: 2px 6px; text-transform: uppercase;">
         </div>
-        <!-- ДАННЫЕ ЗАГЛУШКА: статический прогноз пролётов для макета -->
-        <div class="pass-row">
-          <span>СЕГОДНЯ 21:42</span>
-          <span class="num">МАКС 54°</span>
-          <span>ЮЗ → СВ</span>
-        </div>
-        <div class="pass-row">
-          <span>ЗАВТРА 05:14</span>
-          <span class="num">МАКС 28°</span>
-          <span>З → В</span>
-        </div>
-        <div class="pass-row">
-          <span>ЗАВТРА 20:55</span>
-          <span class="num">МАКС 72°</span>
-          <span>ЮЮЗ → ССВ</span>
+        <div class="pass-table">
+          <div class="pass-table-head">
+            <span>ВРЕМЯ</span>
+            <span class="num pass-head-num">МАКС</span>
+            <span>АЗИМУТ</span>
+            <span class="num pass-head-num">ДЛИТ</span>
+          </div>
+          <div id="pass-rows" class="pass-rows">
+            <!-- ДАННЫЕ МАКЕТА: детерминированный прогноз пролётов для макета (иллюстрация, НЕ SGP4) -->
+          </div>
         </div>
       </div>
     </div>
@@ -1605,6 +1644,12 @@
     // Выбор спутника (контракт A7)
     function selectSatellite(id) {
       state.selectedId = id ? String(id) : null;
+      if (!state.selectedId) {
+        state.followActive = false;
+        if (typeof syncActionButtonsUI === 'function') {
+          syncActionButtonsUI();
+        }
+      }
       const sat = state.selectedId ? (window.REAL_SATS || []).find((s) => s.id === state.selectedId) : null;
       renderCatalogList();
       if (typeof renderInspectorPanel === 'function') {
@@ -2056,6 +2101,8 @@
 
       renderOrbitChart(sat);
       updateInspectorFavButton(sat);
+      const currentCity = (document.getElementById('pass-city-input')?.value || 'МОСКВА');
+      renderPassGrid(sat, currentCity);
     }
 
     function updateInspectorFavButton(sat) {
@@ -2101,79 +2148,183 @@
       });
     }
 
-    function toggleAction(action, isActive) {
-      if (action === 'orbit') {
-        state.orbitVisible = isActive;
-        state.layers.orbits = isActive;
-        if (window.APP && typeof window.APP.onLayersChange === 'function') {
-          window.APP.onLayersChange({ ...state.layers, orbits: state.orbitVisible, track: state.trackVisible });
+    // ==========================================
+    // СТАДИЯ 6: Расчёт пролётов, контракт слоёв и кнопок действий
+    // ==========================================
+
+    // Справочник базовых координат городов для детерминированного прогноза пролётов
+    const CITY_COORDS = {
+      'МОСКВА': { lat: 55.75, lng: 37.62 },
+      'MOSCOW': { lat: 55.75, lng: 37.62 },
+      'САНКТ-ПЕТЕРБУРГ': { lat: 59.93, lng: 30.33 },
+      'СПБ': { lat: 59.93, lng: 30.33 },
+      'НОВОСИБИРСК': { lat: 55.03, lng: 82.92 },
+      'ЕКАТЕРИНБУРГ': { lat: 56.84, lng: 60.61 },
+      'КАЗАНЬ': { lat: 55.79, lng: 49.12 },
+      'ВЛАДИВОСТОК': { lat: 43.12, lng: 131.89 },
+      'СОЧИ': { lat: 43.58, lng: 39.72 },
+      'БАЙКОНУР': { lat: 45.96, lng: 63.31 },
+      'ТОКИО': { lat: 35.68, lng: 139.69 },
+      'ЛОНДОН': { lat: 51.51, lng: -0.13 },
+      'ПАРИЖ': { lat: 48.85, lng: 2.35 },
+      'БЕРЛИН': { lat: 52.52, lng: 13.40 },
+      'НЬЮ-ЙОРК': { lat: 40.71, lng: -74.01 },
+    };
+
+    function getCityCoords(cityName) {
+      const norm = (cityName || '').trim().toUpperCase();
+      if (CITY_COORDS[norm]) return { name: norm, ...CITY_COORDS[norm] };
+      let h = 0;
+      for (let i = 0; i < norm.length; i++) {
+        h = ((h << 5) - h) + norm.charCodeAt(i);
+        h |= 0;
+      }
+      const lat = ((Math.abs(h) % 1100) / 10) - 45;
+      const lng = ((Math.abs(h >> 3) % 3600) / 10) - 180;
+      return { name: norm || 'МОСКВА', lat, lng };
+    }
+
+    // Детерминированный расчёт списка пролётов (иллюстрация для макета, НЕ SGP4)
+    function generatePasses(sat, cityName) {
+      if (!sat) return [];
+      const city = getCityCoords(cityName);
+      const norad = parseInt(sat.norad, 10) || parseInt(sat.id, 10) || 25544;
+      const incVal = parseFloat(sat.inc) || 51.6;
+      // Стабильные орбитальные параметры (НЕ текущая позиция sat.lat/lng — она «плывёт»
+      // при движении спутника и делала бы прогноз пролётов нестабильным).
+      const altVal = Number(sat.alt) || 500;
+      const periodVal = parseFloat(sat.period) || 95.0;
+      const eccVal = parseFloat(sat.ecc) || 0.001;
+
+      const seedRaw = Math.sin(norad * 0.137 + incVal * 0.231 + altVal * 0.0173 + periodVal * 0.199 + eccVal * 913.7 + (city.lat + 90) * 0.317 + (city.lng + 180) * 0.199);
+      const seed = Math.abs(seedRaw);
+
+      const DIRECTIONS = [
+        'ЮЗ → СВ',
+        'З → В',
+        'ЮЮЗ → ССВ',
+        'СЗ → ЮВ',
+        'Ю → СВ',
+        'ЗЮЗ → ВСВ',
+        'С → ЮВ',
+        'ЗСЗ → ВЮВ'
+      ];
+
+      const passes = [];
+      const dayLabels = ['СЕГОДНЯ', 'СЕГОДНЯ', 'ЗАВТРА', 'ЗАВТРА', 'ПОСЛЕЗАВТРА'];
+      const baseHours = [19, 21, 4, 6, 20];
+
+      for (let i = 0; i < 5; i++) {
+        const minOffset = Math.floor((seed * 311 + i * 47 + (norad % 19) * 3 + Math.abs(city.lng)) % 60);
+        const tzShift = Math.round(city.lng / 15);
+        let h = (baseHours[i] + Math.floor((seed * 11 + i) % 2) + tzShift) % 24;
+        if (h < 0) h += 24;
+        const timeStr = `${String(h).padStart(2, '0')}:${String(minOffset).padStart(2, '0')}`;
+
+        const latDelta = Math.abs(city.lat - incVal);
+        const elSin = Math.abs(Math.sin(seed * 29 + i * 19 + latDelta * 0.05));
+        const maxEl = Math.min(88, Math.max(18, Math.round(20 + elSin * 68)));
+
+        const dirIndex = Math.floor((seed * 17 + i * 7 + Math.abs(Math.floor(city.lat))) % DIRECTIONS.length);
+        const dir = DIRECTIONS[dirIndex];
+
+        const dur = Math.min(11, Math.max(3, Math.round(3 + (maxEl / 90) * 6.5 + (i % 2))));
+
+        passes.push({
+          dayLabel: dayLabels[i],
+          timeStr,
+          maxEl,
+          dir,
+          durMin: `${dur} МИН`
+        });
+      }
+      return passes;
+    }
+
+    function renderPassGrid(sat, cityName) {
+      const passBoxTitle = document.getElementById('pass-box-title');
+      const passRowsEl = document.getElementById('pass-rows');
+      if (!passRowsEl) return;
+
+      const normCity = (cityName || 'МОСКВА').trim().toUpperCase() || 'МОСКВА';
+      if (passBoxTitle) {
+        passBoxTitle.textContent = `КОГДА УВИДЕТЬ: ${normCity}`;
+      }
+
+      if (!sat) {
+        passRowsEl.innerHTML = '<div style="padding: 6px 0; font-size: 10px; color: var(--ink-muted); text-transform: uppercase;">ВЫБЕРИТЕ СПУТНИК В СПИСКЕ</div>';
+        return;
+      }
+
+      const passes = generatePasses(sat, normCity);
+      passRowsEl.innerHTML = passes.map((p) => `
+        <div class="pass-row">
+          <span>${p.dayLabel} <span class="num">${p.timeStr}</span></span>
+          <span class="num pass-cell-el">${p.maxEl}°</span>
+          <span class="pass-cell-az">${p.dir}</span>
+          <span class="num pass-cell-dur">${p.durMin}</span>
+        </div>
+      `).join('');
+    }
+
+    const passCityInput = document.getElementById('pass-city-input');
+    if (passCityInput) {
+      const onCityChange = () => {
+        const sat = state.selectedId ? (window.REAL_SATS || []).find((s) => s.id === state.selectedId) : null;
+        renderPassGrid(sat, passCityInput.value);
+      };
+      passCityInput.addEventListener('input', onCityChange);
+      passCityInput.addEventListener('change', onCityChange);
+    }
+
+    // Синхронизация слоя в DOM (aria-checked, класс .checked, символ [■]/[ ])
+    function syncLayerUI(layerKey) {
+      const btn = document.querySelector(`.layer-checkbox[data-layer="${layerKey}"]`);
+      if (btn && typeof state.layers[layerKey] === 'boolean') {
+        const isChecked = state.layers[layerKey];
+        btn.setAttribute('aria-checked', String(isChecked));
+        btn.classList.toggle('checked', isChecked);
+        const box = btn.querySelector('.check-box');
+        if (box) {
+          box.textContent = isChecked ? '[■]' : '[ ]';
         }
-        window.APP?.hooks?.onOrbitToggle?.(isActive);
-      } else if (action === 'track') {
-        state.trackVisible = isActive;
-        state.layers.track = isActive;
-        if (window.APP && typeof window.APP.onLayersChange === 'function') {
-          window.APP.onLayersChange({ ...state.layers, orbits: state.orbitVisible, track: state.trackVisible });
-        }
-        window.APP?.hooks?.onTrackToggle?.(isActive);
       }
     }
 
-    // Кнопки действий: Орбита / След / Следить / Поделиться
-    const btnActOrbit = document.getElementById('btn-act-orbit');
-    if (btnActOrbit) {
-      btnActOrbit.addEventListener('click', () => {
-        btnActOrbit.classList.toggle('active');
-        const isActive = btnActOrbit.classList.contains('active');
-        toggleAction('orbit', isActive);
-      });
+    // Синхронизация кнопок действий в инспекторе (.btn.active, aria-pressed)
+    function syncActionButtonsUI() {
+      const btnOrbit = document.getElementById('btn-act-orbit');
+      if (btnOrbit) {
+        const isOrbit = !!state.layers.orbits;
+        btnOrbit.classList.toggle('active', isOrbit);
+        btnOrbit.setAttribute('aria-pressed', String(isOrbit));
+      }
+      const btnTrack = document.getElementById('btn-act-track');
+      if (btnTrack) {
+        const isTrack = !!state.layers.track;
+        btnTrack.classList.toggle('active', isTrack);
+        btnTrack.setAttribute('aria-pressed', String(isTrack));
+      }
+      const btnFollow = document.getElementById('btn-act-follow');
+      if (btnFollow) {
+        const isFollow = !!state.followActive;
+        btnFollow.classList.toggle('active', isFollow);
+        btnFollow.setAttribute('aria-pressed', String(isFollow));
+      }
     }
 
-    const btnActTrack = document.getElementById('btn-act-track');
-    if (btnActTrack) {
-      btnActTrack.addEventListener('click', () => {
-        btnActTrack.classList.toggle('active');
-        const isActive = btnActTrack.classList.contains('active');
-        state.trackActive = isActive;
-        toggleAction('track', isActive);
-      });
+    function syncAllLayersUI() {
+      ['grid', 'orbits', 'atmosphere', 'terminator', 'labels'].forEach(syncLayerUI);
+      syncActionButtonsUI();
     }
 
-    const btnActFollow = document.getElementById('btn-act-follow');
-    if (btnActFollow) {
-      btnActFollow.addEventListener('click', () => {
-        btnActFollow.classList.toggle('active');
-        state.followActive = btnActFollow.classList.contains('active');
-        if (window.APP && window.APP.hooks && typeof window.APP.hooks.onFollowToggle === 'function') {
-          window.APP.hooks.onFollowToggle(state.followActive);
-        }
-      });
-    }
-
-    const btnActShare = document.getElementById('btn-act-share');
-    if (btnActShare) {
-      btnActShare.addEventListener('click', () => {
-        const origText = btnActShare.textContent;
-        btnActShare.textContent = 'ГОТОВО';
-        setTimeout(() => {
-          btnActShare.textContent = origText;
-        }, 1500);
-      });
-    }
-
-    // Управление слоями A8
     function toggleLayer(layerKey) {
       if (typeof state.layers[layerKey] === 'boolean') {
         state.layers[layerKey] = !state.layers[layerKey];
-        const btn = document.querySelector(`.layer-checkbox[data-layer="${layerKey}"]`);
-        if (btn) {
-          const isChecked = state.layers[layerKey];
-          btn.setAttribute('aria-checked', String(isChecked));
-          btn.classList.toggle('checked', isChecked);
-          const box = btn.querySelector('.check-box');
-          if (box) {
-            box.textContent = isChecked ? '[■]' : '[ ]';
-          }
+        syncLayerUI(layerKey);
+        if (layerKey === 'orbits') {
+          state.orbitVisible = state.layers.orbits;
+          syncActionButtonsUI();
         }
         if (window.APP && typeof window.APP.onLayersChange === 'function') {
           window.APP.onLayersChange(state.layers);
@@ -2181,6 +2332,65 @@
       }
     }
 
+    let shareTimeout = null;
+    function handleAction(action) {
+      if (action === 'orbit') {
+        const nextVal = !state.layers.orbits;
+        state.layers.orbits = nextVal;
+        state.orbitVisible = nextVal;
+        syncLayerUI('orbits');
+        syncActionButtonsUI();
+        if (window.APP && typeof window.APP.onLayersChange === 'function') {
+          window.APP.onLayersChange(state.layers);
+        }
+        window.APP?.hooks?.onOrbitToggle?.(nextVal);
+      } else if (action === 'track') {
+        const nextVal = !state.layers.track;
+        state.layers.track = nextVal;
+        state.trackVisible = nextVal;
+        state.trackActive = nextVal;
+        syncActionButtonsUI();
+        if (window.APP && typeof window.APP.onLayersChange === 'function') {
+          window.APP.onLayersChange(state.layers);
+        }
+        window.APP?.hooks?.onTrackToggle?.(nextVal);
+      } else if (action === 'follow') {
+        state.followActive = !state.followActive;
+        syncActionButtonsUI();
+        if (window.APP && window.APP.hooks && typeof window.APP.hooks.onFollowToggle === 'function') {
+          window.APP.hooks.onFollowToggle(state.followActive);
+        }
+      } else if (action === 'share') {
+        const sat = state.selectedId ? (window.REAL_SATS || []).find((s) => s.id === state.selectedId) : null;
+        const shareUrl = window.location.origin + window.location.pathname + (sat ? `#sat=${sat.id}` : '');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(shareUrl).catch(() => {});
+        }
+        const btnShare = document.getElementById('btn-act-share');
+        if (btnShare) {
+          btnShare.classList.add('active');
+          btnShare.textContent = 'СКОПИРОВАНО';
+          clearTimeout(shareTimeout);
+          shareTimeout = setTimeout(() => {
+            btnShare.classList.remove('active');
+            btnShare.textContent = 'ПОДЕЛИТЬСЯ';
+          }, 1500);
+        }
+      }
+    }
+
+    // Единый слушатель кнопок действий
+    const actionsRowEl = document.querySelector('.actions-row');
+    if (actionsRowEl) {
+      actionsRowEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (btn && btn.dataset.action) {
+          handleAction(btn.dataset.action);
+        }
+      });
+    }
+
+    // Управление слоями A8
     const layerControlsEl = document.querySelector('.layer-controls');
     if (layerControlsEl) {
       layerControlsEl.addEventListener('click', (e) => {
@@ -2200,7 +2410,7 @@
       });
     }
 
-    // Глобальные функции-контракты для шага A7
+    // Глобальные функции-контракты
     window.APP = {
       state,
       sats: window.REAL_SATS || [],
@@ -2211,12 +2421,27 @@
         }
       },
       onLayersChange: function(layers) {
-        if (window.APP.hooks && typeof window.APP.hooks.onLayersChange === 'function') {
-          window.APP.hooks.onLayersChange(layers);
+        if (layers && typeof layers === 'object') {
+          Object.assign(state.layers, layers);
+          if (typeof layers.orbits === 'boolean') {
+            state.orbitVisible = layers.orbits;
+          }
+          if (typeof layers.track === 'boolean') {
+            state.trackVisible = layers.track;
+          }
+          syncAllLayersUI();
         }
+        window.APP.layers = Object.assign({}, state.layers);
+        if (window.APP.hooks && typeof window.APP.hooks.onLayersChange === 'function') {
+          window.APP.hooks.onLayersChange(state.layers);
+        }
+        return Object.assign({}, state.layers);
       },
       hooks: {},
     };
+
+    syncAllLayersUI();
+    renderPassGrid(null, 'МОСКВА');
 
     // Обработка поиска и выпадающего списка
     const searchInput = document.getElementById('search-input');
