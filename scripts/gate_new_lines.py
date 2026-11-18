@@ -10,7 +10,7 @@ import re
 import subprocess
 import sys
 
-STYLE_PAT = re.compile(r"border-radius:\s*[1-9]|rounded-|blur\(|backdrop-|text-shadow|gradient\(")
+STYLE_PAT = re.compile(r"border-radius:\s*[1-9]|rounded-|blur\(\s*[0-9.]|backdrop-|text-shadow|gradient\(")
 HEX_PAT = re.compile(r"#[0-9a-f]{3,8}", re.I)
 MAX_PRINT = 20
 
