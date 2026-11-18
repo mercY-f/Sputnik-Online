@@ -7,8 +7,9 @@ import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { sgp4WorkerClient } from '@/lib/sgp4WorkerClient';
-import { createPostProcessing } from '@/lib/postProcessing';
 import { useGlobeDisposer } from '@/lib/globe/useGlobeDisposer';
+import { createSilhouetteHull } from '@/lib/globe/silhouette';
+import { createCountryBorders } from '@/lib/globe/borders';
 
 export function useGlobeScene(options = {}) {
   const globeContainer = options.globeContainer ?? ref(null);
@@ -36,6 +37,9 @@ export function useGlobeScene(options = {}) {
   function getCategoryColor(cat) {
     return CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.OTHER;
   }
+
+  const GLOBE_RADIUS      = 100;   // радиус three-globe в мировых единицах
+  const SAT_EARTH_LIMB_R2 = (GLOBE_RADIUS * 0.995) * (GLOBE_RADIUS * 0.995);
 
   const utcTime        = ref('');
   const webglSupported = ref(true);
@@ -70,7 +74,6 @@ export function useGlobeScene(options = {}) {
   let lastRefreshTime  = 0;
   let clockInterval    = null;
   let resizeObserver   = null;
-  let postProcessing   = null; // Спринт 4: UnrealBloom + FXAA + ACES (EffectComposer)
 
   // -----------------------------------------------------------------------
   // Спринт 4: единый dispose-контракт (lib/globe/useGlobeDisposer)
@@ -272,6 +275,10 @@ export function useGlobeScene(options = {}) {
 
     if (!satMeshGroup) satMeshGroup = resolveSatMeshGroup();
     if (!satMeshGroup) return null; // глобус ещё не готов — повторим на следующем кадре
+
+    if (!scene1BitInited) {
+      init1BitScene();
+    }
 
     const geometry = new THREE.SphereGeometry(SAT_SPHERE_RADIUS, 12, 8);
     const material = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
@@ -936,11 +943,13 @@ export function useGlobeScene(options = {}) {
         else disposeOrbitLines();
       }
 
+      await refreshPositions();
     } catch (e) {
       console.error('Failed to fetch satellites:', e);
+    } finally {
+      loading.value = false;
+      startAnimation();
     }
-    loading.value = false;
-    startAnimation();
   }
 
   // -----------------------------------------------------------------------
@@ -1055,6 +1064,9 @@ export function useGlobeScene(options = {}) {
     const t = Math.min(1, (Date.now() - lastRefreshTime) / 1000);
 
     if (globeInstance) {
+      if (!scene1BitInited) {
+        init1BitScene();
+      }
       // Подпись под курсором (hover) обновляется пикингом по pointermove — см.
       // раздел «Пикинг спутников»; здесь только интерполированные матрицы.
       updateSatelliteMesh(interpolatePositions(prevPositions, currPositions, t));
@@ -1088,110 +1100,44 @@ export function useGlobeScene(options = {}) {
 
 
   // -----------------------------------------------------------------------
-  // F2: астрономический терминатор + огни городов
+  // 1-битная сцена (Стадия D1): бумага #F4F1EA, силуэт #0E0E0E, границы 110m
   // -----------------------------------------------------------------------
-  // Освещение глобуса привязано к реальному положению Солнца на текущий UTC-момент.
-  // Считаем субсолнечную точку (широта = склонение Солнца, долгота = 15°·(UTC−12)),
-  // переводим её в единичный вектор sunDirection в системе координат глобуса и
-  // сравниваем его с нормалью в вершинном/фрагментном шейдере: день — Blue Marble,
-  // ночь — Black Marble (огни городов) с мягкой полосой терминатора.
-  const DAY_TEXTURE_URL   = '/textures/earth-blue-marble.webp';
-  const NIGHT_TEXTURE_URL = '/textures/earth-night.webp';
-  const BUMP_TEXTURE_URL  = '/textures/earth-topology.webp';
-
-  const TERMINATOR_SHARPNESS = 0.08;  // полуширина полосы терминатора (в единицах dot(n, sun))
-  const SUN_REFRESH_MS       = 60 * 1000; // пересчёт sunDirection раз в минуту
-
-  let globeDayNightMaterial = null;
-  let sunInterval           = null;
-  const sunDirScratch       = new THREE.Vector3();
-  const sunMatrixScratch    = new THREE.Matrix4();
-  const sunTextures         = { day: null, night: null, bump: null };
-
-  const TERMINATOR_VERT = `
-  varying vec2 vUv;
-  varying vec3 vNormalObj;
-
-  void main() {
-    vUv = uv;
-    vNormalObj = normal; // нормаль сферы в локальных координатах глобуса
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-  `;
-
-  const TERMINATOR_FRAG = `
-  uniform sampler2D dayMap;
-  uniform sampler2D nightMap;
-  uniform sampler2D bumpMap;
-  uniform vec3  sunDirection;   // единичный вектор на Солнце в локальных координатах глобуса
-  uniform float terminatorSharpness;
-  uniform float bumpScale;
-  uniform float nightIntensity;
-  uniform vec2  bumpTexel;      // 1/размер текстуры рельефа
-
-  varying vec2 vUv;
-  varying vec3 vNormalObj;
-
-  const vec3 UP = vec3(0.0, 1.0, 0.0);
-
-  void main() {
-    vec3 n = normalize(vNormalObj);
-
-    // Касательный базис сферы: T — вдоль роста u (долгота), B — вдоль v (широта).
-    vec3 T = cross(UP, n);
-    float tLen = length(T);
-    T = tLen > 1e-4 ? T / tLen : vec3(1.0, 0.0, 0.0);
-    vec3 B = cross(n, T);
-
-    // Рельеф из bump-карты (earth-topology.png): центральные разности по UV.
-    float hL = texture2D(bumpMap, vUv - vec2(bumpTexel.x, 0.0)).r;
-    float hR = texture2D(bumpMap, vUv + vec2(bumpTexel.x, 0.0)).r;
-    float hD = texture2D(bumpMap, vUv - vec2(0.0, bumpTexel.y)).r;
-    float hU = texture2D(bumpMap, vUv + vec2(0.0, bumpTexel.y)).r;
-    vec3 nb = normalize(n + bumpScale * ((hL - hR) * T + (hD - hU) * B));
-
-    float sunDot = dot(nb, normalize(sunDirection));
-
-    // Мягкая полоса терминатора: 0 — глубокая ночь, 1 — полный день.
-    float dayAmount = smoothstep(-terminatorSharpness, terminatorSharpness, sunDot);
-
-    vec3 dayColor   = texture2D(dayMap,   vUv).rgb;
-    vec3 nightColor = texture2D(nightMap, vUv).rgb;
-
-    // Огни городов тёплые/нейтральные (r ≈ b), а базовый «синий» слой текстуры
-    // (лёд Гренландии/Антарктиды, airglow над сушей) — сине-доминантный (r << b,
-    // r/b ≈ 0.03). Гейт по отношению r/b отсекает синие пиксели: свечение
-    // остаётся только настоящим огням (их r/b ≈ 0.8–1.7).
-    float warm = smoothstep(0.3, 0.7, nightColor.r / (nightColor.b + 1e-4));
-
-    // День: диффуз с затенением к лимбу. Ночь: едва различимая суша + огни городов.
-    vec3 daySide   = dayColor * (0.22 + 0.88 * clamp(sunDot, 0.0, 1.0));
-    vec3 nightSide = dayColor * 0.03 + nightColor * nightColor * nightIntensity * warm;
-
-    gl_FragColor = vec4(mix(nightSide, daySide, dayAmount), 1.0);
-    #include <colorspace_fragment>
-  }
-  `;
-
-  // 1x1 заглушка: шейдер валиден сразу, реальные текстуры подставляются в onLoad.
-  function solidTexture(r, g, b) {
-    const tex = new THREE.DataTexture(new Uint8Array([r, g, b, 255]), 1, 1);
-    tex.needsUpdate = true;
-    return tex;
-  }
+  let paperMaterial      = null;
+  let silhouetteHullMesh = null;
+  let countryBordersMesh = null;
+  let scene1BitInited    = false;
 
   // Меш земного шара three-globe (Group __globeObjType === 'globe' → дочерний Mesh).
   function findGlobeMesh() {
     if (!globeInstance) return null;
-    let globeGroup = null;
-    globeInstance.scene().traverse(o => {
-      if (!globeGroup && o.__globeObjType === 'globe') globeGroup = o;
+    let mesh = null;
+    globeInstance.scene().traverse(obj => {
+      if (!mesh && obj.isMesh && obj.parent && obj.parent.__globeObjType === 'globe') {
+        mesh = obj;
+      }
     });
-    return globeGroup ? globeGroup.children.find(c => c.isMesh) || null : null;
+    if (!mesh) {
+      let globeGroup = null;
+      globeInstance.scene().traverse(o => {
+        if (!globeGroup && o.__globeObjType === 'globe') globeGroup = o;
+      });
+      if (globeGroup) mesh = globeGroup.children.find(c => c.isMesh) || null;
+    }
+    return mesh;
   }
 
-  // Субсолнечная точка по UTC: широта = δ, долгота = 15°·(UTC−12) с поправкой
-  // уравнения времени (~±16 мин). Точность порядка 0.5° — для терминатора достаточно.
+  // Гашение встроенного освещения three-globe для плоской 1-битной сцены.
+  function extinguishLights(root) {
+    if (!root || typeof root.traverse !== 'function') return;
+    root.traverse(obj => {
+      if (obj.isLight) {
+        obj.intensity = 0;
+        obj.visible = false;
+      }
+    });
+  }
+
+  // Субсолнечная точка по UTC: сохраняем для Стадии D2 (Bayer 4×4 терминатор).
   function subsolarPoint(date) {
     const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1);
     const dayOfYear = (Date.UTC(
@@ -1211,10 +1157,9 @@ export function useGlobeScene(options = {}) {
     return { lat: declination, lng };
   }
 
-  // (lat, lng) → единичный вектор в системе координат getCoords() three-globe.
   function sunDirectionFromGeo(lat, lng) {
-    const phi = (90 - lat) * Math.PI / 180;
-    const theta = (90 - lng) * Math.PI / 180;
+    const phi = (90 - lat) * (Math.PI / 180);
+    const theta = (lng + 180) * (Math.PI / 180);
     const phiSin = Math.sin(phi);
     return new THREE.Vector3(
       phiSin * Math.cos(theta),
@@ -1223,374 +1168,74 @@ export function useGlobeScene(options = {}) {
     );
   }
 
-  function updateSunDirection() {
+  function init1BitScene() {
     if (!globeInstance) return;
 
-    const { lat, lng } = subsolarPoint(new Date());
-    const dir = sunDirScratch.copy(sunDirectionFromGeo(lat, lng));
-
-    // getCoords() работает в координатах группы глобуса, а шейдер — в локальных
-    // координатах меша (globeObj повёрнут на -90° по Y). Переводим вектор туда.
-    const mesh = findGlobeMesh();
-    if (mesh) {
-      mesh.updateWorldMatrix(true, false);
-      if (mesh.parent) dir.transformDirection(mesh.parent.matrixWorld);
-      // F3: атмосфера — отдельный меш в мировых координатах, ей нужен вектор на
-      // Солнце в мировом пространстве (до перевода в локальные координаты меша).
-      if (atmosphereMesh) atmosphereMesh.material.uniforms.sunDirection.value.copy(dir);
-      sunMatrixScratch.copy(mesh.matrixWorld).invert();
-      dir.transformDirection(sunMatrixScratch);
+    // 1. Бумажная сфера: MeshBasicMaterial цвета #F4F1EA без текстур и освещения
+    if (!paperMaterial) {
+      paperMaterial = new THREE.MeshBasicMaterial({ color: 0xF4F1EA });
+      disposer.registerMaterial(paperMaterial);
     }
-
-    if (globeDayNightMaterial) {
-      globeDayNightMaterial.uniforms.sunDirection.value.copy(dir);
-    }
-  }
-
-  function initDayNightMaterial() {
-    if (!globeInstance || globeDayNightMaterial) return;
-
-    const uniforms = {
-      dayMap:              { value: solidTexture(18, 26, 44) },
-      nightMap:            { value: solidTexture(0, 0, 0) },
-      bumpMap:             { value: solidTexture(128, 128, 128) },
-      sunDirection:        { value: new THREE.Vector3(1, 0, 0) },
-      terminatorSharpness: { value: TERMINATOR_SHARPNESS },
-      bumpScale:           { value: 1.6 },
-      // HDR-огни городов: текстура Black Marble тусклая (люминанс nightColor²
-      // max ≈ 0.044), поэтому ×2.2 давал всего 0.096 линейных — ниже порога
-      // bloom 0.82, свечения не было вовсе. ×45 поднимает ядра огней до ~2.0
-      // линейных: яркие точки городов светят и попадают в bloom, при этом
-      // дневная сторона (≤ 1.0) порог по-прежнему почти не превышает.
-      nightIntensity:      { value: 45 },
-      bumpTexel:           { value: new THREE.Vector2(1 / 2048, 1 / 1024) },
-    };
-
-    globeDayNightMaterial = new THREE.ShaderMaterial({
-      uniforms,
-      vertexShader: TERMINATOR_VERT,
-      fragmentShader: TERMINATOR_FRAG,
-    });
-
-    // dispose-контракт: шейдерный материал глобуса + его карты (day/night/bump).
-    // Текстуры грузятся асинхронно, поэтому регистрируем слоты через disposer,
-    // а не только на момент вызова: к размонтированию часть может не прийти.
-    disposer.registerMaterial(globeDayNightMaterial)
-            .registerDisposer(disposeDayNightMaterial);
 
     if (typeof globeInstance.globeMaterial === 'function') {
-      globeInstance.globeMaterial(globeDayNightMaterial);
-    } else {
-      const mesh = findGlobeMesh();
-      if (mesh) mesh.material = globeDayNightMaterial;
+      globeInstance.globeMaterial(paperMaterial);
+    }
+    const globeMesh = findGlobeMesh();
+    if (globeMesh) {
+      globeMesh.material = paperMaterial;
     }
 
-    // Текстуры грузим асинхронно — initGlobe не блокируется.
-    const loader = new THREE.TextureLoader();
-
-    loader.load(DAY_TEXTURE_URL, tex => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 4;
-      disposer.registerTexture(tex); // пришла после disposeAll — освобождаем сразу
-      sunTextures.day = tex;
-      uniforms.dayMap.value = tex;
-    });
-
-    loader.load(NIGHT_TEXTURE_URL, tex => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 4;
-      disposer.registerTexture(tex);
-      sunTextures.night = tex;
-      uniforms.nightMap.value = tex;
-    });
-
-    loader.load(BUMP_TEXTURE_URL, tex => {
-      tex.colorSpace = THREE.NoColorSpace;
-      disposer.registerTexture(tex);
-      sunTextures.bump = tex;
-      uniforms.bumpMap.value = tex;
-      const img = tex.image;
-      if (img && img.width && img.height) {
-        uniforms.bumpTexel.value.set(1 / img.width, 1 / img.height);
-      }
-    });
-  }
-
-  function disposeDayNightMaterial() {
-    if (!globeDayNightMaterial) return;
-    globeDayNightMaterial.dispose();
-    Object.values(sunTextures).forEach(tex => { if (tex) tex.dispose(); });
-    sunTextures.day = sunTextures.night = sunTextures.bump = null;
-    globeDayNightMaterial = null;
-  }
-
-
-  // -----------------------------------------------------------------------
-  // F3: Звёздное поле и fresnel-атмосфера
-  // -----------------------------------------------------------------------
-  // Звёзды и атмосфера живут в мировой сцене (globeInstance.scene()), а НЕ в группе
-  // вращения глобуса: иначе они крутились бы вместе с Землёй.
-  // camera.near = 0.05, camera.far = skyRadius * 2.5 = 50000 * 2.5 = 125000, а
-  // controls.maxDistance = 10000 (всё это выставляет globe.gl в своём init),
-  // поэтому звёздная сфера R = 20000 всегда вокруг камеры, внутри far и внутри
-  // skysphere-фона (R = 50000). Плоскости камеры не трогаем — глубина не страдает.
-  const STAR_COUNT         = 2400;   // всего звёзд (два слоя: мелкие + яркие)
-  const STARFIELD_RADIUS   = 20000;  // глобус = 100, camera.far = 125000, skysphere = 50000
-  const STAR_RADIUS_JITTER = 0.08;   // радиальный джиттер, доля радиуса
-
-  const ATMOSPHERE_RADIUS  = 104;     // глобус = 100: оболочка чуть больше
-  const ATMOSPHERE_COLOR   = '#6db3ff';
-  const ATMOSPHERE_POWER   = 3.0;     // показатель fresnel (2.5–4)
-  const ATMOSPHERE_GAIN    = 1.35;    // общая яркость свечения
-  const ATMOSPHERE_NIGHT   = 0.32;    // доля яркости на ночной стороне
-
-  const STAR_PALETTE = [
-    { color: new THREE.Color('#ffffff'), weight: 0.55 },  // белые
-    { color: new THREE.Color('#9fc4ff'), weight: 0.28 },  // голубоватые
-    { color: new THREE.Color('#ffd2a0'), weight: 0.17 },  // тёплые
-  ];
-
-  let starfieldGroup = null;   // THREE.Group с двумя слоями THREE.Points
-  let starTexture     = null;   // мягкая круглая текстура звезды (общая на слои)
-  let atmosphereMesh = null;   // fresnel-оболочка вокруг глобуса (отдельный меш)
-
-  // Мягкая круглая текстура звезды: яркое ядро + полупрозрачный ореол +
-  // прозрачный край (2D-canvas). Без неё PointsMaterial рисует КВАДРАТНЫЕ
-  // точки — «снег» вместо звёзд; с ней точки светятся и сцена не плоская.
-  function makeStarTexture() {
-    const size = 64;
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = size;
-    const ctx = canvas.getContext('2d');
-
-    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    gradient.addColorStop(0.0, 'rgba(255,255,255,1)');    // ядро
-    gradient.addColorStop(0.35, 'rgba(255,255,255,0.75)');// яркая часть
-    gradient.addColorStop(0.7, 'rgba(255,255,255,0.18)'); // ореол
-    gradient.addColorStop(1.0, 'rgba(255,255,255,0)');    // прозрачный край
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, size, size);
-
-    return new THREE.CanvasTexture(canvas);
-  }
-
-  // Один слой звёзд: равномерно по сфере радиуса radius с радиальным джиттером.
-  // Размер в экранных пикселях (sizeAttenuation: false), поэтому с расстоянием
-  // звёзды не «раздуваются». Яркость зашита в цвет вершины — так получается
-  // вариативная прозрачность без отдельного атрибута alpha.
-  function makeStarLayer(count, sizePx, radius) {
-    const positions = new Float32Array(count * 3);
-    const colors    = new Float32Array(count * 3);
-
-    for (let i = 0; i < count; i++) {
-      // Равномерное распределение по сфере (иначе точки липнут к полюсам).
-      const theta = 2 * Math.PI * Math.random();
-      const phi   = Math.acos(2 * Math.random() - 1);
-      const r     = radius * (1 + (Math.random() * 2 - 1) * STAR_RADIUS_JITTER);
-      const sinPhi = Math.sin(phi);
-
-      positions[i * 3]     = r * sinPhi * Math.cos(theta);
-      positions[i * 3 + 1] = r * Math.cos(phi);
-      positions[i * 3 + 2] = r * sinPhi * Math.sin(theta);
-
-      // Оттенок из палитры + случайная яркость 0.45…1.0.
-      const pick = Math.random();
-      const star = pick < STAR_PALETTE[0].weight
-        ? STAR_PALETTE[0]
-        : pick < STAR_PALETTE[0].weight + STAR_PALETTE[1].weight
-          ? STAR_PALETTE[1]
-          : STAR_PALETTE[2];
-      const brightness = 0.45 + Math.random() * 0.55;
-
-      colors[i * 3]     = star.color.r * brightness;
-      colors[i * 3 + 1] = star.color.g * brightness;
-      colors[i * 3 + 2] = star.color.b * brightness;
+    // Гашение источников света
+    if (typeof globeInstance.lights === 'function') {
+      globeInstance.lights([]);
+    }
+    extinguishLights(globeInstance.scene());
+    if (globeInstance.scene().parent) {
+      extinguishLights(globeInstance.scene().parent);
     }
 
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    if (scene1BitInited) return;
 
-    const material = new THREE.PointsMaterial({
-      size: sizePx,
-      sizeAttenuation: false,   // размер в пикселях, не в мировых единицах
-      map: starTexture,         // мягкий круглый спрайт — иначе квадратные точки
-      vertexColors: true,       // цвет вершины задаёт оттенок И яркость звезды
-      transparent: true,        // прозрачный проход — рисуется ПОСЛЕ непрозрачной
-                                // skysphere three-globe, иначе фон перекрыл бы звёзды
-      depthWrite: false,        // звёзды не пишут глубину и не заслоняют друг друга
-      depthTest: true,          // но корректно прячутся за глобусом
-      opacity: 1.0,             // яркость регулируется цветом вершины (0.45…1.0)
-      blending: THREE.AdditiveBlending,
-    });
+    if (!satMeshGroup) {
+      satMeshGroup = resolveSatMeshGroup();
+    }
+    const targetGroup = satMeshGroup;
+    if (!targetGroup) return;
 
-    const points = new THREE.Points(geometry, material);
-    points.renderOrder = 1;
-    points.frustumCulled = false; // сфера охватывает камеру — отсечение по bbox не нужно
+    // 2. Силуэт: инвертированный hull (BackSide, #0E0E0E, R = 100 * 1.008)
+    const hull = createSilhouetteHull(GLOBE_RADIUS);
+    silhouetteHullMesh = hull.hullMesh;
+    targetGroup.add(silhouetteHullMesh);
+    disposer.registerMesh(hull.hullMesh)
+            .registerGeometry(hull.hullGeom)
+            .registerMaterial(hull.hullMat);
 
-    return points;
-  }
-
-  // Статичные звёзды (без мерцания — reduced-motion-friendly).
-  function initStarfield() {
-    if (starfieldGroup || !globeInstance) return;
-
-    starTexture = makeStarTexture(); // общий спрайт на оба слоя
-    disposer.registerTexture(starTexture);
-
-    starfieldGroup = new THREE.Group();
-    starfieldGroup.name = 'starfield';
-    // Размеры с запасом под ореол спрайта: видимое ядро ≈ 40% бокса.
-    starfieldGroup.add(makeStarLayer(Math.round(STAR_COUNT * 0.78), 2.4, STARFIELD_RADIUS));
-    starfieldGroup.add(makeStarLayer(Math.round(STAR_COUNT * 0.22), 4.0, STARFIELD_RADIUS));
-
-    globeInstance.scene().add(starfieldGroup);
-
-    // dispose-контракт: группа живёт в мировой сцене и не принадлежит globe.gl —
-    // снимаем её своим слоем (release), остальное добьёт обход сцены.
-    disposer.registerObject(starfieldGroup).registerDisposer(disposeStarfield);
-  }
-
-  function disposeStarfield() {
-    if (!starfieldGroup) return;
-
-    if (typeof starfieldGroup.removeFromParent === 'function') {
-      starfieldGroup.removeFromParent();
-    } else if (starfieldGroup.parent) {
-      starfieldGroup.parent.remove(starfieldGroup);
+    // 3. Границы стран Natural Earth 110m (LineSegments #0E0E0E, depthTest)
+    const borders = createCountryBorders(globeInstance);
+    if (borders) {
+      countryBordersMesh = borders.borderMesh;
+      targetGroup.add(countryBordersMesh);
+      disposer.registerMesh(borders.borderMesh)
+              .registerGeometry(borders.borderGeom)
+              .registerMaterial(borders.borderMat);
     }
 
-    starfieldGroup.traverse(obj => {
-      if (obj.geometry) obj.geometry.dispose();
-      if (obj.material) {
-        if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
-        else obj.material.dispose();
-      }
-    });
+    disposer.registerDisposer(dispose1BitScene);
+    scene1BitInited = true;
+  }
 
-    // material.dispose() НЕ освобождает текстуры — делаем это сами (dispose-контракт).
-    if (starTexture) {
-      starTexture.dispose();
-      starTexture = null;
+  function dispose1BitScene() {
+    if (silhouetteHullMesh) {
+      if (silhouetteHullMesh.parent) silhouetteHullMesh.parent.remove(silhouetteHullMesh);
+      silhouetteHullMesh = null;
     }
-
-    starfieldGroup = null;
-  }
-
-  // Fresnel-оболочка: сфера чуть больше глобуса, рисуется изнутри (BackSide),
-  // аддитивно, без записи глубины — остаётся только свечение у лимба и оно не
-  // перекрывает ночные огни городов (в центре диска fresnel ≈ 0).
-  const ATMOSPHERE_VERT = `
-  varying vec3 vNormalView;
-  varying vec3 vNormalWorld;
-  varying vec3 vViewDir;
-
-  void main() {
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    vNormalView  = normalize(normalMatrix * normal);
-    vNormalWorld = normalize(mat3(modelMatrix) * normal);
-    vViewDir     = normalize(-mvPosition.xyz);
-    gl_Position  = projectionMatrix * mvPosition;
-  }
-  `;
-
-  const ATMOSPHERE_FRAG = `
-  uniform vec3  glowColor;
-  uniform vec3  sunDirection;   // на Солнце, в МИРОВЫХ координатах
-  uniform float fresnelPower;
-  uniform float glowIntensity;
-  uniform float nightGlow;      // доля яркости на ночной стороне
-
-  varying vec3 vNormalView;
-  varying vec3 vNormalWorld;
-  varying vec3 vViewDir;
-
-  void main() {
-    // Классический fresnel по лимбу: в центре диска ~0, на краю ~1.
-    float rim = 1.0 - abs(dot(normalize(vNormalView), normalize(vViewDir)));
-    float f   = pow(clamp(rim, 0.0, 1.0), fresnelPower);
-
-    // Модуляция день/ночь: со стороны подсолнечной точки свечение ярче.
-    float dayAmount = smoothstep(-0.15, 0.35, dot(normalize(vNormalWorld), normalize(sunDirection)));
-    float gain      = mix(nightGlow, 1.0, dayAmount);
-
-    gl_FragColor = vec4(glowColor * f * glowIntensity * gain, f * gain);
-    #include <colorspace_fragment>
-  }
-  `;
-
-  function initAtmosphere() {
-    if (atmosphereMesh || !globeInstance) return;
-
-    const geometry = new THREE.SphereGeometry(ATMOSPHERE_RADIUS, 64, 64);
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        glowColor:     { value: new THREE.Color(ATMOSPHERE_COLOR) },
-        sunDirection:  { value: new THREE.Vector3(1, 0, 0) },
-        fresnelPower:  { value: ATMOSPHERE_POWER },
-        glowIntensity: { value: ATMOSPHERE_GAIN },
-        nightGlow:     { value: ATMOSPHERE_NIGHT },
-      },
-      vertexShader:   ATMOSPHERE_VERT,
-      fragmentShader: ATMOSPHERE_FRAG,
-      transparent:    true,
-      blending:       THREE.AdditiveBlending,
-      depthWrite:     false,
-      depthTest:      true,
-      side:           THREE.BackSide,  // виден «изнутри» — свечение вокруг лимба
-    });
-
-    atmosphereMesh = new THREE.Mesh(geometry, material);
-    atmosphereMesh.name = 'atmosphere';
-    atmosphereMesh.renderOrder = 2;
-    atmosphereMesh.frustumCulled = false;
-
-    // Отдельный меш в мировой сцене: globeDayNightMaterial остаётся на меше глобуса.
-    globeInstance.scene().add(atmosphereMesh);
-
-    // dispose-контракт: оболочка не принадлежит globe.gl — освобождаем своим слоем.
-    disposer.registerMesh(atmosphereMesh)
-            .registerGeometry(geometry)
-            .registerMaterial(material)
-            .registerDisposer(disposeAtmosphere);
-  }
-
-  function disposeAtmosphere() {
-    if (!atmosphereMesh) return;
-
-    if (typeof atmosphereMesh.removeFromParent === 'function') {
-      atmosphereMesh.removeFromParent();
-    } else if (atmosphereMesh.parent) {
-      atmosphereMesh.parent.remove(atmosphereMesh);
+    if (countryBordersMesh) {
+      if (countryBordersMesh.parent) countryBordersMesh.parent.remove(countryBordersMesh);
+      countryBordersMesh = null;
     }
-
-    if (atmosphereMesh.geometry) atmosphereMesh.geometry.dispose();
-    if (atmosphereMesh.material) atmosphereMesh.material.dispose();
-    atmosphereMesh = null;
+    paperMaterial = null;
+    scene1BitInited = false;
   }
-
-
-  // -----------------------------------------------------------------------
-  // Спринт 4: пост-обработка (UnrealBloom + FXAA + ACES tone mapping)
-  // -----------------------------------------------------------------------
-  // three-render-objects рендерит кадр через свой EffectComposer, поэтому
-  // достаточно дополнить его пассами — renderer.render() не патчим.
-  function initPostProcessing() {
-    if (!globeInstance || postProcessing) return;
-    postProcessing = createPostProcessing(globeInstance);
-
-    // dispose-контракт: пассы и внутренние render target'ы UnrealBloomPass
-    // (renderTargetBright + renderTargetsHorizontal/Vertical) освобождает
-    // disposeComposer внутри disposeAll — composer регистрируем целиком.
-    disposer.registerComposer(postProcessing.composer)
-            .registerRenderer(globeInstance.renderer())
-            .registerDisposer(() => {
-              if (!postProcessing) return;
-              postProcessing.dispose();
-              postProcessing = null;
-            });
-  }
-
 
   // -----------------------------------------------------------------------
   // Инициализация глобуса
@@ -1643,27 +1288,20 @@ export function useGlobeScene(options = {}) {
     }
 
     globeInstance
-      .globeImageUrl('/textures/earth-blue-marble.webp')
-      .bumpImageUrl('/textures/earth-topology.webp')
-      .backgroundImageUrl('/textures/night-sky.webp')
-      // Слой Points three-globe больше не используется: спутники рисует
-      // собственный THREE.InstancedMesh на истинной радиальной высоте (см. updateSatelliteMesh).
+      .backgroundColor('rgba(0,0,0,0)')
+      .showAtmosphere(false)
+      .showGraticules(false)
+      .globeImageUrl(null)
+      .bumpImageUrl(null)
+      .backgroundImageUrl(null)
+      .lights([])
       .onGlobeReady(() => {
-        // Глобус готов: фиксируем группу, в которой живут маркеры (родитель земного шара).
         satMeshGroup = resolveSatMeshGroup();
-        updateSunDirection();
+        init1BitScene();
       });
 
-    // F2: подменяем дефолтный MeshPhongMaterial three-globe на дневной/ночной шейдер
-    // (dayMap = Blue Marble, nightMap = Black Marble) и сразу выставляем sunDirection.
-    initDayNightMaterial();
-    // F3: звёздное поле и fresnel-атмосфера (до updateSunDirection — атмосфере
-    // нужен уже существующий меш, чтобы получить sunDirection на первом кадре)
-    initStarfield();
-    initAtmosphere();
-    updateSunDirection();
-    sunInterval = setInterval(updateSunDirection, SUN_REFRESH_MS);
-    disposer.registerTimer(() => sunInterval);
+    satMeshGroup = resolveSatMeshGroup();
+    init1BitScene();
 
     bindCameraModeControls();
     bindHeroExitHandler();
@@ -1678,15 +1316,6 @@ export function useGlobeScene(options = {}) {
         // F4: толщина Line2 задаётся в пикселях — обновляем resolution при ресайзе
         applyLineResolution(orbitLine && orbitLine.material);
         applyLineResolution(groundTrackLine && groundTrackLine.material);
-        // F4-fix (Спринт 4): composer.setSize() уже сделал three-render-objects,
-        // здесь обновляем только uniform resolution у FXAA (DPR-пиксели).
-        if (postProcessing) {
-          postProcessing.updateSize(
-            globeContainer.value.clientWidth,
-            globeContainer.value.clientHeight,
-            globeInstance.renderer().getPixelRatio(),
-          );
-        }
       }
     });
     resizeObserver.observe(globeContainer.value);
@@ -1698,9 +1327,6 @@ export function useGlobeScene(options = {}) {
     globeInstance
       .width(globeContainer.value.clientWidth)
       .height(globeContainer.value.clientHeight);
-
-    // Спринт 4: пассы пост-обработки — после первичного размера (до heroIntroTimer).
-    initPostProcessing();
 
     // F1: камера живёт в двух режимах — hero (обзор) и follow (слежение).
     // Старт всегда hero: сначала дальний кадр, затем плавный заезд в «купол».
@@ -1734,10 +1360,6 @@ export function useGlobeScene(options = {}) {
   const CAMERA_MODE_FREE   = 'free';   // свободная орбита вокруг центра Земли
   const CAMERA_MODE_FOLLOW = 'follow';
 
-  const GLOBE_RADIUS      = 100;   // радиус three-globe в мировых единицах
-  // Сфера горизонта для отсечения за лимбом (чуть меньше радиуса глобуса, чтобы
-  // аппарат на нулевой высоте не отсекался погрешностью интерполяции).
-  const SAT_EARTH_LIMB_R2 = (GLOBE_RADIUS * 0.995) * (GLOBE_RADIUS * 0.995);
   const HERO_LAT          = 22;    // Средиземноморье/Сахара — дневная сторона
   const HERO_LNG          = 12;
   const HERO_ALTITUDE     = 0.42;  // камера в 42 ед. над поверхностью (R = 100)
@@ -2301,14 +1923,22 @@ export function useGlobeScene(options = {}) {
       }
     }
 
-    initGlobe();
+    try {
+      initGlobe();
+    } catch (err) {
+      console.error('[globe] initGlobe error:', err);
+    }
 
     clockInterval = setInterval(() => {
       utcTime.value = new Date().toISOString().split('T')[1].split('.')[0] + ' UTC';
     }, 1000);
     disposer.registerTimer(() => clockInterval);
 
-    await fetchData();
+    try {
+      await fetchData();
+    } catch (err) {
+      console.error('[globe] fetchData error:', err);
+    }
   });
 
   // -----------------------------------------------------------------------
@@ -2330,7 +1960,6 @@ export function useGlobeScene(options = {}) {
     if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
     if (rafId)          { cancelAnimationFrame(rafId); rafId = null; }
     if (clockInterval)  { clearInterval(clockInterval); clockInterval = null; }
-    if (sunInterval)    { clearInterval(sunInterval);   sunInterval = null; }
     if (pickHoverRaf)   { cancelAnimationFrame(pickHoverRaf); pickHoverRaf = 0; }
 
     // 2. Останавливаем рендер-цикл globe.gl до освобождения ресурсов: иначе
