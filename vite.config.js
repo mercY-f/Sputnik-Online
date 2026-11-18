@@ -31,6 +31,9 @@ export default defineConfig({
             buildBase: '/build/', // To properly reference assets in the build folder
             registerType: 'autoUpdate',
             workbox: {
+                // Чанк страницы глобуса (three + globe.gl + гео-данные) > 2 MiB;
+                // без этого workbox отказывается его прекешировать и сборка падает.
+                maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
                 runtimeCaching: [
                     {
                         urlPattern: /\/textures\/.*\.(?:png|jpg|jpeg|svg|webp|avif)$/i,
