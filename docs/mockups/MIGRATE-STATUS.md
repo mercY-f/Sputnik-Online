@@ -36,6 +36,11 @@ php artisan view:clear && php artisan config:clear
 - FPS (стабильный, полный экран): **_** (вписать)
 - Дата/разрешение: **_**
 
+### Замер D0 (стресс-тест глифов) — Windows
+1. `cd docs\mockups\glyph-stress` → `python -m http.server 8188` (в WSL: `python3`)
+2. Открыть `http://localhost:8188`: FPS в HUD на 12k/15k точек (порог **≥ 55**), LOD колесом мыши, пикинг глифов кликом.
+3. Результат: FPS на 15k: **_** — вердикт: ок / пересмотр схемы глифов до D3 (InstancedMesh).
+
 ## Журнал шагов
 
 | Шаг | Статус | Коммит | Примечание |
@@ -47,5 +52,6 @@ php artisan view:clear && php artisan config:clear
 | 3 — токены | ✅ | см. git log | tailwind+app.css: --paper/--ink/--ink-muted/--surface, --radius: 0, тень 2px 2px 0, сетка-точек, .num, focus-visible, reduced-motion; JetBrains Mono woff2 локально (400/700, public/fonts); #4B5563 → #0E0E0E; SW-константы в vite.config нет |
 | 4 — разделение Index.vue | ✅ | см. git log | сцена → composables/useGlobeScene.js (99.7% строк verbatim, template байт-в-байт, sha совпал); инвентаризация STEP4-MOVE.md; нюанс: fetchData() стартует параллельно с fetchCategories/favorites (был последовательным, данные независимы) |
 | U1–U6 (UI-трек) | ⬜ | | параллельно с D0–D5 |
-| D0–D5 (SCENE-трек) | ⬜ | | D0 — стресс-тест глифов |
+| D0 — стресс-тест глифов | ✅ (харнес) | см. git log | `docs/mockups/glyph-stress/`: 12k THREE.Points (1 draw call), атлас 8 глифов, LOD 2.2/1.4, пикинг 10px, лимб-куллинг, HUD FPS/draw calls; headless (swiftshader) 0 ошибок; **замер FPS ≥ 55 в Windows — за вами** (см. ниже) |
+| D1–D5 (SCENE-трек) | ⬜ | | параллельно с U2–U6; перед D3 — вердикт по FPS (провал = InstancedMesh вместо Points) |
 | F1–F2 (финал) | ⬜ | | |
