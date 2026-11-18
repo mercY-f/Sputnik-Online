@@ -1,7 +1,7 @@
 # Перенос 1-бита: статус выполнения
 
 План: `docs/mockups/PLAN-MIGRATE-1BIT.md`. Один шаг = один локальный коммит, без push.
-Журнал ведёт оркестратор. Проверка каждой стадии — `scripts/stage-gate.sh` (появится в Шаге 2).
+Журнал ведёт оркестратор. Проверка каждой стадии — `scripts/stage-gate.sh` (запускать ПЕРЕД `git commit`; логи в `$TMPDIR/stage-gate/`).
 
 ## Откатный якорь (Шаг 0)
 
@@ -42,7 +42,7 @@ php artisan view:clear && php artisan config:clear
 |---|---|---|---|
 | 0 — откатный якорь | ✅ | см. git log | откат проверен (tarball → `/` в headless) |
 | 1 — контракт (сторы + пропсы) | ✅ | см. git log | 5 сторов + LOD + categoryMeta + computePasses-заглушка + CONTRACT-1BIT.md; пропсы categories/tleStatus; 5 passed / 194 assertions |
-| 2 — stage-gate.sh | ⬜ | | |
+| 2 — stage-gate.sh | ✅ | см. git log | `scripts/stage-gate.sh` перед коммитом; проверен позитивно (чистое дерево) и негативно (ловит скругления/blur/градиенты/чужие hex) |
 | 3 — токены | ⬜ | | |
 | 4 — разделение Index.vue | ⬜ | | |
 | U1–U6 (UI-трек) | ⬜ | | параллельно с D0–D5 |
