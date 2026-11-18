@@ -41,7 +41,7 @@ php artisan view:clear && php artisan config:clear
 | Шаг | Статус | Коммит | Примечание |
 |---|---|---|---|
 | 0 — откатный якорь | ✅ | см. git log | откат проверен (tarball → `/` в headless) |
-| 1 — контракт (сторы + пропсы) | ⬜ | | |
+| 1 — контракт (сторы + пропсы) | ✅ | см. git log | 5 сторов + LOD + categoryMeta + computePasses-заглушка + CONTRACT-1BIT.md; пропсы categories/tleStatus; 5 passed / 194 assertions |
 | 2 — stage-gate.sh | ⬜ | | |
 | 3 — токены | ⬜ | | |
 | 4 — разделение Index.vue | ⬜ | | |

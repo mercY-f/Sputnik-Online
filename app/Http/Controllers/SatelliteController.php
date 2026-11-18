@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Satellite;
 use App\Support\SatelliteCache;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 
@@ -22,8 +23,16 @@ class SatelliteController extends Controller
             $request->user()->load(['role', 'profile']);
         }
 
+        $categories = $this->getCategoriesData();
+        $maxUpdatedAt = Satellite::max('updated_at');
+
         return Inertia::render('Globe/Index', [
             'satelliteCount' => $count,
+            'categories' => $categories,
+            'tleStatus' => [
+                'epoch' => null,
+                'updatedAt' => $maxUpdatedAt ? Carbon::parse($maxUpdatedAt)->toISOString() : null,
+            ],
         ]);
     }
 
@@ -65,7 +74,15 @@ class SatelliteController extends Controller
      */
     public function categories()
     {
-        return response()->json(Cache::remember(SatelliteCache::categoriesKey(), 3600, function () {
+        return response()->json($this->getCategoriesData());
+    }
+
+    /**
+     * Get cached category counts including total 'ALL' count.
+     */
+    protected function getCategoriesData(): array
+    {
+        return Cache::remember(SatelliteCache::categoriesKey(), 3600, function () {
             $categories = Satellite::selectRaw('category, COUNT(*) as count')
                 ->groupBy('category')
                 ->orderBy('count', 'desc')
@@ -77,6 +94,6 @@ class SatelliteController extends Controller
                 'ALL' => $allCount,
                 ...$categories->toArray(),
             ];
-        }));
+        });
     }
 }
