@@ -43,7 +43,7 @@ php artisan view:clear && php artisan config:clear
 | 0 — откатный якорь | ✅ | см. git log | откат проверен (tarball → `/` в headless) |
 | 1 — контракт (сторы + пропсы) | ✅ | см. git log | 5 сторов + LOD + categoryMeta + computePasses-заглушка + CONTRACT-1BIT.md; пропсы categories/tleStatus; 5 passed / 194 assertions |
 | 2 — stage-gate.sh | ✅ | см. git log | `scripts/stage-gate.sh` перед коммитом; проверен позитивно (чистое дерево) и негативно (ловит скругления/blur/градиенты/чужие hex) |
-| 3 — токены | ⬜ | | |
+| 3 — токены | ✅ | см. git log | tailwind+app.css: --paper/--ink/--ink-muted/--surface, --radius: 0, тень 2px 2px 0, сетка-точек, .num, focus-visible, reduced-motion; JetBrains Mono woff2 локально (400/700, public/fonts); #4B5563 → #0E0E0E; SW-константы в vite.config нет |
 | 4 — разделение Index.vue | ⬜ | | |
 | U1–U6 (UI-трек) | ⬜ | | параллельно с D0–D5 |
 | D0–D5 (SCENE-трек) | ⬜ | | D0 — стресс-тест глифов |

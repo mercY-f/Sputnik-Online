@@ -1,9 +1,31 @@
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/JetBrainsMono-Bold.woff2') format('woff2');
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
+    --paper: #F4F1EA;
+    --ink: #0E0E0E;
+    --ink-muted: #5C5A54;
+    --surface: #E8E4DA;
+    --radius: 0;
+    --shadow-hard: 2px 2px 0 var(--ink);
     --background: 222 20% 5%;
     --foreground: 210 40% 96%;
     --card: 222 20% 7%;
@@ -23,9 +45,14 @@
     --border: 220 14% 18%;
     --input: 220 14% 18%;
     --ring: 162 94% 43%;
-    --radius: 0.75rem;
   }
   .dark {
+    --paper: #F4F1EA;
+    --ink: #0E0E0E;
+    --ink-muted: #5C5A54;
+    --surface: #E8E4DA;
+    --radius: 0;
+    --shadow-hard: 2px 2px 0 var(--ink);
     --background: 222 20% 5%;
     --foreground: 210 40% 96%;
     --card: 222 20% 7%;
@@ -50,6 +77,34 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground antialiased;
+    background-color: var(--paper);
+    color: var(--ink);
+    @apply antialiased;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: radial-gradient(#0E0E0E 0.5px, transparent 0.5px);
+    background-size: 24px 24px;
+    opacity: 0.08;
+    pointer-events: none;
+    z-index: 1;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
