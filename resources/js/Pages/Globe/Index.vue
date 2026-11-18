@@ -3,11 +3,16 @@
     <TopBar
       :utc-time="utcTime"
       :tle-status="page.props.tleStatus"
-      :satellites="satPositions"
+      :satellites="filteredSatellites"
       :catalog-open="sidebarOpen"
       @select="focusSatellite"
       @focus-catalog-number="focusByCatalogNumber"
       @toggle-catalog="sidebarOpen = !sidebarOpen"
+    />
+    <CategoryChips
+      :catalog-open="sidebarOpen"
+      :inspector-open="!!selectedSatellite"
+      @select="applyFilter"
     />
     <main class="relative flex-1 min-h-0">
       <div class="hero-main">
@@ -88,7 +93,7 @@
             <div class="stats-block">
               <div class="stat-row">
                 <span class="stat-label">Tracked Objects</span>
-                <span class="stat-value emerald">{{ satPositions.length.toLocaleString() }}</span>
+                <span class="stat-value emerald">{{ filteredSatellites.length.toLocaleString() }}</span>
               </div>
               <div class="stat-row mt-1">
                 <span class="stat-label">System Time</span>
@@ -101,23 +106,23 @@
               <span class="block-label">Filter Constellation</span>
               <div class="category-tags">
                 <button
-                  v-for="cat in availableCategories"
-                  :key="cat"
-                  @click="setFilter(cat)"
+                  v-for="chip in filtersStore.chipList"
+                  :key="chip.id"
+                  @click="applyFilter(chip.id)"
                   class="cat-tag"
-                  :class="{ active: activeFilter === cat }"
+                  :class="{ active: filtersStore.activeFilter === chip.id }"
                 >
-                  {{ cat }}
+                  {{ chip.label }}
                 </button>
               </div>
             </div>
 
             <!-- Satellite List -->
             <div class="sat-list-block">
-              <span class="block-label">Satellite List{{ satPositions.length > 100 ? ' (Top 100)' : '' }}</span>
+              <span class="block-label">Satellite List{{ filteredSatellites.length > 100 ? ' (Top 100)' : '' }}</span>
               <div class="sat-list">
                 <div
-                  v-for="sat in satPositions.slice(0, 100)"
+                  v-for="sat in filteredSatellites.slice(0, 100)"
                   :key="sat.id || sat.name"
                   class="sat-row-container"
                 >
@@ -156,7 +161,7 @@
             <div class="webgl-stats-grid">
               <div class="stat-card">
                 <span class="stat-name">Спутников в каталоге</span>
-                <span class="stat-num emerald">{{ satPositions.length.toLocaleString() }}</span>
+                <span class="stat-num emerald">{{ filteredSatellites.length.toLocaleString() }}</span>
               </div>
               <div class="stat-card">
                 <span class="stat-name">Системное время UTC</span>
@@ -164,11 +169,11 @@
               </div>
               <div class="stat-card">
                 <span class="stat-name">Активная группировка</span>
-                <span class="stat-num">{{ activeFilter }}</span>
+                <span class="stat-num">{{ filtersStore.activeFilter }}</span>
               </div>
             </div>
 
-            <div class="fallback-telemetry" v-if="satPositions.length > 0">
+            <div class="fallback-telemetry" v-if="filteredSatellites.length > 0">
               <div class="telemetry-header">Оперативная телеметрия (Top 5)</div>
               <div class="telemetry-table">
                 <div class="t-row t-head">
@@ -178,7 +183,7 @@
                   <span>Долгота</span>
                   <span>Высота</span>
                 </div>
-                <div v-for="s in satPositions.slice(0, 5)" :key="s.id || s.name" class="t-row">
+                <div v-for="s in filteredSatellites.slice(0, 5)" :key="s.id || s.name" class="t-row">
                   <span class="t-name font-mono text-emerald-400">{{ s.name }}</span>
                   <span class="t-cat">{{ s.category }}</span>
                   <span class="t-num font-mono">{{ s.lat != null ? s.lat.toFixed(2) + '°' : '—' }}</span>
@@ -227,15 +232,30 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import axios from 'axios';
-import { TopBar, NewsFeed, SatelliteCard } from '@/components/mission';
+import { TopBar, CategoryChips, SatelliteCard, NewsFeed } from '@/components/mission';
 import { news } from '@/data/news';
 import { useGlobeScene } from '@/composables/useGlobeScene';
+import { useFiltersStore } from '@/stores/useFiltersStore';
+import { matchesFilter, CHIPS } from '@/lib/categoryMeta';
 
 const page = usePage();
 const user = computed(() => page.props.auth.user);
+
+const filtersStore = useFiltersStore();
+
+function hydrateCategoryCounts(counts) {
+  const payload = { ...(counts || {}) };
+  if (page.props.satelliteCount != null) {
+    payload.ALL = page.props.satelliteCount;
+  }
+  filtersStore.hydrate(payload);
+}
+
+// Первичное заполнение счётчиков из Inertia-пропсов (Шаг 1)
+hydrateCategoryCounts(page.props.categories);
 
 const CATEGORIES_ORDER = ['ALL', 'ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGATION', 'WEATHER', 'TELESCOPE', 'OTHER'];
 
@@ -245,7 +265,7 @@ const CATEGORIES_ORDER = ['ALL', 'ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGA
 const globeContainer = ref(null);
 const loading        = ref(true);
 const sidebarOpen    = ref(true);
-const activeFilter   = ref('ALL');
+const activeFilter   = ref(filtersStore.activeFilter);
 const satPositions   = ref([]);
 const focusTarget    = ref(null);
 const selectedSatellite = ref(null);
@@ -259,7 +279,7 @@ const {
   debugStats,
   getCategoryColor,
   retryInitGlobe,
-  setFilter,
+  setFilter: sceneSetFilter,
   focusSatellite,
   focusByCatalogNumber,
   clearFocus,
@@ -272,10 +292,47 @@ const {
   selectedSatellite,
 });
 
+function applyFilter(catId) {
+  filtersStore.setFilter(catId);
+  sceneSetFilter(catId);
+}
+
+watch(
+  () => filtersStore.activeFilter,
+  (newFilter) => {
+    if (newFilter && newFilter !== activeFilter.value) {
+      sceneSetFilter(newFilter);
+    }
+  }
+);
+
+watch(sidebarOpen, (open) => {
+  if (typeof document !== 'undefined') {
+    document.body.classList.toggle('catalog-open', !!open);
+  }
+}, { immediate: true });
+
+watch(selectedSatellite, (sat) => {
+  if (typeof document !== 'undefined') {
+    document.body.classList.toggle('inspector-open', !!sat);
+  }
+}, { immediate: true });
+
+const filteredSatellites = computed(() => {
+  const current = filtersStore.activeFilter;
+  if (!current || current === 'ALL') {
+    return satPositions.value;
+  }
+  return satPositions.value.filter((sat) => matchesFilter(sat, current));
+});
+
 async function fetchCategories() {
   try {
     const res  = await axios.get('/api/satellite-categories');
     const data = res.data;
+    if (data && typeof data === 'object') {
+      hydrateCategoryCounts(data);
+    }
 
     // Определяем доступные фильтры на основе полученных данных
     const found = CATEGORIES_ORDER.filter(c => c === 'ALL' || data[c] !== undefined);
@@ -286,9 +343,9 @@ async function fetchCategories() {
     
     availableCategories.value = found.length > 1 ? found : ['ALL'];
 
-    // Если выбранного фильтра нет в списке, сбрасываем на ALL
-    if (!availableCategories.value.includes(activeFilter.value)) {
-        activeFilter.value = 'ALL';
+    // Если выбранного фильтра нет в списке, сбрасываем на ALL только если он не валидный чип
+    if (!availableCategories.value.includes(activeFilter.value) && !CHIPS.some(c => c.id === activeFilter.value)) {
+      applyFilter('ALL');
     }
   } catch {}
 }
@@ -339,6 +396,9 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.body.style.overflow = '';
+  if (typeof document !== 'undefined') {
+    document.body.classList.remove('catalog-open', 'inspector-open');
+  }
 });
 </script>
 

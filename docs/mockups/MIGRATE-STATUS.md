@@ -52,7 +52,8 @@ php artisan view:clear && php artisan config:clear
 | 3 — токены | ✅ | см. git log | tailwind+app.css: --paper/--ink/--ink-muted/--surface, --radius: 0, тень 2px 2px 0, сетка-точек, .num, focus-visible, reduced-motion; JetBrains Mono woff2 локально (400/700, public/fonts); #4B5563 → #0E0E0E; SW-константы в vite.config нет |
 | 4 — разделение Index.vue | ✅ | см. git log | сцена → composables/useGlobeScene.js (99.7% строк verbatim, template байт-в-байт, sha совпал); инвентаризация STEP4-MOVE.md; нюанс: fetchData() стартует параллельно с fetchCategories/favorites (был последовательным, данные независимы) |
 | U1 — TopBar (шапка) | ✅ | см. git log | `TopBar.vue` (бренд ● EOL, статус TLE из пропсов, часы UTC, поиск ⌘К + дропдаун, квадратные кнопки auth, адаптив 640/420px); MissionShell остаётся для Breeze; focusByCatalogNumber/auth/Breeze проверены; правка гейта 2.1.1 (blur-паттерн) |
-| U2–U6 (UI-трек) | ⬜ | | параллельно с D1–D5 |
+| U2 — чипы + фильтрация | ✅ | см. git log | `CategoryChips.vue` (счётчики из props.categories, скролл на мобильном) + useFiltersStore ↔ setFilter(сцена) ↔ каталог/поиск; **фикс**: async-импорты SatelliteCard/NewsFeed откачены — они сливали чанк Index.vue без facade (ключ пропадал из Vite-манифеста → 500 на `/`); precache-лимит workbox 4MiB (чанк сцены >2MiB) |
+| U3–U6 (UI-трек) | ⬜ | | U3 — каталог-ящик; параллельно с D-треком |
 | D0 — стресс-тест глифов | ✅ (харнес) | см. git log | `docs/mockups/glyph-stress/`: 12k THREE.Points (1 draw call), атлас 8 глифов, LOD 2.2/1.4, пикинг 10px, лимб-куллинг, HUD FPS/draw calls; headless (swiftshader) 0 ошибок; **замер FPS ≥ 55 в Windows — за вами** (см. ниже) |
 | D1–D5 (SCENE-трек) | ⬜ | | параллельно с U2–U6; перед D3 — вердикт по FPS (провал = InstancedMesh вместо Points) |
 | F1–F2 (финал) | ⬜ | | |
