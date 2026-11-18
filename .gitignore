@@ -17,3 +17,6 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+
+# Снапшоты сборки для экстренного отката (только диск)
+/docs/backups/
