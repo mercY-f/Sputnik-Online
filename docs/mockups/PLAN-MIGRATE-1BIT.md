@@ -42,7 +42,8 @@ php artisan view:clear && php artisan config:clear
 
 | Стор | State | Getters | Actions | Персист |
 |---|---|---|---|---|
-| `useSelectionStore` — активный спутник | `selectedId` (catalog_number \| null), `hoveredId`, `focusTarget {lat,lng,alt}\|null`, `followMode: bool` | `isSelected(id)`, `activeSat` (ссылкой на каталог) | `select(sat)`, `clear()`, `hover(id)`, `setFollow(bool)` | нет |
+| `useCatalogStore` — индекс каталога | `byCatNum: Map<catalog_number, sat>`, `ids: number[]` | `get(catNum)`, `count` | `hydrate(sats)` (из `/api/satellites`) | нет |
+| `useSelectionStore` — активный спутник | `selectedId` (catalog_number \| null), `hoveredId`, `focusTarget {lat,lng,alt}\|null`, `followMode: bool` | `selectedSat` (резолв из `useCatalogStore.get(selectedId)` — единый источник и для `SatelliteCard`, и для ретикла/трека сцены; копий объекта не держим), `isSelected(id)` | `select(sat)`, `clear()`, `hover(id)`, `setFollow(bool)` | нет |
 | `useFiltersStore` — фильтры категорий | `activeFilter` (`'ALL'\|CATEGORIES`), `categoryCounts: Record<string,number>` | `chipList` (буквы/подписи из `categoryMeta`) | `setFilter(key)`, `hydrate(counts)` | `localStorage['eol.filter.v1']` |
 | `useLayersStore` — слои сцены | `grid: true`, `orbits: true`, `atmosphere: true`, `labels: false`, `terminator: true` | — | `toggle(layer)` | `localStorage['eol.layers.v1']` |
 | `useViewStore` — зум/LOD | `cameraAltR` (высота камеры в радиусах Земли) | `lodLevel: 'FAR'\|'MID'\|'NEAR'` по константам `LOD_FAR=2.2`, `LOD_MID=1.4` (как в макете §3.1.8) | `updateFromCamera(pov)` | нет |
@@ -63,6 +64,14 @@ php artisan view:clear && php artisan config:clear
 
 **Контракт воркера SGP4** (`lib/sgp4WorkerClient.js`) — не меняем, только описываем в CONTRACT (общая граница для SCENE-трека).
 
+**Контракт «Когда увидеть»** (U4 верстает кнопку/блок, D5 реализует; сигнатура фиксируется **здесь**, чтобы U4 не упёрся в безымянную заглушку):
+```js
+// resources/js/lib/passes.js — сигнатура фиксируется в Шаге 1, реализация — D5
+computePasses({ observerLat, observerLon, observerAltM = 0, tle1, tle2, from, to, minElDeg = 10 })
+  → Promise<Array<{ aos: Date, maxEl: number, los: Date }>>   // UTC, сортировка по aos
+```
+U4 до D5 работает против этой сигнатуры с демо-заглушкой; D5 подменяет на SGP4 из воркера.
+
 **Категории → буквы** (`resources/js/lib/categoryMeta.js`, одна карта на весь UI): `ISS→I` (станции), `STARLINK→S`, `ONEWEB→O`, `NAVIGATION→N`, `TELESCOPE→T`, `IRIDIUM→R`, `WEATHER→W`, `OTHER→×` (согласовано в PLAN-1BIT §1.3). Порядок чипов: `ВСЕ, МКС, STARLINK, ONEWEB, НАВИГАЦИЯ, ТЕЛЕСКОПЫ, ДРУГОЕ` + счётчики.
 
 Побочно в шаге: обновить `SatelliteApiTest` на новые пропсы.
@@ -74,8 +83,8 @@ php artisan view:clear && php artisan config:clear
 Скрипт `scripts/stage-gate.sh` (одна команда на закрытие каждой стадии):
 
 1. `npm run build` (через `tlog.py`, лог на диск).
-2. Поднять `php artisan serve`, headless Chromium (agent-browser) открыть `/` и `/login`: собрать `console.error` + `pageerror` → **0**.
-3. Grep-гейт по файлам стадии (`git diff --name-only <base>..HEAD`, только `resources/`, `tailwind.config.js`, `app/`):
+2. Поднять `php artisan serve` на **фиксированном порту 8099** (порт занят — скрипт сообщает и выходит, чужие dev-серверы не трогаем). Headless Chromium (agent-browser) открыть `/` и `/login`: собрать `console.error` + `pageerror` → **0**.
+3. Grep-гейт по **незакоммиченным** файлам стадии (`git diff --name-only HEAD` + `git ls-files --others --exclude-standard`) — ворота гоняются **перед** `git commit`; проверяем только `resources/`, `tailwind.config.js`, `app/`:
    - `border-radius:\s*[1-9]`, `rounded-`, `blur(`, `backdrop-`, `text-shadow`, `gradient(` → пусто;
    - hex-цвета: допустимы только `#F4F1EA #0E0E0E #5C5A54 #E8E4DA` (в любом регистре) → чужих нет;
 4. Если тронут `app/` или `routes/` → `php artisan test`.
@@ -91,7 +100,17 @@ php artisan view:clear && php artisan config:clear
 
 **Сдача:** ворота зелёные; страницы Breeze (логин/профиль) живы; визуально — база стала «бумажной», но раскладка старая.
 
-## 5. Параллельные треки (после Шага 3)
+## 5. Шаг 4 — разделение `Index.vue` (до развилки треков)
+
+Коллизия записи в `Index.vue` (3301 строка) — главный технический риск параллельности: два субагента в одном рабочем каталоге неизбежно перезапишут файл друг другу, и деление зон («UI — `<template>`, сцена — `<script setup>`») не спасает. Решение — **механический вынос сцены до запуска параллельных треков** (если оставить его в D1, то D1 и U1 всё равно столкнутся в `Index.vue` в первый же параллельный такт):
+
+- инициализация глобуса и цикл рендера из `Pages/Globe/Index.vue` → `resources/js/composables/useGlobeScene.js` (+ существующие `lib/globe/*`, `lib/sgp4*`) — pure move, без изменения поведения;
+- владение файлами после Шага 4: `Index.vue` (template + панельный script) — **только UI-трек**; `composables/useGlobeScene.js` + `lib/globe/*` — **только SCENE-трек**. Общих файлов нет, git worktree не нужны (запасной вариант — если позже понадобятся общие правки, всё равно только через меня);
+- сторы, `contracts.js`, `categoryMeta.js` к этому моменту заморожены (Шаг 1) — правятся только через меня.
+
+**Сдача:** ворота зелёные + скриншот Windows «до/после — идентично» (сцена и панели не изменились). Один коммит, чистый move.
+
+## 6. Параллельные треки (после Шага 4)
 
 Запуск: два субагента параллельно (S1 = UI-трек, S2 = SCENE-трек). Каждая стадия = отдельный коммит, закрытый воротами. Для SCENE-стадий с визуальными изменениями — дополнительно скриншот в Windows и ваше «ок».
 
@@ -102,7 +121,7 @@ php artisan view:clear && php artisan config:clear
 | U1 | Шапка 1-бит: `MissionShell` → TopBar (бренд `● EARTH ORBIT LIVE`, статус TLE из пропсов, часы `HH:MM:SS UTC`, поиск `⌘K`, квадратные кнопки auth) | `focusByCatalogNumber`, слоты, страницы Breeze |
 | U2 | Чипы категорий + счётчики (`useFiltersStore` + `categoryMeta`); реальная фильтрация глобуса и каталога | API `/api/satellite-categories`, данные `SatelliteCategory` |
 | U3 | Каталог-ящик `CatalogDrawer.vue` (вкладки Спутники/Группировки/Избранное, виртуальный список под 10k+, `border-l-4` активной строки, ★) | избранное, поиск, `⌘K` |
-| U4 | Правая карточка: `SatelliteCard` + `AsciiSchematic.vue` (SCHEMATICS из макета) + `OrbitProfileChart.vue` (SVG step-line) + таблица параметров с подсказками (glossary) + кнопки «Орбита / След / Следить / Поделиться» + «Когда увидеть» | расчёт из TLE (`lib/orbit.js`) |
+| U4 | Правая карточка: `SatelliteCard` + `AsciiSchematic.vue` (SCHEMATICS из макета) + `OrbitProfileChart.vue` (SVG step-line) + таблица параметров с подсказками (glossary) + кнопки «Орбита / След / Следить / Поделиться» + блок «Когда увидеть» (верстка против сигнатуры `computePasses` из контракта Шага 1, до D5 — демо-заглушка) | расчёт из TLE (`lib/orbit.js`) |
 | U5 | Новости (`NewsFeed`) → пункт меню шапки в новом стиле | данные NewsFeed |
 | U6 | Мобильные bottom-sheet (390px): каталог и карточка, чипы в горизонтальном скролле, цели ≥ 40px | нет горизонтального переполнения |
 
@@ -115,7 +134,7 @@ php artisan view:clear && php artisan config:clear
 | D2 | Терминатор: Bayer 4×4 шейдер (прототип `terminator-test.html`), солнце по UTC (NOAA), чекбокс `TERMINATOR` | не завязан на свет/`extinguishLights` |
 | D3 | Глиф-слой: `THREE.Points` + атлас 8 клеток (S O N T I R W ×), LOD по `useViewStore.lodLevel`, пикинг (рейкаст, порог 10px, `crosshair`) | воркер SGP4, интерполяция, frustum/limb-culling (переиспользовать) |
 | D4 | Выбранный объект: ретикл `[ ● ]`, пунктирный трек (`LineDashedMaterial`), плашка с лидер-линией (`camera.project()`, скрытие за лимбом); слои GRID/ORBITS/LABELS по `useLayersStore` | follow-режим, fly-to |
-| D5 | «Когда увидеть» над городом на SGP4 из воркера | тест на известный пролёт МКС |
+| D5 | «Когда увидеть»: реализация `computePasses` (контракт Шага 1) на SGP4 из воркера | тест на известный пролёт МКС |
 
 ### Финал
 
@@ -124,11 +143,11 @@ php artisan view:clear && php artisan config:clear
 | F1 | Чистка: мёртвые компоненты/стили/текстуры (`public/textures`), Workbox-кэш; `ROADMAP.md`, `README.md`, `REVIEW.md` |
 | F2 | Финальные вороты **по всему дереву** (не по дифу): `npm run build`, `php artisan test`, headless 0 ошибок, grep чистый; Lighthouse a11y ≥ 95; ваши скриншоты Windows «до/после»; числа FPS/draw calls до/после → в записку диплома |
 
-## 6. Матрица зависимостей и порядок коммитов
+## 7. Матрица зависимостей и порядок коммитов
 
 ```
-Шаг 0 (откатный якорь) ──► Шаг 1 (контракт: сторы+пропсы) ──► Шаг 2 (ворота) ──► Шаг 3 (токены)
-                                                                 │
+Шаг 0 (откатный якорь) ──► Шаг 1 (контракт: сторы+пропсы) ──► Шаг 2 (ворота) ──► Шаг 3 (токены) ──► Шаг 4 (разделение Index.vue)
+                                                                                                  │
                                             ┌────────────────────┴────────────────────┐
                                             ▼ (S1, параллельно)                       ▼ (S2, параллельно)
                                      U1 → U2 → U3 → U4 → U5 → U6              D0 → D1 → D2 → D3 → D4 → D5
@@ -136,19 +155,19 @@ php artisan view:clear && php artisan config:clear
                                                                  ▼
                                                           F1 (чистка) → F2 (финал)
 ```
-Внутри треков порядок жёсткий (каждая стадия опирается на предыдущую); между треками — свободный параллелизм. Ориентир: 4 + 6 + 6 + 2 ≈ **18 коммитов**.
+Внутри треков порядок жёсткий (каждая стадия опирается на предыдущую); между треками — свободный параллелизм. Ориентир: 5 + 6 + 6 + 2 ≈ **19 коммитов**.
 
-## 7. Риски (контроль)
+## 8. Риски (контроль)
 
 1. **Плотность глифов** → D0 до кода D3; провал = пересмотр схемы (InstancedMesh-атлас вместо Points).
-2. **3301 строка в `Index.vue`** → сцену не переписываем «в лоб»: D1–D5 выносят слои в `resources/js/lib/globe/*`, `Index.vue` усыхает; инвентаризация «что остаётся/заменяется/удаляется» — первый коммит D1.
-3. **Параллельные треки конфликтуют в `Index.vue`** → правило: UI-трек владеет `<template>` и стилями панелей, SCENE-трек — `lib/globe/*` и `<script setup>` сцены; общие правки (импорты сторов) — только по согласованию через меня, разные коммиты.
+2. **3301 строка в `Index.vue`** → сцену не переписываем «в лоб»: Шаг 4 выносит её в `useGlobeScene.js`, D1–D5 работают в `lib/globe/*`; инвентаризация «что остаётся/заменяется/удаляется» — первый коммит Шага 4.
+3. **Параллельные треки конфликтуют в `Index.vue`** → снят Шагом 4: сцена живёт в `useGlobeScene.js` + `lib/globe/*`, `Index.vue` остаётся за UI-треком — файлы не пересекаются. Git worktree — запасной вариант; любые общие правки — только через меня.
 4. **Ворота не ловят визуал** → для D-стадий обязательный скриншот Windows.
 5. **PWA-кэш** → бамп SW-версии при заметных изменениях ассетов (иначе старый бандл из кэша).
 
-## 8. Решения по умолчанию (если вопросов не будет)
+## 9. Решения по умолчанию (если вопросов не будет)
 
 - Снапшот сборки — tar.zst/gz на диске в `docs/backups/`, не в git.
 - `categories` и `tleStatus` отдаём Inertia-пропсами (Шаг 1), API-эндпоинты не удаляем (на них держатся axios-вызовы до U2/D-стадий).
-- Сторов 4 (как в §2.1); `catalog` (список/поиск/избранное) живёт в `useFiltersStore`/компоненте каталога до тех пор, пока U3 не докажет обратное.
+- Сторов 5 (как в §2.1): индекс каталога (`Map` по catalog_number) — в `useCatalogStore`; `selectedSat` резолвится из него — единый источник для `SatelliteCard` и ретикла/трека сцены, копий объекта нигде не держим.
 - Работаем на ветке `refactor/modernization`; откат = `legacy/design-glass`.
