@@ -1,6 +1,16 @@
 <template>
-  <MissionShell :object-count="satPositions.length" hide-footer class="h-screen overflow-hidden">
-    <div class="hero-main">
+  <div class="relative flex h-screen flex-col overflow-hidden bg-paper text-ink">
+    <TopBar
+      :utc-time="utcTime"
+      :tle-status="page.props.tleStatus"
+      :satellites="satPositions"
+      :catalog-open="sidebarOpen"
+      @select="focusSatellite"
+      @focus-catalog-number="focusByCatalogNumber"
+      @toggle-catalog="sidebarOpen = !sidebarOpen"
+    />
+    <main class="relative flex-1 min-h-0">
+      <div class="hero-main">
       <div class="globe-area">
         <!-- Focus indicator (glass overlay above the globe) -->
         <div v-if="focusTarget" class="focus-indicator">
@@ -212,14 +222,15 @@
         </transition>
       </div>
     </div>
-  </MissionShell>
+    </main>
+  </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import axios from 'axios';
-import { MissionShell, NewsFeed, SatelliteCard } from '@/components/mission';
+import { TopBar, NewsFeed, SatelliteCard } from '@/components/mission';
 import { news } from '@/data/news';
 import { useGlobeScene } from '@/composables/useGlobeScene';
 
