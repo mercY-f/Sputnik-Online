@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # stage-gate.sh — ворота стадии переноса «1-бит» (PLAN-MIGRATE-1BIT §3).
 # Запускать ПЕРЕД git commit: проверяются НЕзакоммиченные файлы (индекс + рабочая директория + untracked).
-# Ворота: [1] npm run build [2] grep-гейт стиля/цвета [3] php artisan test если тронут PHP
+# Ворота: [1] npm run build [2] grep-гейт стиля/цвета по НОВЫМ строкам (перенесённые
+#         verbatim из HEAD — «не новые»; см. gate_new_lines.py) [3] php artisan test если тронут PHP
 #         [4] headless Chromium: / и /login без реальных ошибок консоли.
 # Выход: 0 — все зелёные; 1..4 — провал соответствующих ворот; 2 (общий) — нет git-репозитория.
 set -u
@@ -37,33 +38,24 @@ else
 fi
 
 # ---------- [2/4] Grep-гейт: скругления/блюр/градиенты и чужие hex ----------
-say "[2/4] grep-гейт (стиль + цвет), файлов к проверке: ${#CHANGED[@]}"
-STYLE_FAIL=0
+# Семантика: проверяются только НОВЫЕ строки (добавленные в дифе / untracked).
+# Строки, перенесённые verbatim (без учёта отступа) из HEAD, — «не новые» (Шаг 4: pure move).
+# Финальная чистота всего дерева — воротами F2 (PLAN-MIGRATE-1BIT §6).
+say "[2/4] grep-гейт (стиль + цвет, только новые строки), файлов к проверке: ${#CHANGED[@]}"
+CHECKED=()
 for f in "${CHANGED[@]}"; do
   [ -f "$f" ] || continue
-  case "$f" in resources/*|app/*|tailwind.config.js) : ;; *) continue ;; esac
-  grep -Iq . "$f" || continue # только текстовые файлы
-
-  hits=$(grep -nE 'border-radius:[[:space:]]*[1-9]|rounded-|blur\(|backdrop-|text-shadow|gradient\(' "$f" || true)
-  for ex in "${PATTERN_EXCEPTIONS[@]}"; do
-    [ -n "$hits" ] && hits=$(printf '%s\n' "$hits" | grep -vF "$ex" || true)
-  done
-  if [ -n "$hits" ]; then
-    say "  СТИЛЬ $f:"; printf '%s\n' "$hits" | head -n 5; STYLE_FAIL=1
-  fi
-
-  while read -r h; do
-    [ -z "$h" ] && continue
-    H=$(printf '%s' "$h" | tr 'a-f' 'A-F')
-    ok=0
-    for a in $ALLOWED_HEX; do [ "$H" = "#$a" ] && ok=1; done
-    if [ "$ok" -eq 0 ]; then say "  HEX $f: $h"; STYLE_FAIL=1; fi
-  done < <(grep -oiE '#[0-9a-f]{3,8}' "$f" | sort -u || true)
+  case "$f" in resources/*|app/*|tailwind.config.js) CHECKED+=("$f") ;; esac
 done
-if [ "$STYLE_FAIL" -eq 1 ]; then
-  say "  FAIL"; exit 2
+if [ "${#CHECKED[@]}" -eq 0 ]; then
+  say "  OK (нет файлов к проверке)"
 else
-  say "  OK (запрещённого нет; допустимые токены: $ALLOWED_HEX)"
+  if GATE_ALLOWED_HEX="$ALLOWED_HEX" GATE_PATTERN_EXCEPTIONS="${PATTERN_EXCEPTIONS[*]}" \
+     python3 "$REPO/scripts/gate_new_lines.py" "$REPO" "${CHECKED[@]}"; then
+    say "  OK (новых нарушений нет; допустимые токены: $ALLOWED_HEX)"
+  else
+    say "  FAIL"; exit 2
+  fi
 fi
 
 # ---------- [3/4] PHP-тесты, если тронут PHP ----------
