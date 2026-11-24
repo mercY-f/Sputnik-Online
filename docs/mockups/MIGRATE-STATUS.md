@@ -30,16 +30,16 @@ php artisan view:clear && php artisan config:clear
 Единственное допустимое сообщение консоли (есть и в старом дизайне, pre-existing):
 `Uncaught (in promise) non-precached-url: ... "url":"index.html"` из `/build/workbox-*.js` (VitePWA, SPA-fallback). Всё остальное в консоли = провал ворот.
 
-## FPS-база (Шаг 0.4) — нужен ваш замер
+## FPS-база (Шаг 0.4) — ✅ замер получен (Windows, 2026-11-24)
 
 Текущая сцена, `?debug=1` HUD, ваша машина, Windows:
-- FPS (стабильный, полный экран): **_** (вписать)
-- Дата/разрешение: **_**
+- FPS (стабильный, полный экран): **144** (стабильно даже при максимальной нагрузке)
+- Дата/разрешение: 2026-11-24 (разрешение не фиксировалось)
 
 ### Замер D0 (стресс-тест глифов) — Windows
 1. `cd docs\mockups\glyph-stress` → `python -m http.server 8188` (в WSL: `python3`)
 2. Открыть `http://localhost:8188`: FPS в HUD на 12k/15k точек (порог **≥ 55**), LOD колесом мыши, пикинг глифов кликом.
-3. Результат: FPS на 15k: **_** — вердикт: ок / пересмотр схемы глифов до D3 (InstancedMesh).
+3. Результат: FPS при максимальной нагрузке: **144, стабильно** — вердикт: **ок → D3 остаётся на THREE.Points** (InstancedMesh не нужен).
 
 ## Журнал шагов
 
@@ -53,8 +53,10 @@ php artisan view:clear && php artisan config:clear
 | 4 — разделение Index.vue | ✅ | см. git log | сцена → composables/useGlobeScene.js (99.7% строк verbatim, template байт-в-байт, sha совпал); инвентаризация STEP4-MOVE.md; нюанс: fetchData() стартует параллельно с fetchCategories/favorites (был последовательным, данные независимы) |
 | U1 — TopBar (шапка) | ✅ | см. git log | `TopBar.vue` (бренд ● EOL, статус TLE из пропсов, часы UTC, поиск ⌘К + дропдаун, квадратные кнопки auth, адаптив 640/420px); MissionShell остаётся для Breeze; focusByCatalogNumber/auth/Breeze проверены; правка гейта 2.1.1 (blur-паттерн) |
 | U2 — чипы + фильтрация | ✅ | см. git log | `CategoryChips.vue` (счётчики из props.categories, скролл на мобильном) + useFiltersStore ↔ setFilter(сцена) ↔ каталог/поиск; **фикс**: async-импорты SatelliteCard/NewsFeed откачены — они сливали чанк Index.vue без facade (ключ пропадал из Vite-манифеста → 500 на `/`); precache-лимит workbox 4MiB (чанк сцены >2MiB) |
-| U3–U6 (UI-трек) | ⬜ | | U3 — каталог-ящик; параллельно с D-треком |
-| D0 — стресс-тест глифов | ✅ (харнес) | см. git log | `docs/mockups/glyph-stress/`: 12k THREE.Points (1 draw call), атлас 8 глифов, LOD 2.2/1.4, пикинг 10px, лимб-куллинг, HUD FPS/draw calls; headless (swiftshader) 0 ошибок; **замер FPS ≥ 55 в Windows — за вами** (см. ниже) |
-| D1 — 1-битная сцена | ✅ (код) | см. git log | бумажная сфера + силуэт + границы NE 110m, выключены bloom/ACES/FXAA/атмосфера/звёзды/текстуры/свет; ревью нашло 3 дефекта (TDZ GLOBE_RADIUS ронял init → зависание телеметрии; onGlobeReady не зовётся при globeImageUrl(null) → границы не создавались; недобитые Directional/AmbientLight → градиент) — все починены, рантайм-доказательства есть; **визуальный «ок» в Windows — за вами** (замечание: серп лимба на swiftshader мягче/шире 2-3px макета — глянуть на Windows, при дельте подкрутить silhouette.js в D2+) |
-| D2–D5 (SCENE-трек) | ⬜ | | D2 — терминатор; перед D3 — вердикт по FPS (провал = InstancedMesh вместо Points) |
+| U3 — каталог-ящик | ✅ | см. git log | `CatalogDrawer.vue` (вкладки Спутники/Группировки/Избранное, виртуальный список `useVirtualList` @vueuse под 10k+, border-l-4 активной строки, ★ через существующий toggleFavorite); Index.vue: старый сайдбар заменён (auth/статусы уже в TopBar), синхронизация useSelectionStore/useCatalogStore; отклонение: agy таймаут → код писал субагент; **визуальный просмотр в Windows — за вами** |
+| U4–U6 (UI-трек) | ⬜ | | U4 — карточка + «Когда увидеть» (против computePasses) → U5 новости → U6 bottom-sheet |
+| D0 — стресс-тест глифов | ✅ | см. git log | `docs/mockups/glyph-stress/`: 12k THREE.Points (1 draw call), атлас 8 глифов, LOD 2.2/1.4, пикинг 10px, лимб-куллинг, HUD FPS/draw calls; headless (swiftshader) 0 ошибок; **замер в Windows: 144 FPS стабильно при макс. нагрузке → схема Points подтверждена** |
+| D1 — 1-битная сцена | ✅ | см. git log | бумажная сфера + силуэт + границы NE 110m, выключены bloom/ACES/FXAA/атмосфера/звёзды/текстуры/свет; ревью нашло 3 дефекта (TDZ GLOBE_RADIUS ронял init → зависание телеметрии; onGlobeReady не зовётся при globeImageUrl(null) → границы не создавались; недобитые Directional/AmbientLight → градиент) — все починены, рантайм-доказательства есть; **визуальный «ок» в Windows ✅ (2026-11-24)** |
+| D2 — терминатор | ✅ | см. git log | `lib/globe/terminator.js`: NOAA-субсолярная точка (UTC), Bayer 4×4 шейдер (бумага/чернила, плотность 0.75, gl_FragCoord-дизеринг), обновление солнца раз в 60с, независим от lights; `LayerToggles.vue` (чекбокс ТЕРМИНАТОР ↔ useLayersStore, смонтирован оркестратором в Index.vue); teardown через useGlobeDisposer (таймер/материал/unwatch); отклонение: agy таймаут → код писал субагент; **визуальный «ок» дизеринга в Windows — за вами** |
+| D3–D5 (SCENE-трек) | ⬜ | | D3 — глиф-слой THREE.Points (вердикт FPS 144 ✅) → D4 ретикл/трек/слои → D5 computePasses |
 | F1–F2 (финал) | ⬜ | | |
