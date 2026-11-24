@@ -14,6 +14,7 @@ import { createTerminator } from '@/lib/globe/terminator';
 import { createGlyphLayer } from '@/lib/globe/glyphLayer';
 import { useLayersStore } from '@/stores/useLayersStore';
 import { useSelectionStore } from '@/stores/useSelectionStore';
+import { useViewStore } from '@/stores/useViewStore';
 
 export function useGlobeScene(options = {}) {
   const globeContainer = options.globeContainer ?? ref(null);
@@ -24,7 +25,7 @@ export function useGlobeScene(options = {}) {
   const selectedSatellite = options.selectedSatellite ?? ref(null);
   const layersStore = options.layersStore ?? useLayersStore();
   const selectionStore = options.selectionStore ?? useSelectionStore();
-  const viewStore = options.viewStore ?? null;
+  const viewStore = options.viewStore ?? useViewStore();
 
   // -----------------------------------------------------------------------
   // Константы
