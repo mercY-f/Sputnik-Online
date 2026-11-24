@@ -44,103 +44,18 @@
           <div class="debug-row"><span>CULL FRUSTUM</span><b>{{ debugStats.frustum }}</b></div>
           <div class="debug-row"><span>CULL LIMB</span><b>{{ debugStats.limb }}</b></div>
         </div>
-
-        <!-- Floating open button (when sidebar is closed) -->
-        <button
-          v-if="!sidebarOpen"
-          @click="sidebarOpen = true"
-          class="floating-btn"
-          title="Open Panel"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-        </button>
-
-        <!-- Sidebar Panel -->
-        <aside class="sidebar" :class="{ open: sidebarOpen }">
-          <div class="sidebar-header">
-            <h1>Earth Orbit Live</h1>
-            <button @click="sidebarOpen = false" class="close-btn" title="Close Panel">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-          </div>
-
-          <!-- Auth Navigation Overlay for Sidebar -->
-          <div class="auth-nav">
-            <template v-if="user">
-              <div class="user-greeting">Welcome, {{ user.name }}</div>
-              <div class="auth-links">
-                <Link :href="route('dashboard')" class="auth-btn">Dashboard</Link>
-                <Link v-if="user.role?.name === 'admin'" :href="route('admin.dashboard')" class="auth-btn">Admin</Link>
-                <Link :href="route('profile.edit')" class="auth-btn outline">Profile</Link>
-              </div>
-            </template>
-            <template v-else>
-              <div class="auth-links">
-                <Link :href="route('login')" class="auth-btn">Log in</Link>
-                <Link :href="route('register')" class="auth-btn outline">Register</Link>
-              </div>
-            </template>
-          </div>
-
-          <!-- Loading state -->
-          <div v-if="loading" class="loading-state">
-            <span class="spinner"></span>
-            <p>Acquiring satellite telemetry...</p>
-          </div>
-
-          <template v-else>
-            <!-- Stats -->
-            <div class="stats-block">
-              <div class="stat-row">
-                <span class="stat-label">Tracked Objects</span>
-                <span class="stat-value emerald">{{ filteredSatellites.length.toLocaleString() }}</span>
-              </div>
-              <div class="stat-row mt-1">
-                <span class="stat-label">System Time</span>
-                <span class="stat-value mono">{{ utcTime }}</span>
-              </div>
-            </div>
-
-            <!-- Category filters -->
-            <div class="filter-block">
-              <span class="block-label">Filter Constellation</span>
-              <div class="category-tags">
-                <button
-                  v-for="chip in filtersStore.chipList"
-                  :key="chip.id"
-                  @click="applyFilter(chip.id)"
-                  class="cat-tag"
-                  :class="{ active: filtersStore.activeFilter === chip.id }"
-                >
-                  {{ chip.label }}
-                </button>
-              </div>
-            </div>
-
-            <!-- Satellite List -->
-            <div class="sat-list-block">
-              <span class="block-label">Satellite List{{ filteredSatellites.length > 100 ? ' (Top 100)' : '' }}</span>
-              <div class="sat-list">
-                <div
-                  v-for="sat in filteredSatellites.slice(0, 100)"
-                  :key="sat.id || sat.name"
-                  class="sat-row-container"
-                >
-                  <button
-                    @click="focusSatellite(sat)"
-                    class="sat-row"
-                  >
-                    <span class="sat-dot" :style="{ backgroundColor: getCategoryColor(sat.category) }"></span>
-                    <span class="sat-name">{{ sat.name }}</span>
-                  </button>
-                  <button v-if="user" @click="toggleFavorite(sat)" class="fav-btn" :class="{ isFav: isFavorite(sat) }" title="Toggle Favorite">
-                    ★
-                  </button>
-                </div>
-              </div>
-            </div>
-          </template>
-        </aside>
+        <!-- Catalog Drawer (U3) -->
+        <CatalogDrawer
+          :open="sidebarOpen"
+          :satellites="satPositions"
+          :user="user"
+          :user-favorites="userFavorites"
+          @close="sidebarOpen = false"
+          @select="focusSatellite"
+          @focus-catalog-number="focusByCatalogNumber"
+          @toggle-favorite="toggleFavorite"
+          @set-filter="applyFilter"
+        />
 
         <!-- Globe Container -->
         <div v-show="webglSupported" ref="globeContainer" class="globe-container"></div>
@@ -235,7 +150,9 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import axios from 'axios';
-import { TopBar, CategoryChips, SatelliteCard, NewsFeed } from '@/components/mission';
+import { TopBar, CategoryChips, SatelliteCard, NewsFeed, CatalogDrawer } from '@/components/mission';
+import { useCatalogStore } from '@/stores/useCatalogStore';
+import { useSelectionStore } from '@/stores/useSelectionStore';
 import { news } from '@/data/news';
 import { useGlobeScene } from '@/composables/useGlobeScene';
 import { useFiltersStore } from '@/stores/useFiltersStore';
@@ -245,6 +162,8 @@ const page = usePage();
 const user = computed(() => page.props.auth.user);
 
 const filtersStore = useFiltersStore();
+const catalogStore = useCatalogStore();
+const selectionStore = useSelectionStore();
 
 function hydrateCategoryCounts(counts) {
   const payload = { ...(counts || {}) };
@@ -315,6 +234,17 @@ watch(sidebarOpen, (open) => {
 watch(selectedSatellite, (sat) => {
   if (typeof document !== 'undefined') {
     document.body.classList.toggle('inspector-open', !!sat);
+  }
+  if (sat) {
+    selectionStore.select(sat);
+  } else {
+    selectionStore.clear();
+  }
+}, { immediate: true });
+
+watch(satPositions, (newSats) => {
+  if (Array.isArray(newSats) && newSats.length > 0) {
+    catalogStore.hydrate(newSats);
   }
 }, { immediate: true });
 
