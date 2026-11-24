@@ -1,23 +1,206 @@
+<template>
+  <aside
+    class="inspector-panel"
+    role="region"
+    :aria-label="`Панель телеметрии спутника ${satellite?.name || ''}`"
+  >
+    <!-- Шапка инспектора A4 -->
+    <header class="inspector-header">
+      <div class="inspector-header-left">
+        <span class="badge-square" :title="`Категория: ${categoryLabel}`">{{ badgeLetter }}</span>
+        <span class="inspector-title" :title="satellite?.name">
+          {{ satellite?.name || 'ЗАГРУЗКА АППАРАТА...' }}
+        </span>
+      </div>
+      <button
+        type="button"
+        class="btn-square"
+        title="Закрыть"
+        aria-label="Закрыть панель телеметрии"
+        @click="$emit('close')"
+      >✕</button>
+    </header>
+
+    <div class="inspector-body">
+      <!-- ASCII-схема аппарата A5 -->
+      <AsciiSchematic
+        :category="satellite?.category"
+        :letter="badgeLetter"
+      />
+
+      <!-- Кнопки действий: Орбита / След / Следить / Поделиться -->
+      <div class="actions-row">
+        <button
+          type="button"
+          class="btn"
+          :class="{ active: showOrbit }"
+          title="Показать орбиту"
+          :aria-pressed="showOrbit ? 'true' : 'false'"
+          @click="showOrbit = !showOrbit"
+        >ОРБИТА</button>
+        <button
+          type="button"
+          class="btn"
+          :class="{ active: showTrack }"
+          title="Показать след"
+          :aria-pressed="showTrack ? 'true' : 'false'"
+          @click="showTrack = !showTrack"
+        >СЛЕД</button>
+        <button
+          type="button"
+          class="btn"
+          :class="{ active: selectionStore.followMode }"
+          title="Следить за аппаратом"
+          :aria-pressed="selectionStore.followMode ? 'true' : 'false'"
+          @click="toggleFollow"
+        >СЛЕДИТЬ</button>
+        <button
+          type="button"
+          class="btn"
+          :class="{ active: shareCopied }"
+          title="Поделиться ссылкой на спутник"
+          @click="shareSatellite"
+        >{{ shareCopied ? 'СКОПИРОВАНО!' : 'ПОДЕЛИТЬСЯ' }}</button>
+      </div>
+
+      <!-- Таблица параметров с подсказками A4 -->
+      <div class="params-table">
+        <div
+          v-for="param in paramFields"
+          :key="param.key"
+          class="param-row"
+          :class="{ 'param-row-block': param.isBlock }"
+        >
+          <div class="param-main">
+            <span class="param-label">
+              {{ param.label }}
+              <button
+                type="button"
+                class="btn-help"
+                :title="`Справка: ${param.label}`"
+                :aria-expanded="openTips[param.key] ? 'true' : 'false'"
+                @click="toggleTip(param.key)"
+              >?</button>
+            </span>
+
+            <template v-if="param.key === 'purpose'">
+              <div class="param-val-text">{{ param.val || '—' }}</div>
+            </template>
+
+            <template v-else-if="param.key === 'country'">
+              <div class="param-val country-badge-group">
+                <span
+                  v-if="countryInfo.code"
+                  class="country-badge"
+                  :title="countryInfo.name"
+                >{{ countryInfo.code }}</span>
+                <span class="country-name-label">{{ countryInfo.name }}</span>
+              </div>
+            </template>
+
+            <template v-else>
+              <span class="param-val num">{{ param.val }}</span>
+            </template>
+          </div>
+
+          <div
+            v-if="openTips[param.key]"
+            class="param-tip open"
+          >
+            <strong>{{ param.label }}:</strong> {{ param.tip }}<br>
+            <em v-if="param.readingTip">{{ param.readingTip }}</em>
+          </div>
+        </div>
+      </div>
+
+      <!-- Мини-график орбиты A6 -->
+      <OrbitProfileChart
+        :orbit="orbit"
+        :satellite="satellite"
+      />
+
+      <!-- Блок «Когда увидеть» -->
+      <div class="pass-box">
+        <div class="pass-title">КОГДА УВИДЕТЬ: {{ cityInput.toUpperCase() || 'МОСКВА' }}</div>
+        <div class="pass-city-row">
+          <label class="pass-city-label" for="pass-city-input">ГОРОД:</label>
+          <input
+            id="pass-city-input"
+            v-model="cityInput"
+            type="text"
+            class="field"
+            placeholder="МОСКВА"
+            autocomplete="off"
+            @change="fetchPasses"
+            @keydown.enter="fetchPasses"
+          >
+          <button
+            type="button"
+            class="btn btn-geo"
+            title="Определить по геолокации"
+            @click="useCurrentLocation"
+          >ГЕО</button>
+        </div>
+
+        <div class="pass-table">
+          <div class="pass-table-head">
+            <span>ВРЕМЯ</span>
+            <span class="num pass-head-num pass-head-el">МАКС</span>
+            <span class="pass-head-dir">LOS UTC</span>
+            <span class="num pass-head-num">ДЛИТ</span>
+          </div>
+
+          <div v-if="passesLoading" class="pass-loading">
+            РАСЧЁТ ПРОЛЁТОВ...
+          </div>
+
+          <div v-else-if="passesError" class="pass-empty">
+            {{ passesError }}
+          </div>
+
+          <div v-else-if="formattedPasses.length === 0" class="pass-empty">
+            ПРОЛЁТОВ В БЛИЖАЙШИЕ 24Ч НЕ НАЙДЕНО
+          </div>
+
+          <div v-else class="pass-rows">
+            <div
+              v-for="(p, idx) in formattedPasses"
+              :key="idx"
+              class="pass-row"
+            >
+              <span>{{ p.dayLabel }} <span class="num">{{ p.timeAos }}</span></span>
+              <span class="num pass-cell-el">{{ p.maxEl }}°</span>
+              <span class="pass-cell-los num">{{ p.timeLos }}</span>
+              <span class="num pass-cell-dur">{{ p.durMin }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Подвал инспектора -->
+    <footer class="inspector-footer">
+      <button
+        type="button"
+        class="btn btn-full"
+        :class="{ active: isFavorite }"
+        @click="$emit('toggle-favorite')"
+      >
+        {{ isFavorite ? '★ В ИЗБРАННОМ' : 'В ИЗБРАННОЕ' }}
+      </button>
+    </footer>
+  </aside>
+</template>
+
 <script setup>
-import { computed } from 'vue';
-import {
-  X,
-  Info,
-  Rocket,
-  Activity,
-  Compass,
-  Calendar,
-  Clock,
-  Globe,
-} from 'lucide-vue-next';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { ref, computed, watch, onMounted, reactive } from 'vue';
+import { useSelectionStore } from '@/stores/useSelectionStore';
+import { CATEGORY_META } from '@/lib/categoryMeta';
 import { computeOrbitParameters } from '@/lib/orbit';
 import { orbitGlossary } from '@/data/orbitGlossary';
+import { computePasses } from '@/lib/passes';
+import AsciiSchematic from './AsciiSchematic.vue';
+import OrbitProfileChart from './OrbitProfileChart.vue';
 
 const props = defineProps({
   satellite: {
@@ -26,7 +209,7 @@ const props = defineProps({
   },
   categoryColor: {
     type: String,
-    default: '#10b981',
+    default: '#0E0E0E',
   },
   isFavorite: {
     type: Boolean,
@@ -36,18 +219,48 @@ const props = defineProps({
 
 defineEmits(['close', 'toggle-favorite']);
 
-// Орбитальные параметры из TLE
+const selectionStore = useSelectionStore();
+
+// Состояние кнопок карточки
+const showOrbit = ref(true);
+const showTrack = ref(true);
+const shareCopied = ref(false);
+
+// Раскрывающиеся подсказки параметров
+const openTips = reactive({});
+function toggleTip(key) {
+  openTips[key] = !openTips[key];
+}
+
+// Расчёт параметров из TLE
 const orbit = computed(() => {
   if (!props.satellite?.tle1 || !props.satellite?.tle2) return null;
   return computeOrbitParameters(props.satellite.tle1, props.satellite.tle2);
 });
 
-// Каталожный номер
+// Буква категории для квадратного бейджа
+const badgeLetter = computed(() => {
+  const cat = props.satellite?.category;
+  if (cat && CATEGORY_META[cat]?.letter) {
+    return CATEGORY_META[cat].letter;
+  }
+  return '×';
+});
+
+const categoryLabel = computed(() => {
+  const cat = props.satellite?.category;
+  if (cat && CATEGORY_META[cat]?.labelRu) {
+    return CATEGORY_META[cat].labelRu;
+  }
+  return 'ДРУГОЕ';
+});
+
+// Номер в каталоге
 const catalogNumber = computed(() => {
   return props.satellite?.catalogNumber ?? props.satellite?.catalog_number ?? orbit.value?.catalogNumber ?? '—';
 });
 
-// Живые координаты и высота
+// Координаты и параметры
 const liveLat = computed(() => {
   const v = props.satellite?.lat;
   return typeof v === 'number' && !Number.isNaN(v) ? `${v.toFixed(2)}°` : '—';
@@ -63,10 +276,11 @@ const liveAltKm = computed(() => {
     return `${props.satellite.altKm.toFixed(1)} км`;
   }
   if (typeof props.satellite?.alt === 'number') {
-    return `${(props.satellite.alt * 6371).toFixed(1)} км`;
+    const km = props.satellite.alt < 20 ? props.satellite.alt * 6371 : props.satellite.alt;
+    return `${km.toFixed(1)} км`;
   }
   if (orbit.value?.altitudeAvgKm != null) {
-    return `~${orbit.value.altitudeAvgKm.toFixed(1)} км`;
+    return `${orbit.value.altitudeAvgKm.toFixed(1)} км`;
   }
   return '—';
 });
@@ -78,719 +292,717 @@ const liveSpeed = computed(() => {
   return '—';
 });
 
-// Маппинг флагов стран
-function getCountryFlag(code) {
-  if (!code) return '🛰️';
-  const upper = String(code).toUpperCase().trim();
-  const special = {
-    CIS: '🇷🇺',
-    PRC: '🇨🇳',
-    UK: '🇬🇧',
-    GER: '🇩🇪',
-    JPN: '🇯🇵',
-    IND: '🇮🇳',
-    ESA: '🇪🇺',
-    EU: '🇪🇺',
-    UN: '🇺🇳',
-    ISS: '🌐',
-    SKOR: '🇰🇷',
-    NKOR: '🇰🇵',
-    SPN: '🇪🇸',
-    TURK: '🇹🇷',
-    ARGN: '🇦🇷',
-    BRAZ: '🇧🇷',
-    BELA: '🇧🇾',
-    KAZ: '🇰🇿',
-    UKR: '🇺🇦',
-    AZER: '🇦🇿',
-    SWED: '🇸🇪',
-    SWTZ: '🇨🇭',
-    NETH: '🇳🇱',
-    ORB: '🇺🇸',
-    GLOB: '🇺🇸',
-    SES: '🇱🇺',
-    EUTE: '🇫🇷',
-    IM: '🇬🇧',
-    CA: '🇨🇦',
-    US: '🇺🇸',
-    FR: '🇫🇷',
-    IT: '🇮🇹',
-    AU: '🇦🇺',
+// Маппинг стран
+const COUNTRY_MAP = {
+  RU: { code: 'RUS', name: 'РОССИЯ' },
+  RUS: { code: 'RUS', name: 'РОССИЯ' },
+  US: { code: 'USA', name: 'США' },
+  USA: { code: 'USA', name: 'США' },
+  CN: { code: 'CHN', name: 'КИТАЙ' },
+  CHN: { code: 'CHN', name: 'КИТАЙ' },
+  GB: { code: 'GBR', name: 'ВЕЛИКОБРИТАНИЯ' },
+  UK: { code: 'GBR', name: 'ВЕЛИКОБРИТАНИЯ' },
+  GBR: { code: 'GBR', name: 'ВЕЛИКОБРИТАНИЯ' },
+  EU: { code: 'ESA', name: 'ESA' },
+  ESA: { code: 'ESA', name: 'ESA' },
+  JP: { code: 'JPN', name: 'ЯПОНИЯ' },
+  JPN: { code: 'JPN', name: 'ЯПОНИЯ' },
+  IN: { code: 'IND', name: 'ИНДИЯ' },
+  IND: { code: 'IND', name: 'ИНДИЯ' },
+  FR: { code: 'FRA', name: 'ФРАНЦИЯ' },
+  FRA: { code: 'FRA', name: 'ФРАНЦИЯ' },
+  DE: { code: 'DEU', name: 'ГЕРМАНИЯ' },
+  DEU: { code: 'DEU', name: 'ГЕРМАНИЯ' },
+  KZ: { code: 'KAZ', name: 'КАЗАХСТАН' },
+  KAZ: { code: 'KAZ', name: 'КАЗАХСТАН' },
+  CA: { code: 'CAN', name: 'КАНАДА' },
+  CAN: { code: 'CAN', name: 'КАНАДА' },
+  IT: { code: 'ITA', name: 'ИТАЛИЯ' },
+  ITA: { code: 'ITA', name: 'ИТАЛИЯ' },
+  AU: { code: 'AUS', name: 'АВСТРАЛИЯ' },
+  AUS: { code: 'AUS', name: 'АВСТРАЛИЯ' },
+  CIS: { code: 'RUS', name: 'РОССИЯ' },
+  PRC: { code: 'CHN', name: 'КИТАЙ' },
+};
+
+const countryInfo = computed(() => {
+  const code = (props.satellite?.country || '').toUpperCase().trim();
+  const name = props.satellite?.country_name;
+
+  if (COUNTRY_MAP[code]) {
+    return {
+      code: COUNTRY_MAP[code].code,
+      name: name || COUNTRY_MAP[code].name,
+    };
+  }
+  if (code) {
+    return {
+      code: code.slice(0, 3),
+      name: name || code,
+    };
+  }
+  return {
+    code: null,
+    name: name || 'Не определена',
   };
-  if (special[upper]) return special[upper];
-  if (upper.length === 2 && /^[A-Z]{2}$/.test(upper)) {
-    return String.fromCodePoint(...[...upper].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
-  }
-  return '🌐';
-}
-
-const countryDisplay = computed(() => {
-  const countryCode = props.satellite?.country;
-  const countryName = props.satellite?.country_name;
-  const flag = getCountryFlag(countryCode);
-
-  if (countryName) {
-    return { flag, name: countryName, code: countryCode };
-  }
-  if (countryCode) {
-    return { flag, name: countryCode, code: countryCode };
-  }
-  return { flag: '🛰️', name: 'Не определена', code: null };
 });
 
-// Склонение числительных
-function plural(n, forms) {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod100 >= 11 && mod100 <= 19) return forms[2];
-  if (mod10 === 1) return forms[0];
-  if (mod10 >= 2 && mod10 <= 4) return forms[1];
-  return forms[2];
-}
-
-// Дата запуска и время в космосе
-const launchInfo = computed(() => {
+// Дата запуска
+const launchDateFormatted = computed(() => {
   const dateStr = props.satellite?.launch_date;
-  let formattedDate = '—';
-  let inSpaceText = null;
-
   if (dateStr) {
     try {
       const d = new Date(dateStr);
       if (!Number.isNaN(d.getTime())) {
-        formattedDate = d.toLocaleDateString('ru-RU', {
-          day: 'numeric',
-          month: 'long',
+        return d.toLocaleDateString('ru-RU', {
+          day: '2-digit',
+          month: '2-digit',
           year: 'numeric',
         });
-
-        const now = new Date();
-        let years = now.getFullYear() - d.getFullYear();
-        let months = now.getMonth() - d.getMonth();
-        if (now.getDate() < d.getDate()) months--;
-        if (months < 0) {
-          years--;
-          months += 12;
-        }
-
-        if (years > 0 && months > 0) {
-          inSpaceText = `${years} ${plural(years, ['год', 'года', 'лет'])} ${months} ${plural(months, ['месяц', 'месяца', 'месяцев'])}`;
-        } else if (years > 0) {
-          inSpaceText = `${years} ${plural(years, ['год', 'года', 'лет'])}`;
-        } else if (months > 0) {
-          inSpaceText = `${months} ${plural(months, ['месяц', 'месяца', 'месяцев'])}`;
-        } else {
-          const days = Math.max(0, Math.floor((now - d) / 86400000));
-          inSpaceText = `${days} ${plural(days, ['день', 'дня', 'дней'])}`;
-        }
       }
     } catch {
-      formattedDate = dateStr;
+      // fallback
     }
-  } else if (orbit.value?.launchYear) {
-    formattedDate = `${orbit.value.launchYear} г. (из TLE)`;
-    const nowYear = new Date().getFullYear();
-    const yDiff = nowYear - orbit.value.launchYear;
-    if (yDiff >= 0) {
-      inSpaceText = `~${yDiff} ${plural(yDiff, ['год', 'года', 'лет'])}`;
-    }
+    return dateStr;
   }
-
-  const launchSite = props.satellite?.launch_site || '—';
-
-  return {
-    date: formattedDate,
-    inSpace: inSpaceText ? `${inSpaceText} в космосе` : null,
-    site: launchSite,
-  };
+  if (orbit.value?.launchYear) {
+    return `${orbit.value.launchYear} г.`;
+  }
+  return '—';
 });
 
-// Читаемый тип объекта
-const objectTypeDisplay = computed(() => {
-  const t = props.satellite?.object_type;
-  if (!t) return null;
-  const upper = String(t).toUpperCase().trim();
-  if (upper === 'PAY') return 'Полезная нагрузка (PAY)';
-  if (upper === 'R/B') return 'Корпус ракеты (R/B)';
-  if (upper === 'DEB') return 'Космический мусор (DEB)';
-  return upper;
-});
-
-// Сетка параметров полёта
-const flightParameters = computed(() => {
+// Список полей параметров для таблицы
+const paramFields = computed(() => {
   const o = orbit.value;
   return [
     {
       key: 'altitude',
-      label: orbitGlossary.altitude.label,
-      value: liveAltKm.value,
+      label: orbitGlossary.altitude.label.toUpperCase(),
+      val: liveAltKm.value,
       tip: orbitGlossary.altitude.description,
-      reading: orbitGlossary.altitude.readingTip,
-      live: true,
+      readingTip: orbitGlossary.altitude.readingTip,
     },
     {
       key: 'speed',
-      label: orbitGlossary.speed.label,
-      value: liveSpeed.value,
+      label: orbitGlossary.speed.label.toUpperCase(),
+      val: liveSpeed.value,
       tip: orbitGlossary.speed.description,
-      reading: orbitGlossary.speed.readingTip,
-      live: true,
-    },
-    {
-      key: 'period',
-      label: orbitGlossary.period.label,
-      value: o?.periodMinutes ? `${o.periodMinutes} мин` : '—',
-      tip: orbitGlossary.period.description,
-      reading: orbitGlossary.period.readingTip,
+      readingTip: orbitGlossary.speed.readingTip,
     },
     {
       key: 'inclination',
-      label: orbitGlossary.inclination.label,
-      value: o?.inclination != null ? `${o.inclination}°` : '—',
+      label: orbitGlossary.inclination.label.toUpperCase(),
+      val: o?.inclination != null ? `${o.inclination.toFixed(2)}°` : '—',
       tip: orbitGlossary.inclination.description,
-      reading: orbitGlossary.inclination.readingTip,
+      readingTip: orbitGlossary.inclination.readingTip,
+    },
+    {
+      key: 'period',
+      label: orbitGlossary.period.label.toUpperCase(),
+      val: o?.periodMinutes != null ? `${o.periodMinutes.toFixed(2)} мин` : '—',
+      tip: orbitGlossary.period.description,
+      readingTip: orbitGlossary.period.readingTip,
     },
     {
       key: 'apogee',
-      label: 'Апогей / Перигей',
-      value: o?.apogeeKm != null && o?.perigeeKm != null ? `${o.apogeeKm} / ${o.perigeeKm} км` : '—',
+      label: 'АПОГЕЙ / ПЕРИГЕЙ',
+      val: o?.apogeeKm != null && o?.perigeeKm != null
+        ? `${Math.round(o.apogeeKm)} / ${Math.round(o.perigeeKm)} км`
+        : '—',
       tip: `${orbitGlossary.apogee.description} / ${orbitGlossary.perigee.description}`,
-      reading: `${orbitGlossary.apogee.readingTip} ${orbitGlossary.perigee.readingTip}`,
+      readingTip: `${orbitGlossary.apogee.readingTip} ${orbitGlossary.perigee.readingTip}`,
     },
     {
       key: 'eccentricity',
-      label: orbitGlossary.eccentricity.label,
-      value: o?.eccentricity != null ? o.eccentricity.toFixed(5) : '—',
+      label: orbitGlossary.eccentricity.label.toUpperCase(),
+      val: o?.eccentricity != null ? o.eccentricity.toFixed(5) : '—',
       tip: orbitGlossary.eccentricity.description,
-      reading: orbitGlossary.eccentricity.readingTip,
+      readingTip: orbitGlossary.eccentricity.readingTip,
     },
     {
-      key: 'orbitType',
-      label: orbitGlossary.orbitType.label,
-      value: o?.orbitType?.code ?? '—',
-      subValue: o?.orbitType?.name,
-      tip: orbitGlossary.orbitType.description,
-      reading: o?.orbitType?.description || orbitGlossary.orbitType.readingTip,
-    },
-    {
-      key: 'coords',
-      label: 'Координаты',
-      value: `${liveLat.value}, ${liveLng.value}`,
+      key: 'coordinates',
+      label: 'КООРДИНАТЫ',
+      val: `${liveLat.value} / ${liveLng.value}`,
       tip: 'Текущие географические подспутниковые координаты (широта и долгота точки над поверхностью Земли).',
-      reading: 'Широта: положительная — северная, отрицательная — южная. Долгота: положительная — восточная, отрицательная — западная.',
-      live: true,
+      readingTip: 'Широта: положительная — северная, отрицательная — южная. Долгота: положительная — восточная, отрицательная — западная.',
     },
     {
-      key: 'meanMotion',
-      label: orbitGlossary.meanMotion.label,
-      value: o?.meanMotion ? `${o.meanMotion.toFixed(2)} об/сут` : '—',
-      tip: orbitGlossary.meanMotion.description,
-      reading: orbitGlossary.meanMotion.readingTip,
-    },
-    {
-      key: 'epochAge',
-      label: orbitGlossary.epochAge.label,
-      value: o?.epochAgeText ?? '—',
+      key: 'epoch',
+      label: orbitGlossary.epochAge.label.toUpperCase(),
+      val: o?.epochAgeText ?? '—',
       tip: orbitGlossary.epochAge.description,
-      reading: orbitGlossary.epochAge.readingTip,
+      readingTip: orbitGlossary.epochAge.readingTip,
+    },
+    {
+      key: 'country',
+      label: 'СТРАНА',
+      val: countryInfo.value.name,
+      tip: 'Принадлежность космического аппарата и юрисдикция запускающего государства.',
+      readingTip: 'Государство регистрации спутника в реестре ООН.',
+    },
+    {
+      key: 'launch',
+      label: 'ЗАПУСК',
+      val: launchDateFormatted.value,
+      tip: 'Календарная дата вывода аппарата на околоземную орбиту.',
+      readingTip: 'Дата старта ракеты-носителя.',
+    },
+    {
+      key: 'purpose',
+      label: 'НАЗНАЧЕНИЕ',
+      val: props.satellite?.purpose || 'Назначение не определено',
+      tip: 'Функциональная задача и класс полезной нагрузки космического аппарата.',
+      readingTip: 'Связь, навигация, научные исследования, дистанционное зондирование Земли.',
+      isBlock: true,
     },
   ];
 });
+
+// Действие «Следить»
+function toggleFollow() {
+  selectionStore.setFollow(!selectionStore.followMode);
+}
+
+// Действие «Поделиться»
+async function shareSatellite() {
+  const catNum = catalogNumber.value;
+  const url = typeof window !== 'undefined'
+    ? `${window.location.origin}${window.location.pathname}?sat=${catNum}#${catNum}`
+    : `?sat=${catNum}`;
+
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+    } else if (typeof document !== 'undefined') {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    shareCopied.value = true;
+    setTimeout(() => {
+      shareCopied.value = false;
+    }, 2000);
+  } catch {
+    // fallback
+  }
+}
+
+// Блок «Когда увидеть»
+const cityInput = ref('МОСКВА');
+const observerCoords = ref({ lat: 55.75, lng: 37.62 });
+const passes = ref([]);
+const passesLoading = ref(false);
+const passesError = ref(null);
+
+const CITY_COORDS = {
+  'МОСКВА': { lat: 55.75, lng: 37.62 },
+  'MOSCOW': { lat: 55.75, lng: 37.62 },
+  'САНКТ-ПЕТЕРБУРГ': { lat: 59.93, lng: 30.33 },
+  'СПБ': { lat: 59.93, lng: 30.33 },
+  'НОВОСИБИРСК': { lat: 55.03, lng: 82.92 },
+  'ЕКАТЕРИНБУРГ': { lat: 56.84, lng: 60.61 },
+  'КАЗАНЬ': { lat: 55.79, lng: 49.12 },
+  'ВЛАДИВОСТОК': { lat: 43.12, lng: 131.89 },
+  'СОЧИ': { lat: 43.58, lng: 39.72 },
+  'БАЙКОНУР': { lat: 45.96, lng: 63.31 },
+  'ТОКИО': { lat: 35.68, lng: 139.69 },
+  'ЛОНДОН': { lat: 51.51, lng: -0.13 },
+  'ПАРИЖ': { lat: 48.85, lng: 2.35 },
+  'БЕРЛИН': { lat: 52.52, lng: 13.40 },
+  'НЬЮ-ЙОРК': { lat: 40.71, lng: -74.01 },
+};
+
+function resolveCoords(name) {
+  const norm = (name || '').trim().toUpperCase();
+  if (CITY_COORDS[norm]) {
+    return CITY_COORDS[norm];
+  }
+  // Хэш-фоллбек для произвольного города
+  let h = 0;
+  for (let i = 0; i < norm.length; i++) {
+    h = ((h << 5) - h) + norm.charCodeAt(i);
+    h |= 0;
+  }
+  const lat = ((Math.abs(h) % 1100) / 10) - 45;
+  const lng = ((Math.abs(h >> 3) % 3600) / 10) - 180;
+  return { lat, lng };
+}
+
+async function fetchPasses() {
+  if (!props.satellite?.tle1 || !props.satellite?.tle2) {
+    passes.value = [];
+    passesError.value = 'ДАННЫЕ TLE НЕДОСТУПНЫ ДЛЯ РАСЧЁТА';
+    return;
+  }
+
+  passesLoading.value = true;
+  passesError.value = null;
+
+  try {
+    const coords = resolveCoords(cityInput.value);
+    observerCoords.value = coords;
+
+    const from = new Date();
+    const to = new Date(from.getTime() + 24 * 3600 * 1000);
+
+    const result = await computePasses({
+      observerLat: coords.lat,
+      observerLon: coords.lng,
+      observerAltM: 0,
+      tle1: props.satellite.tle1,
+      tle2: props.satellite.tle2,
+      from,
+      to,
+      minElDeg: 10,
+    });
+
+    passes.value = Array.isArray(result) ? result : [];
+  } catch (err) {
+    passes.value = [];
+    passesError.value = 'ОШИБКА ВЫЧИСЛЕНИЯ ПРОЛЁТОВ';
+  } finally {
+    passesLoading.value = false;
+  }
+}
+
+function useCurrentLocation() {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    passesError.value = 'ГЕОЛОКАЦИЯ НЕДОСТУПНА';
+    return;
+  }
+
+  passesLoading.value = true;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      observerCoords.value = { lat, lng };
+      cityInput.value = `${lat.toFixed(2)}°, ${lng.toFixed(2)}°`;
+      fetchPasses();
+    },
+    () => {
+      passesLoading.value = false;
+      passesError.value = 'ДОСТУП К ГЕОЛОКАЦИИ ОТКЛОНЁН';
+    },
+    { timeout: 8000 }
+  );
+}
+
+const formattedPasses = computed(() => {
+  const now = new Date();
+  const todayDay = now.getUTCDate();
+
+  return passes.value.map((p) => {
+    const aos = new Date(p.aos);
+    const los = new Date(p.los);
+
+    const isToday = aos.getUTCDate() === todayDay;
+    const dayLabel = isToday ? 'СЕГОДНЯ' : 'ЗАВТРА';
+
+    const hA = String(aos.getUTCHours()).padStart(2, '0');
+    const mA = String(aos.getUTCMinutes()).padStart(2, '0');
+    const timeAos = `${hA}:${mA}`;
+
+    const hL = String(los.getUTCHours()).padStart(2, '0');
+    const mL = String(los.getUTCMinutes()).padStart(2, '0');
+    const timeLos = `${hL}:${mL}`;
+
+    const durMs = Math.max(0, los.getTime() - aos.getTime());
+    const durMin = `${Math.max(1, Math.round(durMs / 60000))} МИН`;
+
+    return {
+      dayLabel,
+      timeAos,
+      timeLos,
+      maxEl: Math.round(p.maxEl),
+      durMin,
+    };
+  });
+});
+
+watch(
+  () => props.satellite,
+  () => {
+    fetchPasses();
+  },
+  { immediate: true }
+);
+
+onMounted(() => {
+  fetchPasses();
+});
 </script>
-<template>
-  <TooltipProvider :delay-duration="150">
-    <article
-      class="satellite-card"
-      role="region"
-      :aria-label="`Карточка спутника ${satellite?.name || ''}`"
-    >
-      <!-- (1) ШАПКА КАРТОЧКИ -->
-      <header class="card-section header-section">
-        <div class="header-main">
-          <div class="title-row">
-            <h3 class="sat-title" :title="satellite?.name">
-              {{ satellite?.name || 'Загрузка аппарата...' }}
-            </h3>
-            <button
-              type="button"
-              class="close-btn"
-              aria-label="Закрыть карточку спутника"
-              title="Закрыть карточку"
-              @click="$emit('close')"
-            >
-              <X class="h-4 w-4" />
-            </button>
-          </div>
-
-          <div class="meta-row">
-            <!-- NORAD номер -->
-            <span class="catalog-badge" title="Номер в каталоге NORAD / SATCAT">
-              #{{ catalogNumber }}
-            </span>
-
-            <!-- Категория -->
-            <span
-              v-if="satellite?.category"
-              class="category-badge"
-              :style="{
-                borderColor: `${categoryColor}40`,
-                backgroundColor: `${categoryColor}15`,
-                color: categoryColor,
-              }"
-            >
-              <span class="dot" :style="{ backgroundColor: categoryColor }"></span>
-              {{ satellite.category }}
-            </span>
-
-            <!-- Страна / Владелец -->
-            <div class="country-pill" :title="`Принадлежность: ${countryDisplay.name}`">
-              <span class="flag-icon">{{ countryDisplay.flag }}</span>
-              <span class="country-text">{{ countryDisplay.name }}</span>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <!-- ТЕЛО КАРТОЧКИ -->
-      <div class="card-body">
-        <!-- (2) СЕКЦИЯ: НАЗНАЧЕНИЕ -->
-        <section class="card-section purpose-section">
-          <div class="section-label">
-            <Compass class="section-icon text-emerald-400" />
-            <span>Назначение</span>
-            <span v-if="objectTypeDisplay" class="object-type-tag">
-              {{ objectTypeDisplay }}
-            </span>
-          </div>
-          <div class="purpose-content">
-            <p class="purpose-text">
-              {{ satellite?.purpose || 'Назначение не определено' }}
-            </p>
-          </div>
-        </section>
-
-        <!-- (3) СЕКЦИЯ: ЗАПУСК -->
-        <section class="card-section launch-section">
-          <div class="section-label">
-            <Rocket class="section-icon text-cyan-400" />
-            <span>Запуск и миссия</span>
-          </div>
-          <div class="launch-grid">
-            <div class="launch-item">
-              <span class="sub-label">Дата запуска</span>
-              <span class="item-value">{{ launchInfo.date }}</span>
-            </div>
-            <div class="launch-item">
-              <span class="sub-label">Космодром</span>
-              <span class="item-value truncate" :title="launchInfo.site">{{ launchInfo.site }}</span>
-            </div>
-            <div v-if="launchInfo.inSpace" class="launch-duration col-span-2">
-              <Clock class="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-              <span>{{ launchInfo.inSpace }}</span>
-            </div>
-          </div>
-        </section>
-
-        <!-- (4) СЕКЦИЯ: ПАРАМЕТРЫ ПОЛЁТА -->
-        <section class="card-section flight-section">
-          <div class="section-label">
-            <Activity class="section-icon text-amber-400" />
-            <span>Параметры полёта</span>
-            <span class="live-indicator">
-              <span class="live-dot"></span>
-              ONLINE
-            </span>
-          </div>
-
-          <div class="params-grid">
-            <Tooltip
-              v-for="param in flightParameters"
-              :key="param.key"
-            >
-              <TooltipTrigger as-child>
-                <div
-                  tabindex="0"
-                  role="button"
-                  :aria-label="`Параметр: ${param.label}. Нажмите для описания.`"
-                  class="param-tile focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400"
-                >
-                  <div class="param-header">
-                    <span class="param-label">{{ param.label }}</span>
-                    <Info class="param-info-icon" />
-                  </div>
-                  <div class="param-value-container">
-                    <span class="param-value">{{ param.value }}</span>
-                    <span v-if="param.subValue" class="param-subvalue">{{ param.subValue }}</span>
-                  </div>
-                </div>
-              </TooltipTrigger>
-
-              <TooltipContent
-                side="top"
-                class="glossary-tooltip-content"
-              >
-                <div class="tooltip-inner">
-                  <div class="tooltip-title">{{ param.label }}</div>
-                  <p class="tooltip-desc">{{ param.tip }}</p>
-                  <div class="tooltip-reading">
-                    <span class="tooltip-tag">Как читать:</span>
-                    {{ param.reading }}
-                  </div>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </section>
-      </div>
-    </article>
-  </TooltipProvider>
-</template>
 
 <style scoped>
-.satellite-card {
+.inspector-panel {
   width: 100%;
-  background: rgba(10, 10, 12, 0.65);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.15);
-  color: #f1f5f9;
-  font-family: inherit;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 2px 2px 0 var(--ink);
+  color: var(--ink);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
 }
 
-.card-section {
-  padding: 12px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.card-section:last-child {
-  border-bottom: none;
-}
-
-/* Шапка */
-.header-section {
-  background: rgba(255, 255, 255, 0.02);
-  padding: 14px;
-}
-
-.title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.sat-title {
-  font-size: 1.05rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: #ffffff;
-  line-height: 1.25;
-  word-break: break-word;
-}
-
-.close-btn {
+.inspector-header {
+  padding: 8px 10px;
+  border-bottom: 2px solid var(--ink);
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+}
+
+.inspector-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.badge-square {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
-  color: #94a3b8;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--paper);
+  color: var(--ink);
   flex-shrink: 0;
 }
 
-.close-btn:hover {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: rgba(239, 68, 68, 0.4);
-  color: #ef4444;
+.inspector-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.close-btn:focus-visible {
-  outline: 2px solid #10b981;
+.btn-square {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.btn-square:hover {
+  background: var(--surface);
+}
+
+.btn-square:active {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.btn-square:focus-visible {
+  outline: 2px solid var(--ink);
   outline-offset: 1px;
 }
 
-.meta-row {
+.inspector-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.catalog-badge {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.72rem;
-  color: #34d399;
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  border-radius: 6px;
-  padding: 2px 6px;
-}
-
-.category-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.72rem;
-  font-weight: 500;
-  border-radius: 6px;
-  border: 1px solid;
-  padding: 2px 7px;
-}
-
-.category-badge .dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-}
-
-.country-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  padding: 2px 7px;
-  font-size: 0.75rem;
-  color: #cbd5e1;
-  max-width: 180px;
-}
-
-.country-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Заголовки секций */
-.section-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #94a3b8;
-  margin-bottom: 8px;
-}
-
-.section-icon {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.object-type-tag {
-  margin-left: auto;
-  font-size: 0.65rem;
-  color: #64748b;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 1px 5px;
-  border-radius: 4px;
-}
-
-.live-indicator {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.65rem;
-  font-weight: 600;
-  color: #10b981;
-}
-
-.live-dot {
-  width: 6px;
-  height: 6px;
-  background: #10b981;
-  border-radius: 50%;
-  animation: pulse-dot 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(1.2); }
-}
-
-/* Назначение */
-.purpose-text {
-  font-size: 0.85rem;
-  line-height: 1.35;
-  color: #e2e8f0;
-  font-weight: 500;
-}
-
-/* Запуск */
-.launch-grid {
+.actions-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.btn {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 6px 8px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.btn:hover {
+  background: var(--surface);
+}
+
+.btn:active,
+.btn.active {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+/* Таблица параметров A4 */
+.params-table {
+  border-top: 1px solid rgba(14, 14, 14, 0.2);
+  width: 100%;
+}
+
+.param-row {
+  border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+}
+
+.param-row-block .param-main {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.param-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 5px 0;
   gap: 8px;
 }
 
-.launch-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.sub-label {
-  font-size: 0.68rem;
-  color: #64748b;
-}
-
-.item-value {
-  font-size: 0.8rem;
-  color: #cbd5e1;
-  font-weight: 500;
-}
-
-.launch-duration {
+.param-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-muted);
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  margin-top: 4px;
-  font-size: 0.75rem;
-  color: #10b981;
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.15);
-  padding: 4px 8px;
-  border-radius: 6px;
-}
-
-/* Сетка параметров */
-.params-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.param-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 6px 8px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  cursor: help;
-  transition: all 0.15s ease;
-}
-
-.param-tile:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(16, 185, 129, 0.3);
-  transform: translateY(-1px);
-}
-
-.param-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: 4px;
-}
-
-.param-label {
-  font-size: 0.68rem;
-  color: #94a3b8;
-  border-bottom: 1px dashed rgba(148, 163, 184, 0.4);
-}
-
-.param-info-icon {
-  width: 11px;
-  height: 11px;
-  color: #64748b;
   flex-shrink: 0;
 }
 
-.param-tile:hover .param-info-icon {
-  color: #34d399;
+.btn-help {
+  background: transparent;
+  border: 1px solid var(--ink-muted);
+  border-radius: 0;
+  color: var(--ink-muted);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
-.param-value-container {
-  display: flex;
-  flex-direction: column;
+.btn-help:hover {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--ink);
 }
 
-.param-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #f8fafc;
+.btn-help:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
 }
 
-.param-subvalue {
-  font-size: 0.65rem;
-  color: #94a3b8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.param-val {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: right;
+  word-break: break-all;
 }
 
-/* Тултип глоссария */
-.glossary-tooltip-content {
-  max-width: 280px;
-  padding: 10px 12px;
-  background: rgba(15, 23, 42, 0.95);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-  border-radius: 10px;
-  color: #f1f5f9;
-  z-index: 60;
+.param-val-text {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--ink);
+  text-align: left;
+  word-break: break-word;
 }
 
-.tooltip-title {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #34d399;
+.param-tip {
+  padding: 6px 8px;
+  background: var(--surface);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink);
+  border-left: 2px solid var(--ink);
   margin-bottom: 4px;
 }
 
-.tooltip-desc {
-  font-size: 0.72rem;
-  line-height: 1.35;
-  color: #cbd5e1;
+.country-badge-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.country-badge {
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  padding: 1px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.country-name-label {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Блок «Когда увидеть» */
+.pass-box {
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  padding: 8px;
+  background: var(--surface);
+}
+
+.pass-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   margin-bottom: 6px;
 }
 
-.tooltip-reading {
-  font-size: 0.68rem;
-  line-height: 1.3;
-  color: #94a3b8;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 5px;
+.pass-city-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
 }
 
-.tooltip-tag {
-  color: #38bdf8;
-  font-weight: 600;
-  margin-right: 3px;
+.pass-city-label {
+  font-size: 11px;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  font-weight: 700;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .satellite-card,
-  .param-tile,
-  .close-btn {
-    transition: none !important;
-    transform: none !important;
-  }
-  .live-dot {
-    animation: none !important;
+.field {
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  padding: 2px 6px;
+  text-transform: uppercase;
+  flex: 1;
+  min-width: 0;
+}
+
+.field:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.btn-geo {
+  font-size: 10px;
+  padding: 2px 6px;
+  height: 23px;
+}
+
+.pass-table {
+  width: 100%;
+  border-top: 1px solid var(--ink);
+  margin-top: 6px;
+}
+
+.pass-table-head {
+  display: grid;
+  grid-template-columns: 2fr 0.8fr 1.6fr 0.8fr;
+  gap: 4px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--ink);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.pass-row {
+  display: grid;
+  grid-template-columns: 2fr 0.8fr 1.6fr 0.8fr;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.pass-row:last-child {
+  border-bottom: none;
+}
+
+.pass-head-num,
+.pass-cell-el,
+.pass-cell-dur {
+  text-align: right;
+}
+
+.pass-empty,
+.pass-loading {
+  padding: 8px 0;
+  font-size: 11px;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.inspector-footer {
+  padding: 8px 10px;
+  border-top: 2px solid var(--ink);
+  background: var(--paper);
+}
+
+.btn-full {
+  width: 100%;
+  padding: 8px 12px;
+}
+
+@media (max-width: 639px) {
+  .actions-row {
+    grid-template-columns: 1fr 1fr;
   }
 }
 </style>
-

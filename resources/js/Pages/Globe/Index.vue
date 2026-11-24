@@ -399,19 +399,19 @@ onBeforeUnmount(() => {
   }
 }
 
-/* ---- Floating glass satellite card container ---- */
+/* ---- 1-bit satellite card container ---- */
 .satellite-card-container {
   position: absolute;
   right: 16px;
   top: 16px;
-  width: min(380px, calc(100vw - 32px));
+  width: min(340px, calc(100vw - 32px));
   max-height: calc(100vh - 80px);
   overflow-y: auto;
-  z-index: 28;
+  z-index: 45;
   pointer-events: auto;
-  border-radius: 16px;
+  border-radius: 0;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  scrollbar-color: var(--ink-muted) transparent;
 }
 
 .satellite-card-container::-webkit-scrollbar {
@@ -419,19 +419,19 @@ onBeforeUnmount(() => {
 }
 
 .satellite-card-container::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+  background: var(--ink-muted);
+  border-radius: 0;
 }
 
 .sat-card-transition-enter-active,
 .sat-card-transition-leave-active {
-  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.15s ease-out, transform 0.15s ease-out;
 }
 
 .sat-card-transition-enter-from,
 .sat-card-transition-leave-to {
   opacity: 0;
-  transform: translateY(-12px) scale(0.98);
+  transform: translateX(12px);
 }
 
 @media (max-width: 639px) {
@@ -441,8 +441,8 @@ onBeforeUnmount(() => {
     top: auto;
     bottom: 0;
     width: 100%;
-    max-height: 55vh;
-    border-radius: 20px 20px 0 0;
+    max-height: 60vh;
+    border-radius: 0;
   }
   .sat-card-transition-enter-from,
   .sat-card-transition-leave-to {

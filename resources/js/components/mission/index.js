@@ -5,3 +5,5 @@ export { default as SatelliteCard } from './SatelliteCard.vue';
 export { default as TopBar } from './TopBar.vue';
 export { default as CategoryChips } from './CategoryChips.vue';
 export { default as CatalogDrawer } from './CatalogDrawer.vue';
+export { default as AsciiSchematic } from './AsciiSchematic.vue';
+export { default as OrbitProfileChart } from './OrbitProfileChart.vue';
