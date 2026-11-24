@@ -1,4 +1,4 @@
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import axios from 'axios';
 import Globe from 'globe.gl';
 import * as satellite from 'satellite.js';
@@ -10,6 +10,8 @@ import { sgp4WorkerClient } from '@/lib/sgp4WorkerClient';
 import { useGlobeDisposer } from '@/lib/globe/useGlobeDisposer';
 import { createSilhouetteHull } from '@/lib/globe/silhouette';
 import { createCountryBorders } from '@/lib/globe/borders';
+import { createTerminator } from '@/lib/globe/terminator';
+import { useLayersStore } from '@/stores/useLayersStore';
 
 export function useGlobeScene(options = {}) {
   const globeContainer = options.globeContainer ?? ref(null);
@@ -18,6 +20,7 @@ export function useGlobeScene(options = {}) {
   const satPositions = options.satPositions ?? ref([]);
   const focusTarget = options.focusTarget ?? ref(null);
   const selectedSatellite = options.selectedSatellite ?? ref(null);
+  const layersStore = options.layersStore ?? useLayersStore();
 
   // -----------------------------------------------------------------------
   // Константы
@@ -1100,9 +1103,10 @@ export function useGlobeScene(options = {}) {
 
 
   // -----------------------------------------------------------------------
-  // 1-битная сцена (Стадия D1): бумага #F4F1EA, силуэт #0E0E0E, границы 110m
+  // 1-битная сцена (Стадия D1/D2): бумага #F4F1EA, терминатор Bayer 4×4, силуэт, границы 110m
   // -----------------------------------------------------------------------
   let paperMaterial      = null;
+  let terminatorInstance = null;
   let silhouetteHullMesh = null;
   let countryBordersMesh = null;
   let scene1BitInited    = false;
@@ -1171,18 +1175,30 @@ export function useGlobeScene(options = {}) {
   function init1BitScene() {
     if (!globeInstance) return;
 
-    // 1. Бумажная сфера: MeshBasicMaterial цвета #F4F1EA без текстур и освещения
-    if (!paperMaterial) {
-      paperMaterial = new THREE.MeshBasicMaterial({ color: 0xF4F1EA });
-      disposer.registerMaterial(paperMaterial);
+    // 1. Бумажная сфера с терминатором дня/ночи (Bayer 4×4 ordered dithering, D2)
+    if (!terminatorInstance) {
+      terminatorInstance = createTerminator(globeInstance, {
+        enabled: layersStore.terminator,
+      });
+      disposer.registerMaterial(terminatorInstance.material);
+      disposer.registerTimer(() => (terminatorInstance ? terminatorInstance.timer : null));
+      disposer.registerDisposer(() => {
+        if (terminatorInstance) {
+          terminatorInstance.dispose();
+          terminatorInstance = null;
+        }
+      });
     }
 
-    if (typeof globeInstance.globeMaterial === 'function') {
-      globeInstance.globeMaterial(paperMaterial);
-    }
-    const globeMesh = findGlobeMesh();
-    if (globeMesh) {
-      globeMesh.material = paperMaterial;
+    const currentMaterial = terminatorInstance ? terminatorInstance.material : null;
+    if (currentMaterial) {
+      if (typeof globeInstance.globeMaterial === 'function') {
+        globeInstance.globeMaterial(currentMaterial);
+      }
+      const globeMesh = findGlobeMesh();
+      if (globeMesh) {
+        globeMesh.material = currentMaterial;
+      }
     }
 
     // Гашение источников света
@@ -1220,11 +1236,26 @@ export function useGlobeScene(options = {}) {
               .registerMaterial(borders.borderMat);
     }
 
+    // Реактивное переключение слоя терминатора по флагу useLayersStore
+    const unwatchTerminator = watch(
+      () => layersStore.terminator,
+      (enabled) => {
+        if (terminatorInstance) {
+          terminatorInstance.setEnabled(enabled);
+        }
+      },
+    );
+    disposer.registerDisposer(unwatchTerminator);
+
     disposer.registerDisposer(dispose1BitScene);
     scene1BitInited = true;
   }
 
   function dispose1BitScene() {
+    if (terminatorInstance) {
+      terminatorInstance.dispose();
+      terminatorInstance = null;
+    }
     if (silhouetteHullMesh) {
       if (silhouetteHullMesh.parent) silhouetteHullMesh.parent.remove(silhouetteHullMesh);
       silhouetteHullMesh = null;
@@ -2022,5 +2053,7 @@ export function useGlobeScene(options = {}) {
     focusByCatalogNumber,
     clearFocus,
     fetchData,
+    layersStore,
+    terminator: terminatorInstance,
   };
 }

@@ -57,6 +57,9 @@
           @set-filter="applyFilter"
         />
 
+        <!-- Layer toggles (D2) -->
+        <LayerToggles />
+
         <!-- Globe Container -->
         <div v-show="webglSupported" ref="globeContainer" class="globe-container"></div>
 
@@ -151,6 +154,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import axios from 'axios';
 import { TopBar, CategoryChips, SatelliteCard, NewsFeed, CatalogDrawer } from '@/components/mission';
+import LayerToggles from '@/components/mission/LayerToggles.vue';
 import { useCatalogStore } from '@/stores/useCatalogStore';
 import { useSelectionStore } from '@/stores/useSelectionStore';
 import { news } from '@/data/news';
