@@ -11,7 +11,9 @@ import { useGlobeDisposer } from '@/lib/globe/useGlobeDisposer';
 import { createSilhouetteHull } from '@/lib/globe/silhouette';
 import { createCountryBorders } from '@/lib/globe/borders';
 import { createTerminator } from '@/lib/globe/terminator';
+import { createGlyphLayer } from '@/lib/globe/glyphLayer';
 import { useLayersStore } from '@/stores/useLayersStore';
+import { useSelectionStore } from '@/stores/useSelectionStore';
 
 export function useGlobeScene(options = {}) {
   const globeContainer = options.globeContainer ?? ref(null);
@@ -21,6 +23,8 @@ export function useGlobeScene(options = {}) {
   const focusTarget = options.focusTarget ?? ref(null);
   const selectedSatellite = options.selectedSatellite ?? ref(null);
   const layersStore = options.layersStore ?? useLayersStore();
+  const selectionStore = options.selectionStore ?? useSelectionStore();
+  const viewStore = options.viewStore ?? null;
 
   // -----------------------------------------------------------------------
   // Константы
@@ -102,58 +106,14 @@ export function useGlobeScene(options = {}) {
 
 
   // -----------------------------------------------------------------------
-  // InstancedMesh-слой спутников
+  // Глиф-слой спутников (D3: THREE.Points + атлас 8 категорий, 1 draw call)
   // -----------------------------------------------------------------------
-  // three-globe строит Points как «пины» (CylinderGeometry) на поверхности и
-  // масштабирует их по scale.z = pointAltitude * GLOBE_RADIUS. Т.е. pointAltitude —
-  // высота пина, а НЕ радиальная высота. Поэтому спутники рисуем своим
-  // THREE.InstancedMesh и позиционируем через globeInstance.getCoords(lat, lng, alt),
-  // где alt — доля радиуса (km / 6371): r = 100 * (1 + alt).
-  const SAT_SPHERE_RADIUS = 0.45; // мировые единицы (радиус глобуса = 100)
-  const SAT_ISS_SCALE     = 1.35;
-  const SAT_HOVER_SCALE   = 1.9;  // подсветка наведения: во сколько раз крупнее инстанс
-
-  // --- LOD/отсечение (Спринт 4) -------------------------------------------
-  // Слой спутников = два представления в одной вращающейся группе:
-  //   • satMesh   — InstancedMesh полноценных сфер (близкие/крупные на экране);
-  //   • satPoints — THREE.Points из одного вершинного фрагмента на аппарат
-  //                 (далёкие/мелкие: ~2 px вместо 192 треугольников сферы).
-  // Оба массива lastMeshSats/lastPointSats — «то, что реально отрисовано»,
-  // поэтому instanceId = индекс в lastMeshSats, а пикинг физически не видит
-  // отсечённые аппараты (они не попадают ни в один из слоёв).
-  const SAT_LOD_MIN_PX    = 1.2;   // экранный радиус сферы (css px), ниже — Points
-  const SAT_CULL_RADIUS   = SAT_SPHERE_RADIUS * SAT_HOVER_SCALE + 2.0; // запас пирамиды: подсветка + лаг матрицы группы
-  const SAT_POINT_SIZE    = 2.6;   // размер точки в мировых единицах (sizeAttenuation)
-
-  let satMesh          = null;
+  let glyphLayer       = null;
   let satMeshGroup     = null;  // вращающаяся группа three-globe (родитель земного шара)
-  let satMeshCapacity  = -1;
-  let satColorCache    = [];
-  let satColorScratch  = null;
-  let lastMeshSats     = [];    // сферы этого кадра: index === instanceId
-  let lastPointSats    = [];    // Points-слой этого кадра: index === индекс в буфере
-  // Переиспользуемые списки кадра (без аллокации 2×N ссылок на весь каталог каждый кадр)
-  const satNearList    = [];
-  const satPointList   = [];
-  let hoveredSatId     = null;  // id аппарата под курсором (для подсветки инстанса)
-  const satDummy       = new THREE.Object3D();
-
-  // Points-слой (далёкие спутники)
-  let satPoints         = null;
-  let satPointsCapacity = -1;
-  let satPointTexture   = null;
-  const satPointPositions = { array: null };
-  const satPointColors    = { array: null };
+  let hoveredSatId     = null;  // id аппарата под курсором
 
   // Счётчики кадра под debug-HUD (?debug=1)
   const satStats = { total: 0, near: 0, points: 0, culledFrustum: 0, culledLimb: 0 };
-
-  // Скрэтчи отсечения: пирамида камеры и камера в локальных координатах группы
-  const satFrustum    = new THREE.Frustum();
-  const satClipMatrix = new THREE.Matrix4();
-  const satInvGroup   = new THREE.Matrix4();
-  const satCamLocal   = new THREE.Vector3();
-
 
   // Ищем группу, в которой живут маркеры three-globe: объект с __globeObjType === 'globe'
   // (это группа земного шара), берём его .parent. Именно эта система координат
@@ -167,355 +127,52 @@ export function useGlobeScene(options = {}) {
     return globeObj ? globeObj.parent : null;
   }
 
-  // Спрайт точки: кружок с мягким краем (canvas → CanvasTexture, 32×32).
-  // Создаётся вместе с Points-слоем и dispose'ится вместе с ним — новых зависимостей нет.
-  function createSatPointTexture() {
-    const size = 32;
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      const r = size / 2;
-      const grad = ctx.createRadialGradient(r, r, 0, r, r, r);
-      grad.addColorStop(0, 'rgba(255,255,255,1)');
-      grad.addColorStop(0.55, 'rgba(255,255,255,0.9)');
-      grad.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, size, size);
-    }
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    disposer.registerTexture(texture); // dispose-контракт: освобождается disposeAll()
-    return texture;
-  }
-
-  function disposeSatPointCloud() {
-    if (satPoints) {
-      if (satPoints.parent) satPoints.parent.remove(satPoints);
-      if (satPoints.geometry) satPoints.geometry.dispose();
-      if (satPoints.material) {
-        if (satPoints.material.map) satPoints.material.map.dispose();
-        satPoints.material.dispose();
-      }
-      satPoints = null;
-    }
-    satPointsCapacity = -1;
-    satPointTexture = null;
-    satPointPositions.array = null;
-    satPointColors.array = null;
-    lastPointSats = [];
-  }
-
   function disposeSatelliteMesh() {
-    disposeSatPointCloud();
-    if (!satMesh) { satMeshCapacity = -1; satColorCache = []; lastMeshSats = []; return; }
-    if (satMesh.parent) satMesh.parent.remove(satMesh);
-    if (typeof satMesh.dispose === 'function') satMesh.dispose(); // instance-буферы
-    if (satMesh.geometry) satMesh.geometry.dispose();
-    if (satMesh.material) satMesh.material.dispose();
-    satMesh = null;
-    satMeshCapacity = -1;
-    satColorCache = [];
-    lastMeshSats = [];
-  }
-
-  // Points-слой для далёких аппаратов: одна вершина на спутник, размер экрана
-  // задаёт sizeAttenuation — стоить кадр это почти ничего.
-  function ensureSatPointCloud(count) {
-    if (satPoints && count === satPointsCapacity) return satPoints;
-
-    disposeSatPointCloud();
-    if (count <= 0) { satPointsCapacity = 0; return null; }
-
-    const positions = new Float32Array(count * 3);
-    const colors = new Float32Array(count * 3);
-
-    const geometry = new THREE.BufferGeometry();
-    const posAttr = new THREE.BufferAttribute(positions, 3);
-    posAttr.setUsage(THREE.DynamicDrawUsage);
-    const colAttr = new THREE.BufferAttribute(colors, 3);
-    colAttr.setUsage(THREE.DynamicDrawUsage);
-    geometry.setAttribute('position', posAttr);
-    geometry.setAttribute('color', colAttr);
-    geometry.setDrawRange(0, 0);
-
-    satPointTexture = satPointTexture || createSatPointTexture();
-    const material = new THREE.PointsMaterial({
-      size: SAT_POINT_SIZE,
-      sizeAttenuation: true,
-      vertexColors: true,
-      map: satPointTexture,
-      transparent: true,
-      depthWrite: false,
-      alphaTest: 0.05,
-      toneMapped: false,
-    });
-
-    satPoints = new THREE.Points(geometry, material);
-    satPoints.frustumCulled = false; // отсекаем сами, bbox пересчитывать каждый кадр дороже
-    satPoints.renderOrder = -1;      // точки — до сфер, чтобы подсветка была сверху
-    satMeshGroup.add(satPoints);
-
-    // dispose-контракт: Points-слой может не пережить фильтр категорий
-    disposer.registerMesh(satPoints)
-            .registerGeometry(geometry)
-            .registerMaterial(material);
-
-    satPointsCapacity = count;
-    satPointPositions.array = positions;
-    satPointColors.array = colors;
-
-    return satPoints;
-  }
-
-  // Пересоздаём меш только при изменении числа спутников (фильтры категорий).
-  function ensureSatelliteMesh(count) {
-    if (satMesh && count === satMeshCapacity) return satMesh;
-
-    disposeSatelliteMesh();
-
-    if (count <= 0) { satMeshCapacity = 0; return null; }
-
-    if (!satMeshGroup) satMeshGroup = resolveSatMeshGroup();
-    if (!satMeshGroup) return null; // глобус ещё не готов — повторим на следующем кадре
-
-    if (!scene1BitInited) {
-      init1BitScene();
+    if (glyphLayer) {
+      glyphLayer.dispose();
+      glyphLayer = null;
     }
-
-    const geometry = new THREE.SphereGeometry(SAT_SPHERE_RADIUS, 12, 8);
-    const material = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
-
-    satMesh = new THREE.InstancedMesh(geometry, material, count);
-    satMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    satMesh.frustumCulled = false; // матрицы меняются каждый кадр, bbox не пересчитываем
-    // Ручная ограничивающая сфера: instancы компактно переписываются каждый кадр,
-    // авторасчёт по this.count кэшировался бы по первому (случайному) набору и
-    // мог бы отсечь валидный луч в пикинге. Радиус с запасом перекрывает орбиты.
-    satMesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), GLOBE_RADIUS * 2.5);
-    satMeshGroup.add(satMesh);
-
-    // dispose-контракт: InstancedMesh пересоздаётся при смене фильтра, а на
-    // размонтировании освобождается вместе со всей сценой (geometry/material).
-    disposer.registerMesh(satMesh)
-            .registerGeometry(geometry)
-            .registerMaterial(material);
-
-    satMeshCapacity = count;
-    satColorCache = new Array(count).fill(null);
-    satColorScratch = satColorScratch || new THREE.Color();
-
-    ensureSatPointCloud(count);
-
-    return satMesh;
-  }
-
-  // Пирамида видимости в локальных координатах группы спутников (6 плоскостей
-  // на кадр). Возвращает false, если точка гарантированно вне экрана.
-  function isInsideSatFrustum(x, y, z, radius) {
-    const planes = satFrustum.planes;
-    for (let k = 0; k < 6; k++) {
-      const pl = planes[k];
-      if (pl.normal.x * x + pl.normal.y * y + pl.normal.z * z + pl.constant < -radius) return false;
-    }
-    return true;
-  }
-
-  // Аппарат за лимбом Земли? Консервативный тест отрезка «камера → спутник» со
-  // сферой Земли в локальных координатах группы: без Raycaster на весь каталог сфер.
-  function isBehindEarthLimb(x, y, z, cam) {
-    const vx = x - cam.x, vy = y - cam.y, vz = z - cam.z;
-    const vv = vx * vx + vy * vy + vz * vz;
-    if (vv < 1e-9) return false;
-
-    // параметр ближайшей к центру Земли точки отрезка
-    const t = -(cam.x * vx + cam.y * vy + cam.z * vz) / vv;
-    if (t <= 0 || t >= 1) return false; // Земля ближе камеры или дальше аппарата
-
-    const cx = cam.x + vx * t, cy = cam.y + vy * t, cz = cam.z + vz * t;
-    return cx * cx + cy * cy + cz * cz < SAT_EARTH_LIMB_R2;
   }
 
   function updateSatelliteMesh(sats) {
-    const mesh = ensureSatelliteMesh(sats.length);
-    satStats.total = sats.length;
+    satStats.total = sats ? sats.length : 0;
+    if (!globeInstance) return;
 
-    if (!mesh) {
-      lastMeshSats = [];
-      lastPointSats = [];
-      satStats.near = 0;
-      satStats.points = 0;
-      satStats.culledFrustum = 0;
-      satStats.culledLimb = 0;
-      return;
+    if (!glyphLayer) {
+      if (satMeshGroup) {
+        init1BitScene();
+      }
+      if (!glyphLayer) return;
     }
 
     const camera = globeInstance.camera();
-    const el = globeContainer.value;
-    const viewH = (el && el.clientHeight) || 1;
+    if (!camera) return;
 
-    // Спутники живут во вращающейся группе глобуса: и пирамиду, и камеру
-    // переводим в её локальные координаты — тест не зависит от поворота.
-    satMesh.updateWorldMatrix(true, false);
-    camera.updateMatrixWorld();
+    const selectedId = selectedSatellite.value
+      ? (selectedSatellite.value.catalog_number ?? selectedSatellite.value.id)
+      : (selectionStore && selectionStore.selectedId ? selectionStore.selectedId : null);
 
-    satInvGroup.copy(satMesh.matrixWorld).invert();
-    satCamLocal.copy(camera.position).applyMatrix4(satInvGroup);
+    const stats = glyphLayer.update(sats, {
+      camera,
+      activeFilter: activeFilter.value,
+      selectedSatId: selectedId,
+      hoveredSatId,
+    });
 
-    satClipMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    satFrustum.setFromProjectionMatrix(satClipMatrix);
-    for (let k = 0; k < 6; k++) {
-      satFrustum.planes[k].applyMatrix4(satInvGroup); // нормализует нормаль + constant
-    }
-
-    // Экранный радиус сферы: r_px = SAT_SPHERE_RADIUS * (H/2)/tan(fov/2) / dist
-    const pxFactor = camera.isPerspectiveCamera
-      ? (viewH * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5)
-      : viewH * 0.5;
-
-    const nearSats = satNearList;
-    const pointSats = satPointList;
-    nearSats.length = 0;
-    pointSats.length = 0;
-    const pointPositions = satPointPositions.array;
-    const pointColors = satPointColors.array;
-
-    satColorScratch = satColorScratch || new THREE.Color();
-    let colorsDirty = false;
-    let nearCount = 0;
-    let pointCount = 0;
-    let culledFrustum = 0;
-    let culledLimb = 0;
-    let hoveredSeen = false;
-
-    for (let i = 0; i < sats.length; i++) {
-      const sat = sats[i];
-
-      // Истинная радиальная высота: alt — доля радиуса Земли (gd.height / 6371)
-      const pos = globeInstance.getCoords(sat.lat, sat.lng, sat.alt);
-
-      // 1) вне пирамиды камеры — не пишем ни матрицу, ни точку
-      if (!isInsideSatFrustum(pos.x, pos.y, pos.z, SAT_CULL_RADIUS)) { culledFrustum++; continue; }
-      // 2) за лимбом Земли — планету перекрывает сама Земля
-      if (isBehindEarthLimb(pos.x, pos.y, pos.z, satCamLocal)) { culledLimb++; continue; }
-
-      const hovered = hoveredSatId !== null && sat.id === hoveredSatId;
-      if (hovered) hoveredSeen = true;
-
-      const hex = getCategoryColor(sat.category);
-      const dx = pos.x - satCamLocal.x;
-      const dy = pos.y - satCamLocal.y;
-      const dz = pos.z - satCamLocal.z;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      const radiusPx = dist > 1e-6 ? (SAT_SPHERE_RADIUS * pxFactor) / dist : Infinity;
-
-      if (hovered || !pointPositions || radiusPx >= SAT_LOD_MIN_PX) {
-        // LOD 0: полноценная сфера; instanceId = индекс в lastMeshSats
-        satDummy.position.set(pos.x, pos.y, pos.z);
-        const baseScale = sat.category === 'ISS' ? SAT_ISS_SCALE : 1;
-        satDummy.scale.setScalar(hovered ? baseScale * SAT_HOVER_SCALE : baseScale);
-        satDummy.updateMatrix();
-        mesh.setMatrixAt(nearCount, satDummy.matrix);
-
-        if (satColorCache[nearCount] !== hex) {
-          satColorScratch.set(hex);
-          mesh.setColorAt(nearCount, satColorScratch);
-          satColorCache[nearCount] = hex;
-          colorsDirty = true;
-        }
-        nearSats.push(sat);
-        nearCount++;
-      } else {
-        // LOD 1: точка ~2 px — дешевле сферы в сотни раз
-        const o = pointCount * 3;
-        pointPositions[o]     = pos.x;
-        pointPositions[o + 1] = pos.y;
-        pointPositions[o + 2] = pos.z;
-        satColorScratch.set(hex);
-        pointColors[o]     = satColorScratch.r;
-        pointColors[o + 1] = satColorScratch.g;
-        pointColors[o + 2] = satColorScratch.b;
-        pointSats.push(sat);
-        pointCount++;
-      }
-    }
-
-    // instanceId ↔ lastMeshSats: сферы компактно с 0, отсечённых в массиве нет
-    lastMeshSats = nearSats;
-    lastPointSats = pointSats;
-
-    mesh.count = nearCount;
-    // Грузим в GPU только записанный префикс буфера (instancы компактно с 0),
-    // а не все capacity×16 float каждый кадр.
-    const matAttr = mesh.instanceMatrix;
-    matAttr.clearUpdateRanges();
-    if (nearCount > 0) matAttr.addUpdateRange(0, nearCount * 16);
-    matAttr.needsUpdate = true;
-    if (colorsDirty && mesh.instanceColor) {
-      const colAttr = mesh.instanceColor;
-      colAttr.clearUpdateRanges();
-      colAttr.addUpdateRange(0, nearCount * 3);
-      colAttr.needsUpdate = true;
-    }
-
-    if (satPoints) {
-      satPoints.visible = pointCount > 0;
-      satPoints.geometry.setDrawRange(0, pointCount);
-      if (pointCount > 0) {
-        for (const name of ['position', 'color']) {
-          const attr = satPoints.geometry.getAttribute(name);
-          if (!attr) continue;
-          attr.clearUpdateRanges();
-          attr.addUpdateRange(0, pointCount * 3);
-          attr.needsUpdate = true;
-        }
-      }
-    }
-
-    // Подсветка живёт по id, а не по индексу: состав слоя меняется каждый кадр.
-    // Если аппарат ушёл за лимб/за экран — снимаем подпись, пока курсор не двинется.
-    if (hoveredSatId !== null && !hoveredSeen) {
-      hoveredSatId = null;
-      hoverSat.value = null;
-    }
-
-    satStats.near = nearCount;
-    satStats.points = pointCount;
-    satStats.culledFrustum = culledFrustum;
-    satStats.culledLimb = culledLimb;
+    satStats.near = stats.visible;
+    satStats.points = 0;
+    satStats.culledFrustum = stats.culledFrustum;
+    satStats.culledLimb = stats.culledLimb;
   }
 
-
   // -----------------------------------------------------------------------
-  // Пикинг спутников (Спринт 4): Raycaster по InstancedMesh → instanceId → id
+  // Пикинг спутников (D3: Raycaster по THREE.Points с порогом 10px)
   // -----------------------------------------------------------------------
-  // Сцену рендерит EffectComposer (см. lib/postProcessing.js), но камера у пассов
-  // та же, что отдаёт globeInstance.camera(), поэтому Raycaster.setFromCamera()
-  // строит корректный луч без знания о цепочке пассов.
-  //
-  // Спутники на экране крошечные (сфера R = 0.45 при дистанции камеры 100–600 ед.
-  // — это единицы пикселей), точное попадание лучом в них практически недостижимо.
-  // Поэтому два уровня:
-  //   1) точный raycast по satMesh — берём первый видимый instanceId;
-  //   2) порог: ближайшая к курсору проекция центра в радиусе PICK_RADIUS_PX
-  //      по обоим LOD-слоям (сферы и точки).
-  // Отсечение за лимбом/фрустумом уже сделано в updateSatelliteMesh: отсечённые
-  // аппараты физически отсутствуют в lastMeshSats/lastPointSats, поэтому зацепить
-  // их по ошибке нельзя.
-  const PICK_RADIUS_PX    = 16;   // порог захвата вокруг проекции центра
   const CLICK_MAX_MOVE_PX = 6;    // сдвиг больше — это вращение камеры, а не клик
   const CLICK_MAX_MS      = 500;  // долгий жест — тоже не клик
   const CLICK_DEBOUNCE_MS = 350;  // защита от двойного срабатывания
 
   const hoverSat = ref(null); // HUD-подпись под курсором: { name, x, y, flip }
-
-  const pickRaycaster  = new THREE.Raycaster();
-  const pickNdc        = new THREE.Vector2();
-  const pickMatrix     = new THREE.Matrix4();
-  const pickVec        = new THREE.Vector3();
-  const pickHitPoint   = new THREE.Vector3();
-  const pickRay        = new THREE.Ray();
-  let   pickGlobeSphere = null;
 
   let pickPointer     = null;  // последняя позиция курсора (client-координаты)
   let pickHoverRaf    = 0;     // троттлинг наведения до одного пика за кадр
@@ -523,112 +180,39 @@ export function useGlobeScene(options = {}) {
   let pickLastClickAt = 0;
   const pickBindings  = { bound: false };
 
-  // Сфера Земли для теста перекрытия: чуть меньше радиуса глобуса, чтобы
-  // аппарат на нулевой высоте не считался «за планетой» из-за погрешности матриц.
-  function ensureGlobePickSphere() {
-    if (!pickGlobeSphere) {
-      pickGlobeSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), GLOBE_RADIUS * 0.995);
-    }
-    return pickGlobeSphere;
-  }
-
-  // Точка скрыта глобусом? Сравниваем дистанцию входа луча в сферу Земли с
-  // дистанцией до аппарата: если Земля ближе — аппарат на обратной стороне.
-  function isBehindGlobe(cameraPos, point, distance) {
-    pickRay.origin.copy(cameraPos);
-    pickRay.direction.copy(point).sub(cameraPos);
-    const len = pickRay.direction.length();
-    if (len < 1e-6) return false;
-    pickRay.direction.divideScalar(len);
-
-    const enter = pickRay.intersectSphere(ensureGlobePickSphere(), pickHitPoint);
-    return !!enter && enter.distanceTo(cameraPos) < distance - 1;
-  }
-
   /**
-   * Пикинг спутника по экранной точке.
-   * Ищем только в том, что реально отрисовано: сферы (lastMeshSats, index =
-   * instanceId) и точки дальнего слоя (lastPointSats). Отсечённые фрустумом/лимбом
-   * аппараты в этих массивах отсутствуют — их нельзя зацепить по ошибке.
-   * @returns {{sat: object}|null}
+   * Пикинг спутника по экранной точке (делегируется в glyphLayer.pick с порогом 10px).
+   * @param {number} clientX
+   * @param {number} clientY
+   * @returns {{ sat: object }|null}
    */
   function pickSatelliteAt(clientX, clientY) {
-    if (!globeInstance || !satMesh) return null;
-    if (!lastMeshSats.length && !lastPointSats.length) return null;
-
+    if (!globeInstance || !glyphLayer) return null;
     const el = globeContainer.value;
     if (!el) return null;
-
-    const rect = el.getBoundingClientRect();
-    if (!rect.width || !rect.height) return null;
-
-    pickNdc.set(
-      ((clientX - rect.left) / rect.width)  * 2 - 1,
-      -((clientY - rect.top) / rect.height) * 2 + 1,
-    );
-
     const camera = globeInstance.camera();
-    camera.updateMatrixWorld();              // + matrixWorldInverse для project()
-    satMesh.updateWorldMatrix(true, false);  // satMeshGroup вращается вместе с глобусом
+    if (!camera) return null;
 
-    const camPos = camera.position;
-
-    // 1) точное попадание лучом в сферу инстанса (ближний LOD-слой)
-    pickRaycaster.setFromCamera(pickNdc, camera);
-    const hits = pickRaycaster.intersectObject(satMesh, false);
-    for (const hit of hits) {
-      if (hit.instanceId == null || hit.instanceId >= lastMeshSats.length) continue;
-      if (isBehindGlobe(camPos, hit.point, hit.distance)) continue;
-      const sat = lastMeshSats[hit.instanceId];
-      if (sat) return { sat };
-    }
-
-    // 2) порог: ближайшая к курсору проекция центра в пределах PICK_RADIUS_PX.
-    // Оба слоя уже отсечены фрустумом и лимбом в updateSatelliteMesh, поэтому
-    // здесь только проекция — без Raycaster и без повторного теста Земли.
-    let bestSat = null;
-    let bestDistPx = PICK_RADIUS_PX;
-    const px = clientX - rect.left;
-    const py = clientY - rect.top;
-
-    for (let i = 0; i < lastMeshSats.length; i++) {
-      satMesh.getMatrixAt(i, pickMatrix);
-      pickVec.setFromMatrixPosition(pickMatrix).applyMatrix4(satMesh.matrixWorld);
-      pickVec.project(camera);
-      if (pickVec.z > 1 || pickVec.z < -1) continue; // вне near/far
-      const sx = (pickVec.x * 0.5 + 0.5) * rect.width;
-      const sy = (-pickVec.y * 0.5 + 0.5) * rect.height;
-      const d = Math.hypot(sx - px, sy - py);
-      if (d < bestDistPx) { bestDistPx = d; bestSat = lastMeshSats[i]; }
-    }
-
-    if (satPoints && lastPointSats.length) {
-      const attr = satPoints.geometry.getAttribute('position');
-      for (let i = 0; i < lastPointSats.length; i++) {
-        pickVec.fromBufferAttribute(attr, i).applyMatrix4(satMesh.matrixWorld);
-        pickVec.project(camera);
-        if (pickVec.z > 1 || pickVec.z < -1) continue;
-        const sx = (pickVec.x * 0.5 + 0.5) * rect.width;
-        const sy = (-pickVec.y * 0.5 + 0.5) * rect.height;
-        const d = Math.hypot(sx - px, sy - py);
-        if (d < bestDistPx) { bestDistPx = d; bestSat = lastPointSats[i]; }
-      }
-    }
-
-    return bestSat ? { sat: bestSat } : null;
+    const hit = glyphLayer.pick(clientX, clientY, camera, el);
+    return hit ? { sat: hit.sat, index: hit.index } : null;
   }
 
   function refreshHover() {
-    if (!pickPointer) return;
+    if (!pickPointer || !globeInstance || !glyphLayer) return;
 
     const el = globeContainer.value;
     const hit = pickSatelliteAt(pickPointer.x, pickPointer.y);
 
     hoveredSatId = hit ? (hit.sat.id ?? null) : null;
+    const selectedId = selectedSatellite.value
+      ? (selectedSatellite.value.catalog_number ?? selectedSatellite.value.id)
+      : (selectionStore && selectionStore.selectedId ? selectionStore.selectedId : null);
+
+    glyphLayer.setHoveredIndex(hit ? hit.index : -1, selectedId);
 
     if (!hit || !el) {
       hoverSat.value = null;
-      if (el) el.style.cursor = '';
+      if (el) el.style.cursor = 'default';
       return;
     }
 
@@ -642,7 +226,7 @@ export function useGlobeScene(options = {}) {
       y,
       flip,
     };
-    el.style.cursor = 'pointer';
+    el.style.cursor = 'crosshair';
   }
 
   function onGlobePointerMove(event) {
@@ -666,7 +250,13 @@ export function useGlobeScene(options = {}) {
   function clearHoverState() {
     hoveredSatId = null;
     hoverSat.value = null;
-    if (globeContainer.value) globeContainer.value.style.cursor = '';
+    if (glyphLayer) {
+      const selectedId = selectedSatellite.value
+        ? (selectedSatellite.value.catalog_number ?? selectedSatellite.value.id)
+        : (selectionStore && selectionStore.selectedId ? selectionStore.selectedId : null);
+      glyphLayer.setHoveredIndex(-1, selectedId);
+    }
+    if (globeContainer.value) globeContainer.value.style.cursor = 'default';
   }
 
   function onGlobePointerLeave() {
@@ -699,6 +289,9 @@ export function useGlobeScene(options = {}) {
 
     pickLastClickAt = performance.now();
     clearHoverState();     // подпись убираем: камера сейчас уедет к аппарату
+    if (selectionStore && typeof selectionStore.select === 'function') {
+      selectionStore.select(hit.sat);
+    }
     focusSatellite(hit.sat); // существующий путь: орбита + follow-камера
   }
 
@@ -1236,6 +829,19 @@ export function useGlobeScene(options = {}) {
               .registerMaterial(borders.borderMat);
     }
 
+    // 4. Глиф-слой спутников (THREE.Points, 1 draw call, атлас 8 категорий)
+    if (!glyphLayer) {
+      glyphLayer = createGlyphLayer({
+        globeInstance,
+        targetGroup,
+        disposer,
+        globeRadius: GLOBE_RADIUS,
+        viewStore,
+      });
+    } else {
+      glyphLayer.setTargetGroup(targetGroup);
+    }
+
     // Реактивное переключение слоя терминатора по флагу useLayersStore
     const unwatchTerminator = watch(
       () => layersStore.terminator,
@@ -1252,6 +858,10 @@ export function useGlobeScene(options = {}) {
   }
 
   function dispose1BitScene() {
+    if (glyphLayer) {
+      glyphLayer.dispose();
+      glyphLayer = null;
+    }
     if (terminatorInstance) {
       terminatorInstance.dispose();
       terminatorInstance = null;
@@ -2055,5 +1665,6 @@ export function useGlobeScene(options = {}) {
     fetchData,
     layersStore,
     terminator: terminatorInstance,
+    glyphLayer,
   };
 }
