@@ -17,11 +17,11 @@
     <main class="relative flex-1 min-h-0">
       <div class="hero-main">
       <div class="globe-area">
-        <!-- Focus indicator (glass overlay above the globe) -->
+        <!-- Focus indicator (1-bit overlay above the globe) -->
         <div v-if="focusTarget" class="focus-indicator">
           <span class="focus-dot"></span>
           <span class="focus-label">◎ FOCUS — {{ focusTarget }}</span>
-          <button class="focus-close" title="Clear focus" @click="clearFocus">✕</button>
+          <button class="focus-close" title="Clear focus" aria-label="Сбросить фокус" @click="clearFocus">✕</button>
         </div>
 
         <!-- Hover HUD: имя аппарата под курсором (пикинг, Спринт 4) -->
@@ -79,7 +79,7 @@
             <div class="webgl-stats-grid">
               <div class="stat-card">
                 <span class="stat-name">Спутников в каталоге</span>
-                <span class="stat-num emerald">{{ filteredSatellites.length.toLocaleString() }}</span>
+                <span class="stat-num mono">{{ filteredSatellites.length.toLocaleString() }}</span>
               </div>
               <div class="stat-card">
                 <span class="stat-name">Системное время UTC</span>
@@ -102,7 +102,7 @@
                   <span>Высота</span>
                 </div>
                 <div v-for="s in filteredSatellites.slice(0, 5)" :key="s.id || s.name" class="t-row">
-                  <span class="t-name font-mono text-emerald-400">{{ s.name }}</span>
+                  <span class="t-name font-mono">{{ s.name }}</span>
                   <span class="t-cat">{{ s.category }}</span>
                   <span class="t-num font-mono">{{ s.lat != null ? s.lat.toFixed(2) + '°' : '—' }}</span>
                   <span class="t-num font-mono">{{ s.lng != null ? s.lng.toFixed(2) + '°' : '—' }}</span>
@@ -377,9 +377,9 @@ onBeforeUnmount(() => {
   height: 100%;
   width: 100%;
   min-height: 0;
-  background: #050505;
+  background: transparent;
   overflow: hidden;
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 .globe-area {
@@ -387,13 +387,16 @@ onBeforeUnmount(() => {
   height: 100%;
   width: 100%;
   min-height: 0;
-  background: #050505;
+  background: transparent;
   overflow: hidden;
 }
 
+/* Канвас прозрачный (WebGL clearColor полностью прозрачен) и не создаёт слоя
+   выше точечной сетки body::before, поэтому бумага --paper читается за глобусом. */
 .globe-container {
   position: absolute;
   inset: 0;
+  z-index: 0;
 }
 
 /* ---- 1-bit satellite card container ---- */
@@ -458,91 +461,105 @@ onBeforeUnmount(() => {
   }
 }
 
-/* ---- Focus indicator ---- */
+/* ---- Focus indicator (1-bit) ---- */
 .focus-indicator {
   position: absolute;
-  top: 16px;
+  top: 56px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 50;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 10px 7px 12px;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(52, 211, 153, 0.35);
-  border-radius: 999px;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  gap: 8px;
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+  padding: 5px 6px 5px 10px;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #d1d5db;
+  color: var(--ink);
   white-space: nowrap;
 }
 .focus-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #34d399;
-  box-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
-  animation: focus-pulse 1.6s ease-in-out infinite;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--ink);
+  animation: focus-pulse 1.6s steps(2, end) infinite;
   flex-shrink: 0;
 }
-.focus-label { color: #d1d5db; }
+.focus-label {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 .focus-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   background: transparent;
-  border: none;
-  color: #6b7280;
-  cursor: pointer;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  color: var(--ink);
+  font-family: inherit;
   font-size: 12px;
   line-height: 1;
-  padding: 2px 4px;
-  border-radius: 999px;
-  transition: color 0.15s, background 0.15s;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
 }
-.focus-close:hover { color: #f87171; background: rgba(255, 255, 255, 0.08); }
+.focus-close:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
 @keyframes focus-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
 
-/* ---- Hover HUD (пикинг спутников) ---- */
+/* ---- Hover HUD (пикинг спутников, 1-bit) ---- */
 .hover-label {
   position: absolute;
   z-index: 45;
   pointer-events: none;
-  padding: 5px 9px;
-  background: rgba(0, 0, 0, 0.72);
-  border: 1px solid rgba(52, 211, 153, 0.35);
-  border-radius: 8px;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 4px 8px;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
   letter-spacing: 0.04em;
-  color: #e5e7eb;
+  color: var(--ink);
   white-space: nowrap;
 }
 
 /* ---- Debug HUD (спутниковый слой, ?debug=1) ---- */
 .debug-hud {
   position: absolute;
-  top: 12px;
+  top: 56px;
   left: 12px;
   z-index: 46;
   pointer-events: none;
-  padding: 8px 10px;
+  padding: 6px 10px;
   min-width: 168px;
-  background: rgba(0, 0, 0, 0.7);
-  border: 1px solid rgba(52, 211, 153, 0.28);
-  border-radius: 8px;
-  backdrop-filter: blur(10px);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
   letter-spacing: 0.06em;
-  color: #9ca3af;
+  color: var(--ink-muted);
 }
 .debug-row {
   display: flex;
@@ -550,253 +567,12 @@ onBeforeUnmount(() => {
   gap: 12px;
   line-height: 1.6;
 }
-.debug-row b { color: #34d399; font-weight: 600; }
+.debug-row b { color: var(--ink); font-weight: 700; }
 
-/* ---- Floating button ---- */
-.floating-btn {
-  position: absolute;
-  top: 24px;
-  left: 24px;
-  z-index: 20;
-  padding: 12px;
-  background: rgba(0,0,0,0.4);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 12px;
-  color: white;
-  cursor: pointer;
-  backdrop-filter: blur(10px);
-  transition: background 0.2s;
-}
-.floating-btn:hover { background: rgba(255,255,255,0.1); }
+/* ---- Legacy glass-блоки (sidebar / auth / list) удалены: эти классы больше
+   не используются шаблоном, а их стили нарушали 1-бит правила. ---- */
 
-/* ---- Sidebar ---- */
-.sidebar {
-  position: absolute;
-  top: 24px;
-  left: 24px;
-  bottom: 24px;
-  z-index: 30;
-  width: 320px;
-  background: rgba(0,0,0,0.4);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 20px;
-  backdrop-filter: blur(12px);
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  color: white;
-  box-shadow: 0 25px 50px rgba(0,0,0,0.5);
-  transform: translateX(-150%);
-  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none;
-}
-.sidebar.open {
-  transform: translateX(0);
-  pointer-events: all;
-}
-
-/* ---- Header ---- */
-.sidebar-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-  flex-shrink: 0;
-}
-.sidebar-header h1 {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-}
-.close-btn {
-  background: transparent;
-  border: none;
-  color: #9ca3af;
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 8px;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-}
-.close-btn:hover { background: rgba(255,255,255,0.1); color: white; }
-
-/* ---- Auth Nav ---- */
-.auth-nav {
-  padding-bottom: 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-  margin-bottom: 4px;
-  flex-shrink: 0;
-}
-.user-greeting {
-  font-size: 13px;
-  color: #d1d5db;
-  margin-bottom: 10px;
-}
-.auth-links {
-  display: flex;
-  gap: 8px;
-}
-.auth-btn {
-  flex: 1;
-  text-align: center;
-  padding: 8px 12px;
-  background: #34d399;
-  color: #050505;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  text-decoration: none;
-  transition: all 0.2s;
-}
-.auth-btn:hover {
-  background: #10b981;
-}
-.auth-btn.outline {
-  background: transparent;
-  color: #34d399;
-  border: 1px solid #34d399;
-}
-.auth-btn.outline:hover {
-  background: rgba(52,211,153,0.1);
-}
-
-/* ---- Loading ---- */
-.loading-state {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: #34d399;
-  margin-top: 20px;
-}
-.loading-state p { font-size: 13px; font-weight: 500; }
-.spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid #34d399;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  flex-shrink: 0;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ---- Stats ---- */
-.stats-block {
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-  flex-shrink: 0;
-  margin-top: 8px;
-}
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.mt-1 { margin-top: 6px; }
-.stat-label { font-size: 13px; color: #9ca3af; }
-.stat-value { font-weight: 700; }
-.stat-value.emerald { color: #34d399; font-family: monospace; }
-.stat-value.mono { font-size: 12px; color: #d1d5db; font-family: monospace; }
-
-/* ---- Category tags ---- */
-.filter-block { padding-top: 16px; flex-shrink: 0; }
-.block-label {
-  font-size: 11px;
-  color: #6b7280;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  display: block;
-  margin-bottom: 8px;
-}
-.category-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-.cat-tag {
-  padding: 6px 12px;
-  font-size: 11px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.05);
-  color: #9ca3af;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.cat-tag:hover { background: rgba(255,255,255,0.1); }
-.cat-tag.active {
-  background: rgba(52,211,153,0.15);
-  border-color: #34d399;
-  color: #34d399;
-}
-
-/* ---- Satellite list ---- */
-.sat-list-block {
-  padding-top: 16px;
-  margin-top: 16px;
-  border-top: 1px solid rgba(255,255,255,0.1);
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.sat-list {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding-right: 4px;
-  padding-bottom: 8px;
-}
-.sat-list::-webkit-scrollbar { width: 4px; }
-.sat-list::-webkit-scrollbar-track { background: transparent; }
-.sat-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-
-.sat-row-container {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.sat-row {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  width: 100%;
-  text-align: left;
-  padding: 7px 10px;
-  border-radius: 8px;
-  border: none;
-  background: rgba(255,255,255,0.04);
-  color: #d1d5db;
-  font-size: 11px;
-  cursor: pointer;
-  transition: background 0.15s;
-  overflow: hidden;
-}
-.sat-row:hover { background: rgba(255,255,255,0.09); }
-.fav-btn {
-  background: transparent;
-  border: none;
-  color: #4b5563;
-  cursor: pointer;
-  padding: 6px;
-  font-size: 16px;
-  transition: color 0.2s;
-}
-.fav-btn:hover { color: #9ca3af; }
-.fav-btn.isFav { color: #f59e0b; }
-.sat-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 10px;
-  flex-shrink: 0;
-}
-.sat-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ---- WebGL Fallback Overlay ---- */
+/* ---- WebGL Fallback Overlay (1-bit) ---- */
 .webgl-fallback {
   position: absolute;
   inset: 0;
@@ -804,54 +580,58 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: radial-gradient(circle at center, rgba(15, 23, 42, 0.85) 0%, rgba(5, 5, 5, 0.98) 100%);
+  background: transparent;
   z-index: 40;
-  backdrop-filter: blur(8px);
+  overflow-y: auto;
+  /* Оверлей прозрачный: не перехватываем клики по ленте чипов и HUD. */
+  pointer-events: none;
 }
 .webgl-card {
   max-width: 640px;
   width: 100%;
-  background: rgba(18, 24, 38, 0.85);
-  border: 1px solid rgba(248, 113, 113, 0.25);
-  border-radius: 16px;
-  padding: 28px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  padding: 24px;
+  box-shadow: 4px 4px 0 var(--ink);
   display: flex;
   flex-direction: column;
   gap: 16px;
+  pointer-events: auto;
 }
 .webgl-badge {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   align-self: flex-start;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0.08em;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  color: #fca5a5;
+  padding: 3px 8px;
+  border-radius: 0;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  color: var(--ink);
   text-transform: uppercase;
 }
 .warning-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #ef4444;
-  box-shadow: 0 0 6px #ef4444;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--ink);
 }
 .webgl-title {
   font-size: 18px;
-  font-weight: 600;
-  color: #f3f4f6;
+  font-weight: 700;
+  color: var(--ink);
   margin: 0;
 }
 .webgl-desc {
   font-size: 13px;
   line-height: 1.5;
-  color: #9ca3af;
+  color: var(--ink-muted);
   margin: 0;
 }
 .webgl-stats-grid {
@@ -861,76 +641,80 @@ onBeforeUnmount(() => {
   margin-top: 4px;
 }
 .stat-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  padding: 10px 12px;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 .stat-name {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--ink-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .stat-num {
   font-size: 14px;
-  font-weight: 600;
-  color: #e5e7eb;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.stat-num.emerald { color: #34d399; font-family: monospace; }
-.stat-num.mono { font-family: monospace; font-size: 12px; }
+.stat-num.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
 
 .fallback-telemetry {
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: 0;
   overflow: hidden;
 }
 .telemetry-header {
-  padding: 8px 12px;
+  padding: 7px 10px;
   font-size: 11px;
-  font-weight: 600;
-  color: #9ca3af;
+  font-weight: 700;
+  color: var(--ink);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--ink);
 }
 .telemetry-table {
   display: flex;
   flex-direction: column;
   font-size: 11px;
+  overflow-x: auto;
 }
 .t-row {
   display: grid;
   grid-template-columns: 2fr 1.5fr 1fr 1fr 1fr;
-  padding: 6px 12px;
+  padding: 6px 10px;
   align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-  color: #d1d5db;
+  border-bottom: 1px solid var(--ink-muted);
+  color: var(--ink);
 }
 .t-row:last-child {
   border-bottom: none;
 }
 .t-head {
-  font-weight: 600;
-  color: #6b7280;
+  font-weight: 700;
+  color: var(--ink-muted);
   text-transform: uppercase;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface);
 }
 .t-name {
-  font-weight: 500;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .t-cat {
-  color: #9ca3af;
+  color: var(--ink-muted);
 }
 .t-num {
   font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
 .webgl-actions {
@@ -942,19 +726,87 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(52, 211, 153, 0.15);
-  border: 1px solid rgba(52, 211, 153, 0.4);
-  color: #34d399;
+  background: var(--ink);
+  border: 2px solid var(--ink);
+  color: var(--paper);
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: 0;
+  font-family: inherit;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.15s;
+  box-shadow: 2px 2px 0 var(--ink);
+  transition: background 0.15s, color 0.15s;
 }
 .retry-btn:hover {
-  background: rgba(52, 211, 153, 0.25);
-  border-color: #34d399;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* ---- Мобильная раскладка оверлеев (<= 640px) ---- */
+@media (max-width: 640px) {
+  /* Плашка фокуса — на всю доступную ширину, с отступом от ленты чипов */
+  .focus-indicator {
+    top: 60px;
+    left: 8px;
+    right: 8px;
+    transform: none;
+    max-width: none;
+    gap: 6px;
+    padding: 2px 4px 2px 8px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+  .focus-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Тач-цель закрытия >= 40px */
+  .focus-close {
+    width: 40px;
+    height: 40px;
+    border: 2px solid var(--ink);
+    font-size: 14px;
+  }
+  .hover-label {
+    font-size: 10px;
+    padding: 3px 6px;
+  }
+  .debug-hud {
+    top: 112px;
+    left: 8px;
+    right: 8px;
+    min-width: 0;
+    font-size: 9px;
+  }
+  .webgl-fallback {
+    padding: 12px;
+    align-items: flex-start;
+    padding-top: 60px;
+  }
+  .webgl-card {
+    padding: 16px;
+    gap: 12px;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  .webgl-stats-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .t-row {
+    grid-template-columns: 1.8fr 1.2fr 0.9fr 0.9fr 0.9fr;
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+  .retry-btn {
+    width: 100%;
+    min-height: 40px;
+    justify-content: center;
+    text-align: center;
+  }
 }
 
 /* ---- Prefers-reduced-motion ---- */
@@ -967,10 +819,6 @@ onBeforeUnmount(() => {
   }
   .focus-dot {
     animation: none !important;
-  }
-  .spinner {
-    animation: none !important;
-    border-top-color: #34d399 !important;
   }
 }
 </style>
