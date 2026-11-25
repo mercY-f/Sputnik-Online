@@ -1,4 +1,4 @@
-import { computePositionsFromSatrecs } from '../lib/sgp4Core.js';
+import { computePositionsFromSatrecs, computePassesFromSatrec } from '../lib/sgp4Core.js';
 
 /**
  * Тонкий адаптер Web Worker'а для SGP4-расчёта (Vite module worker).
@@ -6,7 +6,9 @@ import { computePositionsFromSatrecs } from '../lib/sgp4Core.js';
  * Протокол:
  *   main → worker: { type: 'init', satellites: [{id, name, category, catalogNumber, satrec}] }
  *   main → worker: { type: 'compute', seq, timeMs }
+ *   main → worker: { type: 'passes', seq, params }        // params → computePassesFromSatrec
  *   worker → main: { type: 'positions', seq, timeMs, positions }
+ *   worker → main: { type: 'passes', seq, passes }        // [{aosMs, maxEl, losMs}]
  *   worker → main: { type: 'error', seq, timeMs, message }
  *
  * satrec — обычный объект из satellite.js (только примитивы), поэтому
@@ -21,6 +23,22 @@ self.onmessage = (event) => {
 
   if (msg.type === 'init') {
     satellites = Array.isArray(msg.satellites) ? msg.satellites : [];
+    return;
+  }
+
+  if (msg.type === 'passes') {
+    const { seq, params } = msg;
+    try {
+      const passes = computePassesFromSatrec(params || {});
+      self.postMessage({ type: 'passes', seq, passes });
+    } catch (e) {
+      self.postMessage({
+        type: 'error',
+        seq,
+        timeMs: params && params.fromMs,
+        message: String((e && e.message) || e),
+      });
+    }
     return;
   }
 

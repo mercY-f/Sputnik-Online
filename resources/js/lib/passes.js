@@ -1,10 +1,50 @@
 /**
  * Модуль расчёта видимых пролётов спутника над точкой наблюдателя.
  *
- * ВНИМАНИЕ: Текущая реализация является детерминированной заглушкой (Этап Step 1)
- * для обеспечения возможности параллельной вёрстки и тестирования UI (U4).
- * Полноценный расчёт через SGP4 и координаты наблюдателя будет реализован на этапе D5.
+ * Реализация (этап D5): SGP4 (satellite.js) + геоцентрическая геометрия
+ * наблюдателя. Тяжёлое сканирование окна выносится в SGP4 Web Worker
+ * (`workers/sgp4.worker.js` через `lib/sgp4WorkerClient.js`), а в Node.js /
+ * при недоступном Worker / при сбое воркера тот же расчёт выполняется
+ * синхронно чистой функцией из `lib/sgp4Core.js` — результат идентичен,
+ * потому что код вычислений общий.
+ *
+ * Контракт (см. docs/mockups/CONTRACT-1BIT.md, раздел «г»):
+ *   computePasses({ observerLat, observerLon, observerAltM = 0,
+ *                   tle1, tle2, from, to, minElDeg = 10 })
+ *     → Promise<Array<{ aos: Date, maxEl: number, los: Date }>> // UTC, по aos
  */
+
+import {
+  computePassesFromSatrec,
+  satrecFromTle,
+  createObserverGeodetic,
+  PASS_SCAN_STEP_MS,
+} from './sgp4Core.js';
+import sgp4WorkerClient from './sgp4WorkerClient.js';
+
+export { PASS_SCAN_STEP_MS };
+
+/** Приводит значение к миллисекундам UTC; NaN, если момент невалиден. */
+function toMs(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') return new Date(value).getTime();
+  return NaN;
+}
+
+/** Внутренний результат (мс) → публичный контракт (Date). */
+function toPassObjects(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .filter((p) => p && Number.isFinite(p.aosMs) && Number.isFinite(p.losMs))
+    .map((p) => ({
+      aos: new Date(p.aosMs),
+      maxEl: p.maxEl,
+      los: new Date(p.losMs),
+    }))
+    .sort((a, b) => a.aos.getTime() - b.aos.getTime());
+}
 
 /**
  * Вычисляет видимые пролёты спутника над заданной географической точкой.
@@ -21,41 +61,53 @@ export async function computePasses({
   from,
   to,
   minElDeg = 10,
-}) {
-  // Подавление предупреждений линтера о неиспользуемых параметрах в заглушке
-  void observerLat;
-  void observerLon;
-  void observerAltM;
-  void tle1;
-  void tle2;
-  void to;
+} = {}) {
+  const fromMs = toMs(from);
+  const toMsValue = toMs(to);
 
-  const startMs = from instanceof Date ? from.getTime() : new Date(from).getTime();
+  // Невалидное окно расчёта — пролётов нет
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMsValue) || fromMs >= toMsValue) {
+    return [];
+  }
 
-  // Детерминированные смещения пролётов от времени начала интервала (в миллисекундах)
-  const minute = 60 * 1000;
-  const passes = [
-    {
-      aos: new Date(startMs + 45 * minute),
-      maxEl: Math.max(minElDeg, 42),
-      los: new Date(startMs + 56 * minute),
-    },
-    {
-      aos: new Date(startMs + 138 * minute),
-      maxEl: Math.max(minElDeg, 76),
-      los: new Date(startMs + 150 * minute),
-    },
-    {
-      aos: new Date(startMs + 232 * minute),
-      maxEl: Math.max(minElDeg, 28),
-      los: new Date(startMs + 242 * minute),
-    },
-  ];
+  // Невалидные координаты наблюдателя
+  if (!createObserverGeodetic(observerLat, observerLon, observerAltM)) {
+    return [];
+  }
 
-  // Гарантированная сортировка по времени появления (aos)
-  passes.sort((a, b) => a.aos.getTime() - b.aos.getTime());
+  // Невалидный TLE — пролётов нет
+  const satrec = satrecFromTle(tle1, tle2);
+  if (!satrec) return [];
 
-  return passes;
+  const params = {
+    satrec,
+    observerLat: Number(observerLat),
+    observerLon: Number(observerLon),
+    observerAltM: Number.isFinite(observerAltM) ? Number(observerAltM) : 0,
+    fromMs,
+    toMs: toMsValue,
+    minElDeg: Number.isFinite(minElDeg) ? Number(minElDeg) : 10,
+    stepMs: PASS_SCAN_STEP_MS,
+  };
+
+  // Основной путь — воркер; null означает «воркер недоступен/сорвался»
+  let raw = null;
+  try {
+    raw = await sgp4WorkerClient.computePasses(params);
+  } catch {
+    raw = null;
+  }
+
+  // Fallback: та же чистая функция на главном потоке (Node.js, нет Worker, сбой)
+  if (raw === null || raw === undefined) {
+    try {
+      raw = computePassesFromSatrec(params);
+    } catch {
+      raw = [];
+    }
+  }
+
+  return toPassObjects(raw);
 }
 
 export default computePasses;
