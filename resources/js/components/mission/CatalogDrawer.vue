@@ -585,10 +585,68 @@ function onSelectGroup(groupId) {
 }
 
 @media (max-width: 640px) {
+  /* Мобильный формат: выдвижной bottom-sheet снизу */
   .catalog-drawer {
-    width: 100vw;
-    max-width: 100vw;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 70vh;
     border-right: none;
+    border-left: none;
+    border-top: 2px solid var(--ink);
+    box-shadow: 0 -2px 0 var(--ink);
+    transform: translateY(100%);
+  }
+
+  .catalog-drawer.open {
+    transform: translateY(0);
+  }
+
+  .catalog-header {
+    padding: 4px 10px;
+  }
+
+  .catalog-search-box {
+    padding: 6px 10px;
+  }
+
+  .catalog-search-field {
+    min-height: 40px;
+    padding: 8px;
+  }
+
+  .catalog-tab {
+    min-height: 40px;
+    padding: 8px 4px;
+  }
+
+  /* Строка списка остаётся 44px — высота виртуализированного элемента */
+  .catalog-row {
+    min-height: 44px;
+  }
+
+  .btn-square {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  .btn-fav {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-size: 16px;
   }
 }
 </style>

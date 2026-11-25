@@ -58,7 +58,7 @@
         />
 
         <!-- Layer toggles (D2) -->
-        <LayerToggles />
+        <LayerToggles :inspector-open="!!selectedSatellite" />
 
         <!-- Globe Container -->
         <div v-show="webglSupported" ref="globeContainer" class="globe-container"></div>
@@ -178,7 +178,13 @@ const CATEGORIES_ORDER = ['ALL', 'ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGA
 // -----------------------------------------------------------------------
 const globeContainer = ref(null);
 const loading        = ref(true);
-const sidebarOpen    = ref(true);
+// На мобильных (<= 640px) каталог стартует закрытым: он занимает нижние 70vh
+const MOBILE_QUERY   = '(max-width: 640px)';
+const initialMobile  = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+  ? window.matchMedia(MOBILE_QUERY).matches
+  : false;
+const isMobile       = ref(initialMobile);
+const sidebarOpen    = ref(!initialMobile);
 const activeFilter   = ref(filtersStore.activeFilter);
 const satPositions   = ref([]);
 const focusTarget    = ref(null);
@@ -220,9 +226,14 @@ watch(
   }
 );
 
+// Взаимоисключение двух bottom-sheet на мобильных: одновременно открыт только один,
+// иначе каталог и карточка аппарата накрывают друг друга снизу экрана.
 watch(sidebarOpen, (open) => {
   if (typeof document !== 'undefined') {
     document.body.classList.toggle('catalog-open', !!open);
+  }
+  if (open && isMobile.value && selectedSatellite.value) {
+    selectedSatellite.value = null;
   }
 }, { immediate: true });
 
@@ -232,6 +243,9 @@ watch(selectedSatellite, (sat) => {
   }
   if (sat) {
     selectionStore.select(sat);
+    if (isMobile.value && sidebarOpen.value) {
+      sidebarOpen.value = false;
+    }
   } else {
     selectionStore.clear();
   }
@@ -310,8 +324,29 @@ async function toggleFavorite(sat) {
   }
 }
 
+let mobileMq = null;
+
+function onViewportChange(event) {
+  isMobile.value = event.matches;
+}
+
 onMounted(async () => {
   document.body.style.overflow = 'hidden';
+
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    mobileMq = window.matchMedia(MOBILE_QUERY);
+    isMobile.value = mobileMq.matches;
+    if (mobileMq.addEventListener) {
+      mobileMq.addEventListener('change', onViewportChange);
+    } else if (mobileMq.addListener) {
+      mobileMq.addListener(onViewportChange);
+    }
+    // Ни при возврате на десктоп, ни при уходе в мобильный режим не оставляем
+    // одновременно открытые каталог и карточку.
+    if (isMobile.value) {
+      sidebarOpen.value = false;
+    }
+  }
 
   await fetchCategories();
   if (user.value) {
@@ -321,6 +356,14 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.body.style.overflow = '';
+  if (mobileMq) {
+    if (mobileMq.removeEventListener) {
+      mobileMq.removeEventListener('change', onViewportChange);
+    } else if (mobileMq.removeListener) {
+      mobileMq.removeListener(onViewportChange);
+    }
+    mobileMq = null;
+  }
   if (typeof document !== 'undefined') {
     document.body.classList.remove('catalog-open', 'inspector-open');
   }
@@ -388,15 +431,17 @@ onBeforeUnmount(() => {
   transform: translateX(12px);
 }
 
-@media (max-width: 639px) {
+@media (max-width: 640px) {
+  /* Карточка аппарата — bottom-sheet снизу; рамка задаётся в SatelliteCard */
   .satellite-card-container {
     right: 0;
     left: 0;
     top: auto;
     bottom: 0;
     width: 100%;
-    max-height: 60vh;
+    max-height: 70vh;
     border-radius: 0;
+    z-index: 46;
   }
   .sat-card-transition-enter-from,
   .sat-card-transition-leave-to {

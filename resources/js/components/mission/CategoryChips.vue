@@ -159,11 +159,10 @@ function onSelectChip(id) {
 
 @media (max-width: 640px) {
   .chip-ribbon-bar {
-    top: 44px;
+    top: 48px;
     padding: 0 6px;
     justify-content: flex-start;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow: hidden;
     max-width: 100vw;
     box-sizing: border-box;
   }
@@ -178,11 +177,16 @@ function onSelectChip(id) {
     left: 0;
   }
 
+  /* Единственный скролл-контейнер ленты — сам .chip-ribbon */
   .chip-ribbon {
     display: flex;
     flex-wrap: nowrap;
-    max-width: none;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
     overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
     padding: 4px;
   }
 

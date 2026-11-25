@@ -707,6 +707,17 @@ onBeforeUnmount(() => {
     display: none;
   }
 
+  /* Выпадающий список поиска: ниже полосы шапки, элементы — тач-цели */
+  .search-dropdown {
+    top: calc(100% + 5px);
+    max-height: 50vh;
+  }
+
+  .search-result-item {
+    min-height: 40px;
+    padding: 8px 10px;
+  }
+
   .top-bar-right {
     gap: 4px;
     flex-shrink: 0;
@@ -729,7 +740,7 @@ onBeforeUnmount(() => {
 
   .btn-square-wide {
     width: auto;
-    min-width: 36px;
+    min-width: 40px;
     min-height: 40px;
     padding: 0 6px;
     flex-shrink: 0;

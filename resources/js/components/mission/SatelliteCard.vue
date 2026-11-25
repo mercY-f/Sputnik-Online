@@ -1000,9 +1000,51 @@ onMounted(() => {
   padding: 8px 12px;
 }
 
-@media (max-width: 639px) {
+@media (max-width: 640px) {
+  /* Мобильный формат: bottom-sheet, рамка сверху */
+  .inspector-panel {
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    border-top: 2px solid var(--ink);
+    box-shadow: 0 -2px 0 var(--ink);
+    max-height: 70vh;
+  }
+
+  .inspector-header {
+    padding: 4px 10px;
+  }
+
+  .btn-square {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
   .actions-row {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .actions-row .btn {
+    min-height: 40px;
+  }
+
+  .field {
+    min-height: 40px;
+  }
+
+  .btn-geo {
+    min-width: 40px;
+    min-height: 40px;
+    height: 40px;
+    font-size: 11px;
+  }
+
+  .btn-full {
+    min-height: 44px;
   }
 }
 </style>

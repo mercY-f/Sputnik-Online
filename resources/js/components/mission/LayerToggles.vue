@@ -125,8 +125,15 @@ function onToggle(key) {
     min-height: 40px;
   }
 
+  /* На узких экранах карточка-инспектор — bottom-sheet, панель слоёв не сдвигаем */
+  :global(body.inspector-open) .layer-controls,
+  .layer-controls.inspector-open {
+    right: 8px;
+  }
+
   .layer-checkbox {
     min-height: 40px;
+    min-width: 40px;
     font-size: 11px;
     padding: 6px 4px;
   }
