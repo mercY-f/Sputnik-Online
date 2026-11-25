@@ -1,8 +1,5 @@
 <script setup>
 import { computed, ref } from 'vue';
-import { ChevronDown, ChevronUp } from 'lucide-vue-next';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { cn } from '@/lib/utils';
 import news from '@/data/news';
 import NewsCard from './NewsCard.vue';
 
@@ -29,7 +26,7 @@ const emit = defineEmits(['focus']);
 
 const count = computed(() => String(props.items.length).padStart(2, '0'));
 
-const collapsed = ref(true);
+const collapsed = ref(false);
 
 function toggle() {
     collapsed.value = !collapsed.value;
@@ -41,14 +38,10 @@ function onFocus(catalogNumber) {
 </script>
 
 <template>
-    <section :class="cn('flex flex-col', props.class)">
+    <section class="news-feed" :class="props.class">
         <div
-            :class="
-                cn(
-                    'flex cursor-pointer select-none items-center justify-between gap-3',
-                    !collapsed && 'mb-3',
-                )
-            "
+            class="news-feed-head"
+            :class="{ closed: collapsed }"
             role="button"
             tabindex="0"
             :aria-expanded="!collapsed"
@@ -56,39 +49,113 @@ function onFocus(catalogNumber) {
             @keydown.enter="toggle"
             @keydown.space.prevent="toggle"
         >
-            <div class="flex items-center gap-2">
-                <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-                <h2 class="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-                    {{ title }}
-                </h2>
-                <span class="font-mono text-[11px] leading-none text-primary">*</span>
+            <div class="news-feed-head-left">
+                <span class="news-feed-mark" aria-hidden="true">■</span>
+                <h2 class="news-feed-title">{{ title }}</h2>
             </div>
-            <div class="flex items-center gap-2">
-                <span class="font-mono text-[11px] uppercase tracking-[0.15em] tabular-nums text-muted-foreground">
-                    {{ count }}
-                </span>
-                <ChevronDown v-if="collapsed" class="h-3.5 w-3.5 text-muted-foreground transition-transform" />
-                <ChevronUp v-else class="h-3.5 w-3.5 text-muted-foreground transition-transform" />
+            <div class="news-feed-head-right">
+                <span class="news-feed-count">{{ count }}</span>
+                <span class="news-feed-caret" aria-hidden="true">{{ collapsed ? '[+]' : '[–]' }}</span>
             </div>
         </div>
 
-        <div v-show="!collapsed" class="min-h-0">
-            <ScrollArea :style="{ maxHeight: maxHeight }" class="news-scroll-area pr-3 [&>div]:max-h-[inherit]">
-                <div v-if="items.length" class="flex flex-col gap-2 pb-1">
-                    <NewsCard
-                        v-for="item in items"
-                        :key="item.id"
-                        :item="item"
-                        @focus="onFocus"
-                    />
-                </div>
-                <div
-                    v-else
-                    class="flex h-24 items-center justify-center rounded-xl border border-dashed border-border/60 bg-card/40 font-mono text-[11px] uppercase tracking-[0.15em] text-muted-foreground"
-                >
-                    Нет событий
-                </div>
-            </ScrollArea>
+        <div v-show="!collapsed" class="news-feed-list" :style="{ maxHeight: maxHeight }">
+            <NewsCard
+                v-for="item in items"
+                :key="item.id"
+                :item="item"
+                @focus="onFocus"
+            />
+            <div v-if="!items.length" class="news-feed-empty">НЕТ СОБЫТИЙ</div>
         </div>
     </section>
 </template>
+
+<style scoped>
+.news-feed {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--ink);
+}
+
+.news-feed-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--ink);
+    margin-bottom: 6px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.news-feed-head.closed {
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--surface);
+}
+
+.news-feed-head:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+}
+
+.news-feed-head-left,
+.news-feed-head-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.news-feed-mark {
+    font-size: 8px;
+    line-height: 1;
+}
+
+.news-feed-title {
+    margin: 0;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+}
+
+.news-feed-count {
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.news-feed-caret {
+    border: 1px solid var(--ink);
+    padding: 0 3px;
+    font-size: 9px;
+    line-height: 1.4;
+}
+
+.news-feed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-muted) transparent;
+    padding-right: 2px;
+}
+
+.news-feed-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 64px;
+    border: 1px dashed var(--ink-muted);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--ink-muted);
+}
+</style>

@@ -120,14 +120,6 @@
           </div>
         </div>
 
-        <!-- Floating Glass News Feed Panel -->
-        <section class="news-area" :class="{ 'hidden sm:flex': !!selectedSatellite }">
-          <NewsFeed
-            :items="news"
-            @focus="focusByCatalogNumber"
-          />
-        </section>
-
         <!-- Floating Glass Satellite Card -->
         <transition name="sat-card-transition">
           <div
@@ -153,11 +145,10 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import axios from 'axios';
-import { TopBar, CategoryChips, SatelliteCard, NewsFeed, CatalogDrawer } from '@/components/mission';
+import { TopBar, CategoryChips, SatelliteCard, CatalogDrawer } from '@/components/mission';
 import LayerToggles from '@/components/mission/LayerToggles.vue';
 import { useCatalogStore } from '@/stores/useCatalogStore';
 import { useSelectionStore } from '@/stores/useSelectionStore';
-import { news } from '@/data/news';
 import { useGlobeScene } from '@/composables/useGlobeScene';
 import { useFiltersStore } from '@/stores/useFiltersStore';
 import { matchesFilter, CHIPS } from '@/lib/categoryMeta';
@@ -360,43 +351,6 @@ onBeforeUnmount(() => {
 .globe-container {
   position: absolute;
   inset: 0;
-}
-
-/* ---- Floating glass news feed panel ---- */
-.news-area {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  width: min(360px, calc(100vw - 32px));
-  z-index: 25;
-  pointer-events: auto;
-  background: rgba(10, 10, 12, 0.45);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45), 0 0 1px rgba(255, 255, 255, 0.1);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.news-area :deep(section) {
-  min-height: 0;
-}
-
-@media (max-width: 639px) {
-  .news-area {
-    right: 12px;
-    left: 12px;
-    bottom: 12px;
-    width: auto;
-  }
-  .news-area :deep(.news-scroll-area),
-  .news-area :deep([data-reka-scroll-area-viewport]) {
-    max-height: 40vh !important;
-  }
 }
 
 /* ---- 1-bit satellite card container ---- */

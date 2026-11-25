@@ -1,9 +1,5 @@
 <script setup>
 import { computed, ref } from 'vue';
-import { Radar } from 'lucide-vue-next';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { categoryLabels } from '@/data/news';
 
 const props = defineProps({
@@ -21,33 +17,20 @@ function toggle() {
     expanded.value = !expanded.value;
 }
 
-const badgeClass = computed(() => {
-    switch (props.item.category) {
-        case 'launch':
-            return 'border-primary/30 bg-primary/10 text-primary';
-        case 'science':
-            return 'border-cyan-400/30 bg-cyan-400/10 text-cyan-300';
-        case 'discovery':
-            return 'border-amber-400/30 bg-amber-400/10 text-amber-300';
-        default:
-            return 'border-border/60 bg-secondary text-muted-foreground';
-    }
-});
+const label = computed(() => categoryLabels[props.item.category] ?? props.item.category);
 
 const dotClass = computed(() => {
     switch (props.item.category) {
         case 'launch':
-            return 'bg-primary shadow-[0_0_6px] shadow-primary/60';
+            return 'is-launch';
         case 'science':
-            return 'bg-cyan-400 shadow-[0_0_6px] shadow-cyan-400/60';
+            return 'is-science';
         case 'discovery':
-            return 'bg-amber-400 shadow-[0_0_6px] shadow-amber-400/60';
+            return 'is-discovery';
         default:
-            return 'bg-muted-foreground';
+            return 'is-default';
     }
 });
-
-const label = computed(() => categoryLabels[props.item.category] ?? props.item.category);
 
 const formattedTime = computed(() => {
     const date = new Date(props.item.publishedAt);
@@ -73,62 +56,175 @@ function emitFocus() {
 
 <template>
     <article
+        class="news-card"
+        :class="{ expanded }"
         role="button"
         tabindex="0"
         :aria-expanded="expanded"
-        :class="
-            cn(
-                'group relative cursor-pointer overflow-hidden rounded-xl border border-border/60 bg-card/70 p-3 backdrop-blur-xl',
-                'transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card/90',
-                'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-            )
-        "
         @click="toggle"
         @keydown.enter.self="toggle"
         @keydown.space.prevent="toggle"
     >
-        <div
-            class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent opacity-0 transition-opacity group-hover:opacity-100"
-        />
+        <header class="news-card-head">
+            <span class="news-dot" :class="dotClass" aria-hidden="true"></span>
+            <span v-if="expanded" class="news-tag">{{ label }}</span>
+            <span class="news-time">{{ formattedTime }}</span>
+        </header>
 
-        <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center gap-1.5 min-w-0">
-                <span class="h-2 w-2 shrink-0 rounded-full" :class="dotClass" />
-                <Badge v-if="expanded" variant="outline" :class="badgeClass">
-                    {{ label }}
-                </Badge>
-            </div>
-            <span class="shrink-0 font-mono text-[10px] uppercase tracking-wider tabular-nums text-muted-foreground">
-                {{ formattedTime }}
-            </span>
-        </div>
+        <h3 class="news-title" :class="{ clipped: !expanded }">{{ item.title }}</h3>
 
-        <h3 :class="cn('mt-1.5 text-xs font-medium leading-snug text-foreground', !expanded && 'line-clamp-2')">
-            {{ item.title }}
-        </h3>
+        <div v-if="expanded" class="news-body">
+            <p class="news-summary">{{ item.summary }}</p>
 
-        <div v-if="expanded" class="mt-2.5 space-y-2.5">
-            <p class="text-xs leading-relaxed text-muted-foreground">
-                {{ item.summary }}
-            </p>
-
-            <div class="flex items-center justify-between gap-2 border-t border-border/40 pt-2.5">
-                <span class="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                    {{ item.source }}
-                </span>
-                <Button
+            <div class="news-foot">
+                <span class="news-source">{{ item.source }}</span>
+                <button
                     v-if="item.satellite?.catalogNumber"
-                    variant="outline"
-                    size="sm"
-                    class="h-7 gap-1.5 border-border/60 bg-transparent px-2.5 font-mono text-[10px] uppercase tracking-wider hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                    type="button"
+                    class="news-focus-btn"
                     @click.stop="emitFocus"
                     @keydown.enter.stop="emitFocus"
                     @keydown.space.stop="emitFocus"
                 >
-                    <Radar class="h-3 w-3" />
-                    Найти на орбите
-                </Button>
+                    [ Найти на орбите ]
+                </button>
             </div>
         </div>
     </article>
 </template>
+
+<style scoped>
+.news-card {
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+    padding: 6px 8px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    box-sizing: border-box;
+}
+
+.news-card:hover {
+    background: var(--surface);
+}
+
+.news-card:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+}
+
+.news-card-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    line-height: 1;
+}
+
+.news-dot {
+    width: 7px;
+    height: 7px;
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    flex-shrink: 0;
+}
+
+.news-dot.is-launch {
+    background: var(--ink);
+}
+
+.news-dot.is-science {
+    background: var(--ink-muted);
+}
+
+.news-dot.is-discovery {
+    background: var(--paper);
+    border-width: 2px;
+}
+
+.news-dot.is-default {
+    background: var(--surface);
+}
+
+.news-tag {
+    border: 1px solid var(--ink);
+    padding: 0 4px;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--surface);
+}
+
+.news-time {
+    margin-left: auto;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.news-title {
+    margin: 5px 0 0;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.news-title.clipped {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.news-body {
+    margin-top: 6px;
+}
+
+.news-summary {
+    margin: 0;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--ink-muted);
+}
+
+.news-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--ink-muted);
+}
+
+.news-source {
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.news-focus-btn {
+    flex-shrink: 0;
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 3px 6px;
+    cursor: pointer;
+}
+
+.news-focus-btn:hover {
+    background: var(--ink);
+    color: var(--paper);
+}
+</style>

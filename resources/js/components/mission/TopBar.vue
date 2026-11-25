@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import { CATEGORY_META } from '@/lib/categoryMeta';
+import newsData from '@/data/news';
+import NewsFeed from './NewsFeed.vue';
 
 const props = defineProps({
   utcTime: {
@@ -69,6 +71,29 @@ const isDropdownOpen = ref(false);
 const searchInputRef = ref(null);
 const searchContainerRef = ref(null);
 
+// --- Новости ---
+const newsItems = ref(newsData);
+const newsOpen = ref(false);
+const newsMenuRef = ref(null);
+const newsCount = computed(() => String(newsItems.value.length).padStart(2, '0'));
+
+function toggleNews() {
+  newsOpen.value = !newsOpen.value;
+  if (newsOpen.value) {
+    isDropdownOpen.value = false;
+  }
+}
+
+function closeNews() {
+  newsOpen.value = false;
+}
+
+function onNewsFocus(catalogNumber) {
+  if (catalogNumber == null) return;
+  emit('focus-catalog-number', catalogNumber);
+  newsOpen.value = false;
+}
+
 function getSatelliteBadge(sat) {
   if (!sat) return '×';
   const cat = sat.category;
@@ -103,11 +128,15 @@ function blurSearchInput() {
 
 function onSearchInput() {
   isDropdownOpen.value = searchQuery.value.trim().length > 0;
+  if (isDropdownOpen.value) {
+    newsOpen.value = false;
+  }
 }
 
 function onSearchFocus() {
   if (searchQuery.value.trim().length > 0) {
     isDropdownOpen.value = true;
+    newsOpen.value = false;
   }
 }
 
@@ -141,6 +170,9 @@ function onClickOutside(e) {
   if (searchContainerRef.value && !searchContainerRef.value.contains(e.target)) {
     isDropdownOpen.value = false;
   }
+  if (newsOpen.value && newsMenuRef.value && !newsMenuRef.value.contains(e.target)) {
+    newsOpen.value = false;
+  }
 }
 
 function onGlobalKeydown(e) {
@@ -150,6 +182,10 @@ function onGlobalKeydown(e) {
     searchInputRef.value?.select();
     if (searchQuery.value.trim()) {
       isDropdownOpen.value = true;
+    }
+  } else if (e.key === 'Escape') {
+    if (newsOpen.value) {
+      newsOpen.value = false;
     }
   } else if (e.key.toLowerCase() === 'c') {
     const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
@@ -247,6 +283,33 @@ onBeforeUnmount(() => {
 
     <div class="top-bar-right">
       <span id="utc-clock" class="num">{{ displayTime }}</span>
+
+      <div ref="newsMenuRef" class="news-menu">
+        <button
+          id="btn-news-toggle"
+          class="btn"
+          :class="{ active: newsOpen }"
+          type="button"
+          title="Новости (лента событий)"
+          aria-label="НОВОСТИ"
+          :aria-expanded="newsOpen"
+          @click="toggleNews"
+        >
+          <span class="news-btn-text">[ НОВОСТИ <span class="news-btn-count">{{ newsCount }}</span> ]</span>
+          <span class="news-btn-icon" aria-hidden="true">▤</span>
+        </button>
+
+        <div
+          v-if="newsOpen"
+          class="news-panel"
+          role="dialog"
+          aria-label="Лента новостей"
+          @keydown.escape="closeNews"
+        >
+          <NewsFeed :items="newsItems" title="ЛЕНТА" max-height="52vh" @focus="onNewsFocus" />
+        </div>
+      </div>
+
       <button
         id="btn-catalog-toggle"
         class="btn"
@@ -475,6 +538,35 @@ onBeforeUnmount(() => {
   font-size: 11px;
 }
 
+.news-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.news-btn-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.news-btn-icon {
+  display: none;
+}
+
+.news-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(380px, calc(100vw - 24px));
+  max-height: 70vh;
+  overflow: hidden;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  padding: 10px;
+  z-index: 60;
+  box-sizing: border-box;
+  color: var(--ink);
+}
+
 .top-bar-right {
   display: flex;
   align-items: center;
@@ -651,6 +743,37 @@ onBeforeUnmount(() => {
     min-width: 40px;
     flex-shrink: 0;
     white-space: nowrap;
+  }
+
+  #btn-news-toggle {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  #btn-news-toggle .news-btn-text {
+    display: none;
+  }
+
+  #btn-news-toggle .news-btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .news-panel {
+    position: fixed;
+    top: 56px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: calc(100vh - 80px);
   }
 
   .reg-full {
