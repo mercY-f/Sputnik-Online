@@ -5,18 +5,20 @@
     aria-label="Управление слоями сцены"
   >
     <button
+      v-for="layer in layerItems"
+      :key="layer.key"
       type="button"
       role="checkbox"
-      :aria-checked="layersStore.terminator ? 'true' : 'false'"
+      :aria-checked="layersStore[layer.key] ? 'true' : 'false'"
       class="layer-checkbox"
-      :class="{ checked: layersStore.terminator }"
-      data-layer="terminator"
-      @click="onToggleTerminator"
+      :class="{ checked: layersStore[layer.key] }"
+      :data-layer="layer.key"
+      @click="onToggle(layer.key)"
     >
       <span class="check-box" aria-hidden="true">
-        {{ layersStore.terminator ? '[■]' : '[ ]' }}
+        {{ layersStore[layer.key] ? '[■]' : '[ ]' }}
       </span>
-      <span class="layer-label">ТЕРМИНАТОР</span>
+      <span class="layer-label">{{ layer.label }}</span>
     </button>
   </aside>
 </template>
@@ -33,8 +35,16 @@ defineProps({
 
 const layersStore = useLayersStore();
 
-function onToggleTerminator() {
-  layersStore.toggle('terminator');
+// Порядок как в макете ui-1bit: сетка → орбиты → подписи → терминатор
+const layerItems = [
+  { key: 'grid', label: 'СЕТКА' },
+  { key: 'orbits', label: 'ОРБИТЫ' },
+  { key: 'labels', label: 'ПОДПИСИ' },
+  { key: 'terminator', label: 'ТЕРМИНАТОР' },
+];
+
+function onToggle(key) {
+  layersStore.toggle(key);
 }
 </script>
 
@@ -47,6 +57,7 @@ function onToggleTerminator() {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
   background: var(--paper);
   border: 1px solid var(--ink);
   border-radius: 0;
@@ -57,7 +68,7 @@ function onToggleTerminator() {
 
 :global(body.inspector-open) .layer-controls,
 .layer-controls.inspector-open {
-  right: 332px;
+  right: 368px;
 }
 
 .layer-checkbox {
@@ -107,8 +118,11 @@ function onToggleTerminator() {
     bottom: 8px;
     left: 8px;
     right: 8px;
+    flex-wrap: wrap;
+    gap: 2px 6px;
     justify-content: space-around;
     padding: 6px 8px;
+    min-height: 40px;
   }
 
   .layer-checkbox {

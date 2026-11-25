@@ -3,15 +3,14 @@ import axios from 'axios';
 import Globe from 'globe.gl';
 import * as satellite from 'satellite.js';
 import * as THREE from 'three';
-import { Line2 } from 'three/addons/lines/Line2.js';
-import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
-import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { sgp4WorkerClient } from '@/lib/sgp4WorkerClient';
 import { useGlobeDisposer } from '@/lib/globe/useGlobeDisposer';
 import { createSilhouetteHull } from '@/lib/globe/silhouette';
 import { createCountryBorders } from '@/lib/globe/borders';
 import { createTerminator } from '@/lib/globe/terminator';
 import { createGlyphLayer } from '@/lib/globe/glyphLayer';
+import { createGridLayer } from '@/lib/globe/gridLayer';
+import { createSceneOverlay } from '@/lib/globe/sceneOverlay';
 import { useLayersStore } from '@/stores/useLayersStore';
 import { useSelectionStore } from '@/stores/useSelectionStore';
 import { useViewStore } from '@/stores/useViewStore';
@@ -164,6 +163,77 @@ export function useGlobeScene(options = {}) {
     satStats.points = 0;
     satStats.culledFrustum = stats.culledFrustum;
     satStats.culledLimb = stats.culledLimb;
+  }
+
+  // -----------------------------------------------------------------------
+  // D4: 1-битный экранный оверлей кадра
+  // -----------------------------------------------------------------------
+  // Ретикл «[ ● ]», SVG лидер-линия, плашка «NAME [БУКВА]» выбранного спутника и
+  // подписи слоя LABELS. Экранную проекцию делает lib/globe/sceneOverlay.js:
+  // getCoords() отдаёт ЛОКАЛЬНЫЕ координаты вращающейся группы глобуса, поэтому
+  // внутри оверлея к вектору применяется targetGroup.matrixWorld (иначе плашка
+  // разъедется со спутником при вращении Земли).
+  function sameSatId(sat, id) {
+    if (!sat || id === null || id === undefined) return false;
+    if (String(sat.id) === String(id)) return true;
+    if (sat.catalogNumber != null && String(sat.catalogNumber) === String(id)) return true;
+    if (sat.catalog_number != null && String(sat.catalog_number) === String(id)) return true;
+    return false;
+  }
+
+  function updateSceneOverlay(sats) {
+    if (!sceneOverlay || !globeInstance || !satMeshGroup) return;
+
+    const camera = globeInstance.camera();
+    if (!camera) return;
+
+    const selected = selectedSatellite.value;
+    const selectedId = selected
+      ? (selected.catalog_number ?? selected.id ?? null)
+      : (selectionStore ? selectionStore.selectedId : null);
+
+    // Актуальные lat/lng/alt берём из интерполированных позиций кадра,
+    // чтобы ретикл не отставал от маркера.
+    let selectedState = null;
+    if (selectedId !== null && selectedId !== undefined) {
+      const frameSat = Array.isArray(sats) ? sats.find(s => sameSatId(s, selectedId)) : null;
+      if (frameSat) {
+        selectedState = {
+          id: selectedId,
+          name: (selected && selected.name) || frameSat.name || 'UNKNOWN',
+          category: (selected && selected.category) || frameSat.category || null,
+          lat: frameSat.lat,
+          lng: frameSat.lng,
+          alt: frameSat.alt,
+        };
+      } else if (selected && Number.isFinite(selected.lat) && Number.isFinite(selected.lng)) {
+        selectedState = {
+          id: selectedId,
+          name: selected.name || 'UNKNOWN',
+          category: selected.category || null,
+          lat: selected.lat,
+          lng: selected.lng,
+          alt: selected.alt,
+        };
+      }
+    }
+
+    // Подписи — только для видимых в кадре аппаратов (glyphLayer уже отсеял
+    // фрустум и лимб), за вычетом выбранного: его подпись живёт в плашке.
+    const labels = layersStore.labels && glyphLayer
+      ? glyphLayer.visibleSats.filter(s => !sameSatId(s, selectedId))
+      : [];
+
+    sceneOverlay.update({
+      camera,
+      targetGroup: satMeshGroup,
+      getCoords: (lat, lng, alt) => globeInstance.getCoords(lat, lng, alt),
+      globeRadius: GLOBE_RADIUS,
+      selected: selectedState,
+      labels,
+      labelsEnabled: !!layersStore.labels,
+      lodLevel: viewStore.lodLevel,
+    });
   }
 
   // -----------------------------------------------------------------------
@@ -330,21 +400,27 @@ export function useGlobeScene(options = {}) {
 
 
   // -----------------------------------------------------------------------
-  // F4: орбита и наземный трек сфокусированного спутника (Line2)
+  // F4/D4: орбита и наземный трек сфокусированного спутника (1-битный пунктир)
   // -----------------------------------------------------------------------
   // Орбиту и подспутниковую траекторию рисуем только для аппарата в фокусе:
   // 120 выборок за один виток от текущего момента (последняя точка замыкает
   // петлю). Координаты считаются той же связкой propagate → gstime → eciToGeodetic,
   // что и в computePositions, поэтому линия совпадает с движением маркера.
-  // Линии живут в той же вращающейся группе, что и InstancedMesh спутников,
+  // Линии живут в той же вращающейся группе, что и Points спутников,
   // иначе при вращении глобуса они разъедутся с аппаратами.
+  //
+  // 1-битная графика (Стадия D4): вместо толстых Line2 — THREE.Line с
+  // LineDashedMaterial цвета чернил 0x0E0E0E. Пунктир требует рассчитанных
+  // line distances (computeLineDistances), иначе линия рисуется сплошной.
   const ORBIT_SAMPLES          = 120;
   const ORBIT_REBUILD_MS       = 30000; // виток «уплывает» относительно вращающейся Земли
-  const ORBIT_COLOR            = 0x34d399; // emerald-акцент Mission Control
-  const ORBIT_LINEWIDTH        = 2;
-  const ORBIT_OPACITY          = 0.9;
-  const GROUND_TRACK_LINEWIDTH = 1;
-  const GROUND_TRACK_OPACITY   = 0.4;
+  const TRACK_INK              = 0x0E0E0E; // чернила 1-битной палитры
+  const ORBIT_DASH             = 3;
+  const ORBIT_GAP              = 2;
+  const ORBIT_OPACITY          = 0.75;
+  const GROUND_DASH            = 1.5;
+  const GROUND_GAP             = 1.5;
+  const GROUND_OPACITY         = 0.4;
   const GROUND_TRACK_ALT       = 0.02;  // 2 ед. над поверхностью (R=100): z-борьба с текстурой Земли
 
   let orbitLine         = null;
@@ -353,37 +429,41 @@ export function useGlobeScene(options = {}) {
   let orbitFocusedId    = null;
   let orbitRegistered   = false; // таймер перестроения зарегистрирован в disposer
 
-  // LineMaterial рисует толщину в экранных пикселях, поэтому ему нужен размер
-  // рендера в uniform resolution; без этого линия будет толщиной в один пиксель.
-  function applyLineResolution(material) {
-    if (!material || !globeContainer.value) return;
-    material.resolution.set(
-      globeContainer.value.clientWidth  || 1,
-      globeContainer.value.clientHeight || 1
-    );
+  // Видимость линий следует за слоем ORBITS (useLayersStore.orbits): выключенный
+  // слой прячет и орбиту, и наземный след, пока его не включат обратно.
+  function syncOrbitVisibility() {
+    const enabled = !!layersStore.orbits;
+    if (orbitLine) orbitLine.visible = enabled;
+    if (groundTrackLine) groundTrackLine.visible = enabled;
   }
 
-  function createOrbitLine(points, linewidth, opacity) {
-    const flat = [];
-    for (const p of points) flat.push(p.x, p.y, p.z);
+  function createOrbitLine(points, dashSize, gapSize, opacity) {
+    const positions = new Float32Array(points.length * 3);
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      const o = i * 3;
+      positions[o]     = p.x;
+      positions[o + 1] = p.y;
+      positions[o + 2] = p.z;
+    }
 
-    const geometry = new LineGeometry();
-    geometry.setPositions(flat);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-    const material = new LineMaterial({
-      color: ORBIT_COLOR,
-      linewidth,
+    const material = new THREE.LineDashedMaterial({
+      color: TRACK_INK,
+      dashSize,
+      gapSize,
       transparent: true,
       opacity,
-      worldUnits: false,
       depthWrite: false,
       depthTest: true, // дальняя дуга прячется за глобусом (без этого — дубль на текстуре)
     });
-    applyLineResolution(material);
 
-    const line = new Line2(geometry, material);
-    line.computeLineDistances();
-    line.frustumCulled = false; // bbox не считаем: геометрия пересобирается раз в 30 с
+    const line = new THREE.Line(geometry, material);
+    line.computeLineDistances();  // обязательный шаг для LineDashedMaterial
+    line.frustumCulled = false;   // bbox не считаем: геометрия пересобирается раз в 30 с
+    line.visible = !!layersStore.orbits;
 
     // dispose-контракт: линии живут от фокуса до фокуса (пересоздаются).
     disposer.registerMesh(line)
@@ -457,11 +537,12 @@ export function useGlobeScene(options = {}) {
     const { orbit, ground } = sampleOrbit(source, ORBIT_SAMPLES);
     if (orbit.length < 2 || ground.length < 2) return;
 
-    orbitLine       = createOrbitLine(orbit,  ORBIT_LINEWIDTH,        ORBIT_OPACITY);
-    groundTrackLine = createOrbitLine(ground, GROUND_TRACK_LINEWIDTH, GROUND_TRACK_OPACITY);
+    orbitLine       = createOrbitLine(orbit,  ORBIT_DASH,  ORBIT_GAP,  ORBIT_OPACITY);
+    groundTrackLine = createOrbitLine(ground, GROUND_DASH, GROUND_GAP, GROUND_OPACITY);
 
     satMeshGroup.add(orbitLine);
     satMeshGroup.add(groundTrackLine);
+    syncOrbitVisibility();
 
     orbitFocusedId = sat.id;
 
@@ -666,7 +747,9 @@ export function useGlobeScene(options = {}) {
       }
       // Подпись под курсором (hover) обновляется пикингом по pointermove — см.
       // раздел «Пикинг спутников»; здесь только интерполированные матрицы.
-      updateSatelliteMesh(interpolatePositions(prevPositions, currPositions, t));
+      const frameSats = interpolatePositions(prevPositions, currPositions, t);
+      updateSatelliteMesh(frameSats);
+      updateSceneOverlay(frameSats); // D4: ретикл, лидер-линия, плашка, слой LABELS
       if (DEBUG_ENABLED) flushDebugStats(performance.now());
     }
 
@@ -703,6 +786,8 @@ export function useGlobeScene(options = {}) {
   let terminatorInstance = null;
   let silhouetteHullMesh = null;
   let countryBordersMesh = null;
+  let gridLayer          = null;  // слой GRID: сетка параллелей/меридианов 30°
+  let sceneOverlay       = null;  // DOM+SVG оверлей: ретикл, лидер-линия, плашка, подписи
   let scene1BitInited    = false;
 
   // Меш земного шара three-globe (Group __globeObjType === 'globe' → дочерний Mesh).
@@ -830,6 +915,17 @@ export function useGlobeScene(options = {}) {
               .registerMaterial(borders.borderMat);
     }
 
+    // 3b. Сетка параллелей и меридианов шагом 30° (слой GRID, пунктир 0x0E0E0E)
+    if (!gridLayer) {
+      gridLayer = createGridLayer(globeInstance, { enabled: !!layersStore.grid });
+      if (gridLayer) {
+        targetGroup.add(gridLayer.gridMesh);
+        disposer.registerMesh(gridLayer.gridMesh)
+                .registerGeometry(gridLayer.gridGeom)
+                .registerMaterial(gridLayer.gridMat);
+      }
+    }
+
     // 4. Глиф-слой спутников (THREE.Points, 1 draw call, атлас 8 категорий)
     if (!glyphLayer) {
       glyphLayer = createGlyphLayer({
@@ -842,6 +938,26 @@ export function useGlobeScene(options = {}) {
     } else {
       glyphLayer.setTargetGroup(targetGroup);
     }
+
+    // 5. 1-битный экранный оверлей: ретикл [ ● ], лидер-линия, плашка, подписи LABELS
+    if (!sceneOverlay && globeContainer.value) {
+      sceneOverlay = createSceneOverlay({
+        container: globeContainer.value,
+        disposer,
+      });
+    }
+
+    // Реактивное переключение слоёв GRID / ORBITS по флагам useLayersStore.
+    // LABELS проверяется покадрово в updateSceneOverlay (нужен кадр с текущими
+    // экранными координатами), поэтому отдельный watch здесь не обязателен.
+    const unwatchLayers = watch(
+      () => [layersStore.grid, layersStore.orbits],
+      ([grid]) => {
+        if (gridLayer) gridLayer.setEnabled(grid);
+        syncOrbitVisibility();
+      },
+    );
+    disposer.registerDisposer(unwatchLayers);
 
     // Реактивное переключение слоя терминатора по флагу useLayersStore
     const unwatchTerminator = watch(
@@ -874,6 +990,14 @@ export function useGlobeScene(options = {}) {
     if (countryBordersMesh) {
       if (countryBordersMesh.parent) countryBordersMesh.parent.remove(countryBordersMesh);
       countryBordersMesh = null;
+    }
+    if (gridLayer) {
+      gridLayer.dispose();
+      gridLayer = null;
+    }
+    if (sceneOverlay) {
+      sceneOverlay.dispose();
+      sceneOverlay = null;
     }
     paperMaterial = null;
     scene1BitInited = false;
@@ -955,9 +1079,6 @@ export function useGlobeScene(options = {}) {
       if (globeContainer.value && globeInstance) {
         globeInstance.width(globeContainer.value.clientWidth)
                      .height(globeContainer.value.clientHeight);
-        // F4: толщина Line2 задаётся в пикселях — обновляем resolution при ресайзе
-        applyLineResolution(orbitLine && orbitLine.material);
-        applyLineResolution(groundTrackLine && groundTrackLine.material);
       }
     });
     resizeObserver.observe(globeContainer.value);
@@ -1317,6 +1438,11 @@ export function useGlobeScene(options = {}) {
     // в hero, после этого globe.gl снова сам держит target в центре
     cameraMode.value = CAMERA_MODE_FREE;
 
+    // D4: свободная орбита — режима слежения нет, держим стор выбора в согласии
+    if (selectionStore && typeof selectionStore.setFollow === 'function') {
+      selectionStore.setFollow(false);
+    }
+
     const controls = globeInstance.controls();
     if (controls) {
       controls.zoomToCursor = true;           // штатное поведение globe.gl
@@ -1360,6 +1486,10 @@ export function useGlobeScene(options = {}) {
         // цель орбиты — аппарат в 12 ед. от камеры: кламп глобуса здесь только мешает
         enterFollowClamp();
         applyFollowControlSpeeds(controls);
+        // D4: пользователь взял камеру — авто-слежение выключено, флаг в сторе тоже
+        if (selectionStore && typeof selectionStore.setFollow === 'function') {
+          selectionStore.setFollow(false);
+        }
       }
       applyFollowOrbitAnchor();
     };
@@ -1397,6 +1527,10 @@ export function useGlobeScene(options = {}) {
     followManual = false;
     focusTarget.value = null;
     selectedSatellite.value = null;
+    // D4: возврат в обзор снимает режим слежения и в сторе выбора
+    if (selectionStore && typeof selectionStore.setFollow === 'function') {
+      selectionStore.setFollow(false);
+    }
 
     afterCameraSettle(() => {
       if (!globeInstance) return;
@@ -1437,6 +1571,13 @@ export function useGlobeScene(options = {}) {
         // новый фокус = новый цикл авто-слежения: ручное управление сбрасывается
         followManual      = false;
         cameraSettleUntil = performance.now() + effDuration;
+
+        // D4: синхронизация режима слежения с UI-карточкой (кнопка «СЛЕДИТЬ»).
+        // Ставим флаг ПОСЛЕ cameraMode = FOLLOW, чтобы собственный watch не
+        // запустил второй перелёт к тому же аппарату.
+        if (selectionStore && typeof selectionStore.setFollow === 'function') {
+          selectionStore.setFollow(true);
+        }
 
         const controls = globeInstance.controls();
         if (controls) controls.zoomToCursor = true;
@@ -1545,9 +1686,66 @@ export function useGlobeScene(options = {}) {
     selectedSatellite.value = null;
     focusTarget.value = null;
     disposeOrbitLines(); // F4: линии живут только пока есть фокус
+    // D4: снятие фокуса выключает режим слежения и в сторе (кнопка «СЛЕДИТЬ»)
+    if (selectionStore && typeof selectionStore.setFollow === 'function') {
+      selectionStore.setFollow(false);
+    }
     enterHeroMode();
   }
 
+
+  // -----------------------------------------------------------------------
+  // D4: обратная связь кнопки «СЛЕДИТЬ» (SatelliteCard → selectionStore.setFollow)
+  // -----------------------------------------------------------------------
+  // Включение режима входит в follow за текущим выбранным аппаратом. Выключение
+  // НЕ уводит камеру (никакого возврата в hero): снимается только авто-подтягивание
+  // pointOfView, а цель орбиты остаётся на аппарате — кадр не дёргается.
+  function resolveFollowTarget() {
+    const sel = selectedSatellite.value;
+    const id = sel
+      ? (sel.catalog_number ?? sel.id ?? null)
+      : (selectionStore ? selectionStore.selectedId : null);
+    if (id === null || id === undefined) return null;
+
+    const frame = currPositions.find(p => sameSatId(p, id));
+    if (frame) {
+      return {
+        ...(sel || {}),
+        id: frame.id,
+        name: (sel && sel.name) || frame.name,
+        category: (sel && sel.category) || frame.category,
+        lat: frame.lat,
+        lng: frame.lng,
+        alt: frame.alt,
+      };
+    }
+    if (sel && Number.isFinite(sel.lat) && Number.isFinite(sel.lng)) return sel;
+    return null;
+  }
+
+  watch(
+    () => (selectionStore ? selectionStore.followMode : false),
+    (on) => {
+      if (on) {
+        if (!globeInstance) return;
+        // Уже в follow и авто-слежение не отключено вручную — второй перелёт не нужен.
+        if (cameraMode.value === CAMERA_MODE_FOLLOW && !followManual) return;
+        const target = resolveFollowTarget();
+        if (!target) return;
+        enterFollowMode(target);
+        return;
+      }
+
+      if (cameraMode.value !== CAMERA_MODE_FOLLOW) return; // hero/free — трогать нечего
+      if (followManual) return;                            // уже ручной режим
+      followManual = true;
+      stopCameraTween();
+      // Камера остаётся в кадре follow: точка опоры на аппарате в ~12 ед.,
+      // поэтому ослабленный кламп дистанции НЕ возвращаем — иначе контролы
+      // оттолкнули бы камеру на радиус Земли при первом же жесте.
+      enterFollowClamp();
+    },
+  );
 
   onMounted(async () => {
     checkReducedMotion();
