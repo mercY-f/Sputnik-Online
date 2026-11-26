@@ -66,7 +66,7 @@
 - [x] reduced-motion (matchMedia + моментальные перелёты + CSS safe) · WebGL-fallback (телеметрия без 3D-GPU) · PWA-офлайн (Workbox cache текстур) ✅
 - пояснительная записка (СУБД, архитектура расчётов, обоснование оптимизаций)
 
-### Пост-Спринт 5 — перенос на 1-битный дизайн ⬜ (в работе)
+### Пост-Спринт 5 — перенос на 1-битный дизайн ✅ (завершён 2026-11-26)
 
 План: `docs/mockups/PLAN-MIGRATE-1BIT.md` · контракт: `docs/mockups/CONTRACT-1BIT.md` ·
 журнал шагов: `docs/mockups/MIGRATE-STATUS.md`. Откатный якорь — ветка `legacy/design-glass`,
@@ -87,8 +87,12 @@
 - [x] F1 — вычистка стеклянного наследия: `public/textures/*`, `lib/postProcessing.js`,
       неиспользуемые `components/ui/*` (файлы удалены в рабочем дереве); `MissionShell.vue`
       остаётся для Breeze-страниц
-- [ ] F2 — финальные метрики (FPS/DRAWN, размер бандла, прогон тестов) и чистота дерева
-      для пояснительной записки; журнал шагов — `docs/mockups/MIGRATE-STATUS.md`
+- [x] F2 — финальные вороты закрыты (сквозной grep: 0 нарушений по всему дереву;
+      Lighthouse: Accessibility 100/100, Best Practices 100/100, SEO 91/100, CLS 0.001;
+      живой рендер на RTX 5070: 110–120 FPS, U6 390px «ок»; Workbox `navigateFallback: null`;
+      сборка `public/build` 2.8M / Workbox precache `33 entries`, `2665.91 KiB`;
+      `tests/js/*.test.mjs` 2/2, `php artisan test` 5 passed + 40 deprecated / 194 assertions);
+      журнал шагов — `docs/mockups/MIGRATE-STATUS.md`
 
 > Спринты 0–5 выше сохранены как историческая запись (каждый закрыт на своём коммите).
 > Актуальные стек, структура и ограничения — в `README.md`.

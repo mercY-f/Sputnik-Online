@@ -34,6 +34,8 @@ export default defineConfig({
                 // Чанк страницы глобуса (three + globe.gl + гео-данные) > 2 MiB;
                 // без этого workbox отказывается его прекешировать и сборка падает.
                 maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+                // Laravel/Inertia отдаёт HTML с сервера — SPA-fallback index.html не существует.
+                navigateFallback: null,
             },
             manifest: {
                 name: 'Earth Orbit Live',
