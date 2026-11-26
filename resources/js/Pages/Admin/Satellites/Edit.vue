@@ -35,16 +35,16 @@ const submit = () => {
 
     <AuthenticatedLayout>
         <template #header>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">Edit Satellite: {{ satellite.name }}</h2>
+            <h2 class="font-semibold text-xl text-ink leading-tight">Edit Satellite: {{ satellite.name }}</h2>
         </template>
 
         <div class="py-12">
             <div class="max-w-4xl mx-auto sm:px-6 lg:px-8">
-                <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
+                <div class="p-4 sm:p-8 border border-ink bg-paper text-ink shadow-hard">
                     <section class="max-w-xl">
                         <header>
-                            <h2 class="text-lg font-medium text-gray-900">Satellite Information</h2>
-                            <p class="mt-1 text-sm text-gray-600">
+                            <h2 class="text-lg font-medium text-ink">Satellite Information</h2>
+                            <p class="mt-1 text-sm text-ink-muted">
                                 Update the satellite's core details and orbital parameters (TLE).
                             </p>
                         </header>
@@ -84,7 +84,7 @@ const submit = () => {
                                 <select
                                     id="category"
                                     v-model="form.category"
-                                    class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
+                                    class="mt-1 block w-full border-ink bg-paper text-ink focus:border-ink focus:ring-ink"
                                     required
                                 >
                                     <option value="" disabled>Select a category</option>
@@ -126,7 +126,7 @@ const submit = () => {
                                 
                                 <Link 
                                     :href="route('admin.satellites.index')" 
-                                    class="inline-flex items-center px-4 py-2 bg-gray-200 border border-transparent rounded-md font-semibold text-xs text-gray-800 uppercase tracking-widest hover:bg-gray-300 focus:bg-gray-300 active:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150"
+                                    class="inline-flex items-center border border-ink bg-paper px-4 py-2 font-mono font-semibold text-xs text-ink uppercase tracking-widest hover:bg-surface focus:outline-none transition ease-in-out duration-150"
                                 >
                                     Cancel
                                 </Link>
@@ -137,7 +137,7 @@ const submit = () => {
                                     leave-active-class="transition ease-in-out"
                                     leave-to-class="opacity-0"
                                 >
-                                    <p v-if="form.recentlySuccessful" class="text-sm text-gray-600">Saved.</p>
+                                    <p v-if="form.recentlySuccessful" class="text-sm text-ink-muted">Saved.</p>
                                 </Transition>
                             </div>
                         </form>

@@ -29,22 +29,22 @@ defineExpose({ focus: () => input.value.focus() });
 .text-input {
     display: block;
     width: 100%;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 8px;
+    background: var(--paper);
+    border: 1px solid var(--ink);
+    border-radius: 0;
     padding: 0.55rem 0.875rem;
     font-size: 0.9rem;
-    color: #e2e8f0;
-    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    color: var(--ink);
+    transition: background-color 0.15s ease, outline-color 0.15s ease;
     outline: none;
     font-family: inherit;
 }
 .text-input::placeholder {
-    color: #475569;
+    color: var(--ink-muted);
 }
 .text-input:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-    background: rgba(255, 255, 255, 0.07);
+    background: var(--surface);
+    outline: 2px solid var(--ink);
+    outline-offset: 1px;
 }
 </style>
