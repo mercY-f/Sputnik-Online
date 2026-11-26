@@ -10,12 +10,6 @@ use Illuminate\Support\Facades\Route;
 // Globe Tracker - public main page
 Route::get('/', [SatelliteController::class , 'index'])->name('home');
 
-// Satellite data API (no auth required)
-Route::prefix('api')->group(function () {
-    Route::get('/satellites', [SatelliteController::class , 'api'])->name('satellites.api');
-    Route::get('/satellite-categories', [SatelliteController::class , 'categories'])->name('satellites.categories');
-});
-
 // Private API
 Route::prefix('api')->middleware('auth')->group(function () {
     Route::get('/user/favorites', [SatelliteAPIController::class , 'getFavorites'])->name('api.favorites.get');

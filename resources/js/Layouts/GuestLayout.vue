@@ -5,25 +5,10 @@ import { Link } from '@inertiajs/vue3';
 
 <template>
     <div class="guest-layout">
-        <!-- Stars background -->
-        <div class="stars-bg" aria-hidden="true">
-            <div class="star" v-for="i in 60" :key="i" :style="{
-                left: (Math.random() * 100) + '%',
-                top: (Math.random() * 100) + '%',
-                width: (Math.random() * 2 + 1) + 'px',
-                height: (Math.random() * 2 + 1) + 'px',
-                animationDelay: (Math.random() * 3) + 's',
-                animationDuration: (Math.random() * 3 + 2) + 's',
-            }" />
-        </div>
-
-        <!-- Glowing orb -->
-        <div class="glow-orb" aria-hidden="true" />
-
         <div class="guest-inner">
             <!-- Logo & Title -->
             <div class="guest-logo-wrap">
-                <Link href="/" class="guest-logo-link">
+                <Link href="/" class="guest-logo-link" aria-label="OrbitTrack — на главную">
                     <ApplicationLogo class="guest-logo" />
                 </Link>
                 <h1 class="guest-title">Orbit<span>Track</span></h1>
@@ -41,44 +26,14 @@ import { Link } from '@inertiajs/vue3';
 <style scoped>
 .guest-layout {
     min-height: 100vh;
-    background: linear-gradient(135deg, #0a0e1a 0%, #0d1b2e 40%, #0f1f35 70%, #080c18 100%);
+    background: var(--paper);
+    color: var(--ink);
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
     overflow: hidden;
-    font-family: 'Inter', system-ui, sans-serif;
-}
-
-/* Stars */
-.stars-bg {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-}
-.star {
-    position: absolute;
-    background: #fff;
-    border-radius: 50%;
-    opacity: 0.6;
-    animation: twinkle linear infinite;
-}
-@keyframes twinkle {
-    0%, 100% { opacity: 0.2; }
-    50% { opacity: 0.9; }
-}
-
-/* Glowing orb */
-.glow-orb {
-    position: absolute;
-    width: 600px;
-    height: 600px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(59, 130, 246, 0.12) 0%, transparent 70%);
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .guest-inner {
@@ -106,38 +61,35 @@ import { Link } from '@inertiajs/vue3';
     justify-content: center;
     width: 64px;
     height: 64px;
-    background: rgba(59, 130, 246, 0.15);
-    border: 1px solid rgba(59, 130, 246, 0.35);
-    border-radius: 16px;
+    background: var(--surface);
+    border: 1px solid var(--ink);
     margin-bottom: 1rem;
-    transition: background 0.3s, box-shadow 0.3s;
-    box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+    transition: background 0.2s;
 }
 .guest-logo-link:hover {
-    background: rgba(59, 130, 246, 0.25);
-    box-shadow: 0 0 30px rgba(59, 130, 246, 0.4);
+    background: var(--paper);
 }
 
 .guest-logo {
     width: 38px;
     height: 38px;
-    color: #60a5fa;
-    stroke: #60a5fa;
+    color: var(--ink);
+    stroke: var(--ink);
 }
 
 .guest-title {
     font-size: 1.75rem;
     font-weight: 700;
-    color: #f0f6ff;
+    color: var(--ink);
     letter-spacing: -0.5px;
     margin: 0;
 }
 .guest-title span {
-    color: #60a5fa;
+    color: var(--ink);
 }
 .guest-subtitle {
     font-size: 0.8rem;
-    color: #64748b;
+    color: var(--ink-muted);
     margin: 4px 0 0 0;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -146,15 +98,9 @@ import { Link } from '@inertiajs/vue3';
 /* Card */
 .guest-card {
     width: 100%;
-    background: rgba(15, 23, 42, 0.8);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
+    background: var(--paper);
+    border: 2px solid var(--ink);
     padding: 2rem 2rem 1.75rem;
-    box-shadow:
-        0 4px 6px rgba(0, 0, 0, 0.3),
-        0 20px 40px rgba(0, 0, 0, 0.4),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    box-shadow: var(--shadow-hard);
 }
 </style>

@@ -12,7 +12,7 @@
 
         <!-- PWA Meta Tags -->
         <link rel="manifest" href="/build/manifest.webmanifest">
-        <meta name="theme-color" content="#050505">
+        <meta name="theme-color" content="#F4F1EA">
         <link rel="apple-touch-icon" href="/pwa-192x192.png">
 
         <!-- Scripts -->
@@ -22,7 +22,7 @@
 
         <style>
             *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-            body { background: #050505; }
+            body { background: #F4F1EA; }
         </style>
     </head>
     <body class="antialiased">

@@ -14,15 +14,15 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // Create Privileges
-        $privilegeRead = \App\Models\Privilege::create(['name' => 'read', 'description' => 'Can read data']);
-        $privilegeWrite = \App\Models\Privilege::create(['name' => 'write', 'description' => 'Can create data']);
-        $privilegeEdit = \App\Models\Privilege::create(['name' => 'edit', 'description' => 'Can update data']);
-        $privilegeDelete = \App\Models\Privilege::create(['name' => 'delete', 'description' => 'Can delete data']);
+        $privilegeRead = \App\Models\Privilege::firstOrCreate(['name' => 'read'], ['description' => 'Can read data']);
+        $privilegeWrite = \App\Models\Privilege::firstOrCreate(['name' => 'write'], ['description' => 'Can create data']);
+        $privilegeEdit = \App\Models\Privilege::firstOrCreate(['name' => 'edit'], ['description' => 'Can update data']);
+        $privilegeDelete = \App\Models\Privilege::firstOrCreate(['name' => 'delete'], ['description' => 'Can delete data']);
 
         // Create Roles
-        $adminRole = \App\Models\Role::create(['name' => 'admin', 'description' => 'Administrator with full access']);
-        $userRole = \App\Models\Role::create(['name' => 'user', 'description' => 'Standard user']);
-        $guestRole = \App\Models\Role::create(['name' => 'guest', 'description' => 'Guest with read-only access']);
+        $adminRole = \App\Models\Role::firstOrCreate(['name' => 'admin'], ['description' => 'Administrator with full access']);
+        $userRole = \App\Models\Role::firstOrCreate(['name' => 'user'], ['description' => 'Standard user']);
+        $guestRole = \App\Models\Role::firstOrCreate(['name' => 'guest'], ['description' => 'Guest with read-only access']);
 
         // Assign Privileges to Roles
         $adminRole->privileges()->attach([$privilegeRead->id, $privilegeWrite->id, $privilegeEdit->id, $privilegeDelete->id]);
@@ -72,7 +72,7 @@ class DatabaseSeeder extends Seeder
         ]);
 
         // Create Default Categories
-        $categories = ['ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGATION', 'WEATHER', 'OTHER', 'Communication'];
+        $categories = ['ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGATION', 'WEATHER', 'TELESCOPE', 'OTHER'];
         foreach ($categories as $cat) {
             \App\Models\SatelliteCategory::firstOrCreate(['name' => $cat]);
         }

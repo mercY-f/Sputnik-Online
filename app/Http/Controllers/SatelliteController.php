@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Satellite;
+use App\Support\SatelliteCache;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 
 class SatelliteController extends Controller
@@ -20,8 +23,16 @@ class SatelliteController extends Controller
             $request->user()->load(['role', 'profile']);
         }
 
+        $categories = $this->getCategoriesData();
+        $maxUpdatedAt = Satellite::max('updated_at');
+
         return Inertia::render('Globe/Index', [
             'satelliteCount' => $count,
+            'categories' => $categories,
+            'tleStatus' => [
+                'epoch' => null,
+                'updatedAt' => $maxUpdatedAt ? Carbon::parse($maxUpdatedAt)->toISOString() : null,
+            ],
         ]);
     }
 
@@ -30,16 +41,30 @@ class SatelliteController extends Controller
      */
     public function api(Request $request)
     {
-        $category = $request->query('category', 'ALL');
+        $category = SatelliteCache::normalizeCategory($request->query('category', 'ALL'));
 
-        $query = Satellite::select('id', 'name', 'tle1', 'tle2', 'category');
-
-        if ($category !== 'ALL') {
-            $query->where('category', $category);
-        }
-
-        // Ограничиваем количество для нормальной работы JS в браузере
-        $satellites = $query->limit(3000)->get();
+        $satellites = Cache::remember(SatelliteCache::apiKey($category), 3600, function () use ($category) {
+            $query = Satellite::select(
+                'id',
+                'name',
+                'catalog_number',
+                'tle1',
+                'tle2',
+                'category',
+                'country',
+                'country_name',
+                'launch_date',
+                'launch_site',
+                'purpose',
+                'object_type',
+                'decay_date',
+                'rcs_size'
+            )->orderBy('id');
+            if ($category !== 'ALL') {
+                $query->where('category', $category);
+            }
+            return $query->get();
+        });
 
         return response()->json($satellites);
     }
@@ -49,16 +74,26 @@ class SatelliteController extends Controller
      */
     public function categories()
     {
-        $categories = Satellite::selectRaw('category, COUNT(*) as count')
-            ->groupBy('category')
-            ->orderBy('count', 'desc')
-            ->pluck('count', 'category');
+        return response()->json($this->getCategoriesData());
+    }
 
-        $allCount = Satellite::count();
+    /**
+     * Get cached category counts including total 'ALL' count.
+     */
+    protected function getCategoriesData(): array
+    {
+        return Cache::remember(SatelliteCache::categoriesKey(), 3600, function () {
+            $categories = Satellite::selectRaw('category, COUNT(*) as count')
+                ->groupBy('category')
+                ->orderBy('count', 'desc')
+                ->pluck('count', 'category');
 
-        return response()->json([
-            'ALL' => $allCount,
-            ...$categories->toArray(),
-        ]);
+            $allCount = Satellite::count();
+
+            return [
+                'ALL' => $allCount,
+                ...$categories->toArray(),
+            ];
+        });
     }
 }

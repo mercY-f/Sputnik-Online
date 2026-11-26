@@ -2,10 +2,12 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\SendTelegramAlert;
 use App\Models\AlertRule;
 use App\Services\SatellitePositionCalculator;
 use Illuminate\Console\Command;
-use Telegram\Bot\Laravel\Facades\Telegram;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class CheckSatelliteAlerts extends Command
 {
@@ -32,6 +34,34 @@ class CheckSatelliteAlerts extends Command
 
         $this->info("Checking {$rules->count()} active alert rule(s)...");
 
+        $satellitesById = [];
+        foreach ($rules as $rule) {
+            $s = $rule->satellite;
+            if ($s && $s->tle1 && $s->tle2) {
+                $satellitesById[$s->id] = $s;
+            }
+        }
+
+        $positions = $calculator->getPositionsBatch(
+            array_map(fn($s) => ['tle1' => $s->tle1, 'tle2' => $s->tle2], array_values($satellitesById)),
+            $now
+        );
+
+        $positionById = [];
+        foreach (array_keys($satellitesById) as $index => $id) {
+            $positionById[$id] = $positions[$index] ?? null;
+        }
+
+        // PostGIS path: persist sub-satellite points and resolve "in zone" set-wise.
+        // Non-pgsql drivers (sqlite test DB) keep the in-PHP haversine fallback.
+        $usePostgis = $this->isPostgisAvailable();
+        $zoneInfo   = [];
+
+        if ($usePostgis) {
+            $this->storeSubpoints($positionById, $now);
+            $zoneInfo = $this->fetchZoneInfo($rules->modelKeys(), (bool) $this->option('test'));
+        }
+
         foreach ($rules as $rule) {
             $satellite = $rule->satellite;
 
@@ -40,21 +70,28 @@ class CheckSatelliteAlerts extends Command
                 continue;
             }
 
-            $position = $calculator->getPosition($satellite->tle1, $satellite->tle2, $now);
+            $position = $positionById[$rule->satellite->id] ?? null;
 
             if (!$position) {
                 $this->warn("Could not compute position for satellite {$satellite->name}.");
                 continue;
             }
 
-            $distanceKm = $calculator->haversineDistance(
-                $rule->latitude, $rule->longitude,
-                $position['lat'], $position['lng']
-            );
+            if (isset($zoneInfo[$rule->id])) {
+                $distanceKm = $zoneInfo[$rule->id]['distance_km'];
+                $inRange    = $zoneInfo[$rule->id]['in_zone'];
+                $source     = 'postgis';
+            } else {
+                $distanceKm = $calculator->haversineDistance(
+                    $rule->latitude, $rule->longitude,
+                    $position['lat'], $position['lng']
+                );
+                $inRange = $distanceKm <= $rule->radius_km;
+                $source  = 'haversine';
+            }
 
-            $this->line("  [{$satellite->name}] at lat={$position['lat']}, lng={$position['lng']} | Distance to rule point: " . round($distanceKm) . " km (rule radius: {$rule->radius_km} km)");
+            $this->line("  [{$satellite->name}] at lat={$position['lat']}, lng={$position['lng']} | Distance to rule point: " . round($distanceKm) . " km (rule radius: {$rule->radius_km} km, {$source})");
 
-            $inRange = $distanceKm <= $rule->radius_km;
             $onCooldown = $rule->last_notified_at && $rule->last_notified_at->diffInHours(now()) < 4;
 
             if ($inRange || $this->option('test')) {
@@ -65,7 +102,8 @@ class CheckSatelliteAlerts extends Command
                 if ($this->option('test')) {
                     $this->info("  ⚡ TEST MODE: forcing notification regardless of distance.");
                 }
-                $this->sendTelegramAlert($rule, $satellite, $position, $distanceKm);
+                SendTelegramAlert::dispatch($rule->user->telegram_id, $this->buildAlertText($rule, $satellite, $position, $distanceKm));
+                $this->info("  📤 Queued Telegram alert for user #{$rule->user->id} ({$rule->user->name}) via Telegram!");
                 // Update last notified time
                 if (!$this->option('test')) {
                     $rule->update(['last_notified_at' => now()]);
@@ -76,16 +114,114 @@ class CheckSatelliteAlerts extends Command
         $this->info('Done.');
     }
 
-    private function sendTelegramAlert(AlertRule $rule, $satellite, array $position, float $distance): void
+    private function isPostgisAvailable(): bool
     {
-        $userName = $rule->user->name;
-        $satName  = htmlspecialchars($satellite->name);
-        $dist     = round($distance);
-        $lat      = $position['lat'];
-        $lng      = $position['lng'];
-        $alt      = $position['alt_km'];
+        return DB::connection()->getDriverName() === 'pgsql';
+    }
 
-        $text = "🚨 <b>Спутник рядом!</b>\n\n"
+    /**
+     * Upsert the freshly computed sub-satellite points into satellite_subpoints
+     * in a single statement (ST_MakePoint takes longitude first, then latitude).
+     *
+     * @param array<int, array{lat: float, lng: float, alt_km: float}|null> $positionById
+     */
+    private function storeSubpoints(array $positionById, \DateTime $now): void
+    {
+        $rows = [];
+        foreach ($positionById as $satelliteId => $position) {
+            if (!$position || !isset($position['lat'], $position['lng'])) {
+                continue;
+            }
+
+            $rows[] = [
+                'id'     => (int) $satelliteId,
+                'lat'    => (float) $position['lat'],
+                'lng'    => (float) $position['lng'],
+                'alt_km' => isset($position['alt_km']) ? (float) $position['alt_km'] : null,
+            ];
+        }
+
+        if ($rows === []) {
+            return;
+        }
+
+        try {
+            DB::statement(
+                <<<'SQL'
+                INSERT INTO satellite_subpoints (satellite_id, position, alt_km, computed_at)
+                SELECT s.id,
+                       ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)::geography,
+                       s.alt_km,
+                       ?::timestamp
+                FROM jsonb_to_recordset(?::jsonb)
+                     AS s(id bigint, lat double precision, lng double precision, alt_km real)
+                ON CONFLICT (satellite_id) DO UPDATE
+                   SET position    = EXCLUDED.position,
+                       alt_km      = EXCLUDED.alt_km,
+                       computed_at = EXCLUDED.computed_at
+                SQL,
+                [$now->format('Y-m-d H:i:s'), json_encode($rows)]
+            );
+        } catch (\Throwable $e) {
+            Log::warning('CheckSatelliteAlerts: failed to upsert satellite_subpoints, falling back to haversine.', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Resolve distance/containment for all rules in one query using ST_DWithin + ST_Distance.
+     *
+     * @param  int[] $ruleIds
+     * @return array<int, array{distance_km: float, in_zone: bool}>
+     */
+    private function fetchZoneInfo(array $ruleIds, bool $force = false): array
+    {
+        if ($ruleIds === []) {
+            return [];
+        }
+
+        try {
+            $rows = DB::select(
+                <<<'SQL'
+                SELECT ar.id AS rule_id,
+                       ST_Distance(sp.position, ar.zone) AS distance_m,
+                       (ST_DWithin(sp.position, ar.zone, ar.radius_km * 1000) OR ?::boolean) AS in_zone
+                FROM alert_rules ar
+                JOIN satellite_subpoints sp ON sp.satellite_id = ar.satellite_id
+                WHERE ar.is_active = true
+                  AND ar.id = ANY(?::bigint[])
+                SQL,
+                [$force, '{' . implode(',', array_map('intval', $ruleIds)) . '}']
+            );
+        } catch (\Throwable $e) {
+            Log::warning('CheckSatelliteAlerts: PostGIS zone query failed, falling back to haversine.', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+
+        $result = [];
+        foreach ($rows as $row) {
+            $result[(int) $row->rule_id] = [
+                'distance_km' => ((float) $row->distance_m) / 1000.0,
+                'in_zone'     => $row->in_zone === true || $row->in_zone === 't' || $row->in_zone === 1,
+            ];
+        }
+
+        return $result;
+    }
+
+    private function buildAlertText($rule, $satellite, $position, $distance): string
+    {
+        $satName = htmlspecialchars($satellite->name);
+        $dist    = round($distance);
+        $lat     = $position['lat'];
+        $lng     = $position['lng'];
+        $alt     = $position['alt_km'];
+
+        return "🚨 <b>Спутник рядом!</b>\n\n"
             . "🛰️ <b>{$satName}</b> сейчас пролетает над вашей зоной наблюдения!\n\n"
             . "📍 Текущая позиция спутника:\n"
             . "  Широта: <b>{$lat}°</b>\n"
@@ -94,16 +230,5 @@ class CheckSatelliteAlerts extends Command
             . "📏 Расстояние до вашей точки: <b>{$dist} км</b>\n"
             . "🟢 Радиус вашей зоны: <b>{$rule->radius_km} км</b>\n\n"
             . "<i>Уведомление от Earth Orbit Live 🌍</i>";
-
-        try {
-            Telegram::sendMessage([
-                'chat_id'    => $rule->user->telegram_id,
-                'text'       => $text,
-                'parse_mode' => 'HTML',
-            ]);
-            $this->info("  ✅ Notification sent to user #{$rule->user->id} ({$userName}) via Telegram!");
-        } catch (\Exception $e) {
-            $this->error("  ❌ Failed to send Telegram message: " . $e->getMessage());
-        }
     }
 }

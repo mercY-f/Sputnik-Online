@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Спутник-Онлайн // Стресс-тест глиф-атласа [1-BIT D0]</title>
+  <style>
+    :root {
+      --paper: #F4F1EA;
+      --ink: #0E0E0E;
+      --ink-muted: #5C5A54;
+      --surface: #E8E4DA;
+      --surface-active: #0E0E0E;
+      --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'Courier New', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      border-radius: 0;
+    }
+
+    html, body {
+      background-color: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.4;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* Top Header Bar */
+    .top-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 36px;
+      background: var(--paper);
+      border-bottom: 1px solid var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      z-index: 20;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .top-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .top-brand .dot {
+      width: 8px;
+      height: 8px;
+      background: var(--ink);
+    }
+    .top-brand .title {
+      font-size: 12px;
+    }
+    .top-badge {
+      font-size: 10px;
+      background: var(--surface);
+      border: 1px solid var(--ink);
+      padding: 2px 8px;
+    }
+
+    /* HUD Panels */
+    .hud-panel {
+      position: absolute;
+      z-index: 20;
+      background: rgba(244, 241, 234, 0.94);
+      border: 1px solid var(--ink);
+      padding: 12px;
+      box-shadow: 3px 3px 0 var(--ink);
+    }
+
+    .hud-left {
+      top: 48px;
+      left: 16px;
+      width: 290px;
+    }
+
+    .hud-right {
+      top: 48px;
+      right: 16px;
+      width: 290px;
+    }
+
+    .hud-bottom {
+      bottom: 16px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 8px 14px;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--ink);
+      padding-bottom: 4px;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      letter-spacing: 0.04em;
+    }
+
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 4px;
+    }
+    .metric-label {
+      color: var(--ink-muted);
+    }
+    .metric-val {
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .metric-val.large {
+      font-size: 20px;
+      line-height: 1.1;
+    }
+    .metric-val.highlight {
+      background: var(--ink);
+      color: var(--paper);
+      padding: 1px 5px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--ink);
+      opacity: 0.25;
+      margin: 8px 0;
+    }
+
+    /* Buttons and controls */
+    .btn-group {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .btn-group.cols-2 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .btn-group.cols-3 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    button.btn {
+      background: var(--paper);
+      color: var(--ink);
+      border: 1px solid var(--ink);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 6px;
+      cursor: pointer;
+      transition: background 0.1s;
+      text-align: center;
+    }
+    button.btn:hover {
+      background: var(--surface);
+    }
+    button.btn.active {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    /* Target details card */
+    .target-card {
+      background: var(--surface);
+      border: 1px dashed var(--ink);
+      padding: 8px;
+      margin-top: 8px;
+    }
+    .target-header {
+      font-weight: 700;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .target-glyph-badge {
+      display: inline-block;
+      width: 15px;
+      height: 15px;
+      text-align: center;
+      line-height: 13px;
+      border: 1px solid var(--ink);
+      background: var(--paper);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    /* Atlas preview in bottom HUD */
+    .atlas-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .atlas-strip canvas {
+      border: 1px solid var(--ink);
+      image-rendering: pixelated;
+      height: 28px;
+    }
+    .atlas-legend {
+      display: flex;
+      gap: 6px;
+      font-size: 10px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .legend-box {
+      width: 13px;
+      height: 13px;
+      border: 1px solid var(--ink);
+      background: var(--paper);
+      font-weight: 700;
+      text-align: center;
+      line-height: 11px;
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three.module.js",
+      "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- Header -->
+  <div class="top-bar">
+    <div class="top-brand">
+      <div class="dot"></div>
+      <span class="title">SPUTNIK-ONLINE // GLYPH ATLAS STRESS TEST</span>
+      <span class="top-badge">STAGE D0 · 1-BIT ARCHITECTURE</span>
+    </div>
+    <div>
+      <span id="hdr-target">TARGET: 10–15K OBJECTS · FPS ≥ 55 · 1 DRAW CALL</span>
+    </div>
+  </div>
+
+  <!-- 3D Canvas Container -->
+  <div id="canvas-container"></div>
+
+  <!-- Left HUD: Real-time Telemetry -->
+  <div class="hud-panel hud-left">
+    <div class="panel-title">
+      <span>PERFORMANCE HUD</span>
+      <span id="fps-badge" class="metric-val highlight">PASS</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">FPS (AVG 60F):</span>
+      <span id="fps-val" class="metric-val large">--</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">FRAME TIME:</span>
+      <span id="frame-time-val" class="metric-val">-- ms</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">TOTAL POINTS:</span>
+      <span id="points-val" class="metric-val">12,000</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">DRAW CALLS:</span>
+      <span id="drawcalls-val" class="metric-val highlight">1</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">CAMERA ALTITUDE:</span>
+      <span id="alt-val" class="metric-val">-- R</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">CURRENT LOD:</span>
+      <span id="lod-val" class="metric-val">--</span>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Target details -->
+    <div class="panel-title">
+      <span>INSPECTED TARGET (RAYCAST 10PX)</span>
+    </div>
+    <div id="target-box" class="target-card">
+      <div class="target-header">
+        <span id="target-glyph" class="target-glyph-badge">-</span>
+        <span id="target-name">HOVER OVER GLYPH TO PICK</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">CATEGORY:</span>
+        <span id="target-cat" class="metric-val">--</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">CATALOG #:</span>
+        <span id="target-norad" class="metric-val">--</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">ALTITUDE:</span>
+        <span id="target-alt" class="metric-val">-- km</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">INCLINATION:</span>
+        <span id="target-incl" class="metric-val">--°</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right HUD: Controls & Stress Knobs -->
+  <div class="hud-panel hud-right">
+    <div class="panel-title">STRESS TEST CONFIGURATION</div>
+
+    <div class="metric-label" style="margin-bottom: 4px;">OBJECT COUNT:</div>
+    <div class="btn-group">
+      <button class="btn" data-count="5000">5K</button>
+      <button class="btn" data-count="10000">10K</button>
+      <button class="btn active" data-count="12000">12K</button>
+      <button class="btn" data-count="15000">15K</button>
+    </div>
+
+    <div class="metric-label" style="margin-bottom: 4px;">LOD MODE:</div>
+    <div class="btn-group cols-2">
+      <button id="btn-lod-on" class="btn active">LOD: ON</button>
+      <button id="btn-lod-off" class="btn">LOD: OFF (FORCE GLYPHS)</button>
+    </div>
+
+    <div class="metric-label" style="margin-bottom: 4px;">GLYPH BASE SIZE:</div>
+    <div class="btn-group">
+      <button class="btn" data-size="12">12PX</button>
+      <button class="btn active" data-size="16">16PX</button>
+      <button class="btn" data-size="20">20PX</button>
+      <button class="btn" data-size="24">24PX</button>
+    </div>
+
+    <div class="metric-label" style="margin-bottom: 4px;">LIMB OCCLUSION CULLING:</div>
+    <div class="btn-group cols-2">
+      <button id="btn-limb-on" class="btn active">CULL: ON</button>
+      <button id="btn-limb-off" class="btn">CULL: OFF</button>
+    </div>
+
+    <div class="metric-label" style="margin-bottom: 4px;">ORBIT MOTION / VIEW:</div>
+    <div class="btn-group cols-2">
+      <button id="btn-anim" class="btn active">ORBITS: PLAY</button>
+      <button id="btn-reset-cam" class="btn">RESET VIEW</button>
+    </div>
+
+    <div class="metric-label" style="margin-bottom: 4px;">CAMERA ALTITUDE PRESETS:</div>
+    <div class="btn-group cols-3">
+      <button id="cam-near" class="btn">NEAR (0.8R)</button>
+      <button id="cam-mid" class="btn">MID (1.8R)</button>
+      <button id="cam-far" class="btn">FAR (3.5R)</button>
+    </div>
+  </div>
+
+  <!-- Bottom HUD: Atlas preview and instructions -->
+  <div class="hud-panel hud-bottom">
+    <div class="atlas-strip">
+      <span class="metric-label" style="font-weight: 700; color: var(--ink);">GLYPH ATLAS (8 CELLS):</span>
+      <canvas id="atlas-preview" title="Canvas glyph atlas live view"></canvas>
+      <div class="atlas-legend">
+        <div class="legend-item"><div class="legend-box">S</div> STARLINK</div>
+        <div class="legend-item"><div class="legend-box">O</div> ONEWEB</div>
+        <div class="legend-item"><div class="legend-box">N</div> NAV</div>
+        <div class="legend-item"><div class="legend-box">T</div> TELE</div>
+        <div class="legend-item"><div class="legend-box">I</div> ISS</div>
+        <div class="legend-item"><div class="legend-box">R</div> IRID</div>
+        <div class="legend-item"><div class="legend-box">W</div> WEATH</div>
+        <div class="legend-item"><div class="legend-box">×</div> OTHER</div>
+      </div>
+    </div>
+    <div style="text-align: right; color: var(--ink-muted); font-size: 10px;">
+      LOD THRESHOLDS: FAR &gt; 2.2R (DOTS) · MID 1.4–2.2R · NEAR &lt; 1.4R (GLYPHS)<br>
+      DRAG TO ROTATE · SCROLL TO ZOOM · HOVER TO PICK · CLICK TO LOCK
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

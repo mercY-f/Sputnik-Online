@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Satellite;
+use App\Support\SatelliteCache;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 
@@ -19,6 +20,7 @@ class FetchSatellites extends Command
         'IRIDIUM' => ['IRIDIUM'],
         'NAVIGATION' => ['NAVSTAR', 'GLONASS', 'GALILEO', 'BEIDOU'],
         'WEATHER' => ['NOAA', 'GOES', 'METEOR'],
+        'TELESCOPE' => ['HST', 'XMM-NEWTON', 'NUSTAR', 'CHEOPS', 'SWIFT'],
     ];
 
     public function handle(): int
@@ -41,15 +43,16 @@ class FetchSatellites extends Command
             $satellites = $this->parseTLE($response->body());
             $this->info('Parsed ' . count($satellites) . ' satellites. Saving to DB...');
 
-            $saved = 0;
-            foreach ($satellites as $sat) {
-                Satellite::updateOrCreate(
-                ['catalog_number' => $sat['catalog_number']],
-                    $sat
-                );
-                $saved++;
-            }
+            $now = now();
+            \Illuminate\Support\Facades\DB::transaction(function () use ($satellites) {
+                foreach (array_chunk($satellites, 1000) as $chunk) {
+                    Satellite::upsert($chunk, ['catalog_number'], ['name', 'category', 'tle1', 'tle2']);
+                }
+            });
 
+            SatelliteCache::forgetCatalog();
+
+            $saved = count($satellites);
             $this->info("Done! Saved/updated {$saved} satellites.");
             return self::SUCCESS;
 

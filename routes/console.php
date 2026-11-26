@@ -10,7 +10,7 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote')->hourly();
 
 // Fetch TLE satellite data twice a day
-Schedule::command('satellites:fetch')->twiceDaily(1, 13);
+Schedule::command('satellites:fetch')->twiceDaily(1, 13)->withoutOverlapping();
 
 // Check satellite proximity alerts every minute
-Schedule::command('satellites:check-alerts')->everyMinute();
+Schedule::command('satellites:check-alerts')->everyMinute()->withoutOverlapping()->onOneServer();

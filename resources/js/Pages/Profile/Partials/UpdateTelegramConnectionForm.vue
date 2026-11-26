@@ -29,11 +29,11 @@ const disconnectTelegram = () => {
 <template>
     <section>
         <header>
-            <h2 class="text-lg font-medium text-gray-900">
+            <h2 class="text-lg font-medium text-ink">
                 Подключение Telegram
             </h2>
 
-            <p class="mt-1 text-sm text-gray-600">
+            <p class="mt-1 text-sm text-ink-muted">
                 Привяжите свой аккаунт Telegram для получения уведомлений о пролетах спутников.
             </p>
         </header>
@@ -41,7 +41,7 @@ const disconnectTelegram = () => {
         <div class="mt-6">
             <!-- Already connected -->
             <div v-if="user.telegram_id" class="flex items-center gap-4">
-                <p class="text-sm text-green-600 font-medium">
+                <p class="text-sm text-ink font-medium">
                     ✅ Ваш Telegram аккаунт успешно подключен!
                 </p>
                 <DangerButton :class="{ 'opacity-25': disconnectForm.processing }" :disabled="disconnectForm.processing" @click="disconnectTelegram">
@@ -51,23 +51,23 @@ const disconnectTelegram = () => {
 
             <!-- Wait for connection -->
             <div v-else-if="user.telegram_link_token" class="space-y-4">
-                <p class="text-sm text-yellow-600 font-medium pb-2 border-b border-gray-100">
+                <p class="text-sm text-ink-muted font-medium pb-2 border-b border-ink">
                     Ожидание подключения...
                 </p>
                 
-                <div class="bg-gray-50 p-4 rounded-md border border-gray-200">
-                    <p class="text-sm text-gray-800 mb-2">
-                        1. Откройте нашего Telegram бота <strong><a href="https://t.me/earth_orbit_live_bot" target="_blank" class="text-indigo-600 hover:underline">@earth_orbit_live_bot</a></strong>
+                <div class="bg-surface p-4 border border-ink">
+                    <p class="text-sm text-ink mb-2">
+                        1. Откройте нашего Telegram бота <strong><a href="https://t.me/earth_orbit_live_bot" target="_blank" class="text-ink underline hover:text-ink-muted">@earth_orbit_live_bot</a></strong>
                     </p>
-                    <p class="text-sm text-gray-800">
+                    <p class="text-sm text-ink">
                         2. Отправьте боту следующую команду для привязки:
                     </p>
-                    <div class="mt-3 flex items-center justify-between bg-white px-3 py-2 border rounded shadow-sm">
-                        <code class="text-sm font-semibold text-indigo-700 select-all">/link {{ user.telegram_link_token }}</code>
+                    <div class="mt-3 flex items-center justify-between bg-surface border border-ink px-3 py-2">
+                        <code class="text-sm font-mono font-semibold text-ink select-all">/link {{ user.telegram_link_token }}</code>
                     </div>
                 </div>
 
-                <p class="text-xs text-gray-500 mt-2">
+                <p class="text-xs text-ink-muted mt-2">
                     Этот токен будет недействителен после использования. Для генерации нового токена, нажмите кнопку ниже.
                 </p>
 
@@ -78,7 +78,7 @@ const disconnectTelegram = () => {
 
             <!-- Not connected, no token -->
             <div v-else>
-                <p class="text-sm text-gray-600 mb-4">
+                <p class="text-sm text-ink-muted mb-4">
                     Telegram не подключен. Сгенерируйте уникальный токен для безопасной привязки аккаунта.
                 </p>
                 

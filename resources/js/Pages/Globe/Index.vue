@@ -1,206 +1,275 @@
 <template>
-  <div class="globe-wrapper">
-    <!-- Floating open button (when sidebar is closed) -->
-    <button
-      v-if="!sidebarOpen"
-      @click="sidebarOpen = true"
-      class="floating-btn"
-      title="Open Panel"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-    </button>
-
-    <!-- Sidebar Panel -->
-    <aside class="sidebar" :class="{ open: sidebarOpen }">
-      <div class="sidebar-header">
-        <h1>Earth Orbit Live</h1>
-        <button @click="sidebarOpen = false" class="close-btn" title="Close Panel">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-      </div>
-
-      <!-- Auth Navigation Overlay for Sidebar -->
-      <div class="auth-nav">
-        <template v-if="user">
-          <div class="user-greeting">Welcome, {{ user.name }}</div>
-          <div class="auth-links">
-            <Link :href="route('dashboard')" class="auth-btn">Dashboard</Link>
-            <Link v-if="user.role?.name === 'admin'" :href="route('admin.dashboard')" class="auth-btn">Admin</Link>
-            <Link :href="route('profile.edit')" class="auth-btn outline">Profile</Link>
-          </div>
-        </template>
-        <template v-else>
-          <div class="auth-links">
-            <Link :href="route('login')" class="auth-btn">Log in</Link>
-            <Link :href="route('register')" class="auth-btn outline">Register</Link>
-          </div>
-        </template>
-      </div>
-
-      <!-- Loading state -->
-      <div v-if="loading" class="loading-state">
-        <span class="spinner"></span>
-        <p>Acquiring satellite telemetry...</p>
-      </div>
-
-      <template v-else>
-        <!-- Stats -->
-        <div class="stats-block">
-          <div class="stat-row">
-            <span class="stat-label">Tracked Objects</span>
-            <span class="stat-value emerald">{{ satPositions.length.toLocaleString() }}</span>
-          </div>
-          <div class="stat-row mt-1">
-            <span class="stat-label">System Time</span>
-            <span class="stat-value mono">{{ utcTime }}</span>
-          </div>
+  <div class="relative flex h-screen flex-col overflow-hidden bg-paper text-ink">
+    <TopBar
+      :utc-time="utcTime"
+      :tle-status="page.props.tleStatus"
+      :satellites="filteredSatellites"
+      :catalog-open="sidebarOpen"
+      @select="focusSatellite"
+      @focus-catalog-number="focusByCatalogNumber"
+      @toggle-catalog="sidebarOpen = !sidebarOpen"
+    />
+    <CategoryChips
+      :catalog-open="sidebarOpen"
+      :inspector-open="!!selectedSatellite"
+      @select="applyFilter"
+    />
+    <main class="relative flex-1 min-h-0">
+      <div class="hero-main">
+      <div class="globe-area">
+        <!-- Focus indicator (1-bit overlay above the globe) -->
+        <div v-if="focusTarget" class="focus-indicator">
+          <span class="focus-dot"></span>
+          <span class="focus-label">◎ FOCUS — {{ focusTarget }}</span>
+          <button class="focus-close" title="Clear focus" aria-label="Сбросить фокус" @click="clearFocus">✕</button>
         </div>
 
-        <!-- Category filters -->
-        <div class="filter-block">
-          <span class="block-label">Filter Constellation</span>
-          <div class="category-tags">
-            <button
-              v-for="cat in availableCategories"
-              :key="cat"
-              @click="setFilter(cat)"
-              class="cat-tag"
-              :class="{ active: activeFilter === cat }"
-            >
-              {{ cat }}
-            </button>
-          </div>
-        </div>
+        <!-- Hover HUD: имя аппарата под курсором (пикинг, Спринт 4) -->
+        <div
+          v-if="hoverSat"
+          class="hover-label"
+          :style="{
+            left: hoverSat.x + 'px',
+            top: hoverSat.y + 'px',
+            transform: hoverSat.flip ? 'translate(-100%, -50%)' : 'translate(0, -50%)',
+          }"
+        >◎ {{ hoverSat.name }}</div>
 
-        <!-- Satellite List -->
-        <div class="sat-list-block">
-          <span class="block-label">Satellite List{{ satPositions.length > 100 ? ' (Top 100)' : '' }}</span>
-          <div class="sat-list">
-            <div
-              v-for="sat in satPositions.slice(0, 100)"
-              :key="sat.id || sat.name"
-              class="sat-row-container"
-            >
-              <button
-                @click="focusSatellite(sat)"
-                class="sat-row"
-              >
-                <span class="sat-dot" :style="{ backgroundColor: getCategoryColor(sat.category) }"></span>
-                <span class="sat-name">{{ sat.name }}</span>
-              </button>
-              <button v-if="user" @click="toggleFavorite(sat)" class="fav-btn" :class="{ isFav: isFavorite(sat) }" title="Toggle Favorite">
-                ★
+        <!-- Debug HUD спутникового слоя: ?debug=1 (FPS + реально отрисованные инстансы) -->
+        <div v-if="debugStats" class="debug-hud">
+          <div class="debug-row"><span>FPS</span><b>{{ debugStats.fps }}</b></div>
+          <div class="debug-row"><span>DRAWN</span><b>{{ debugStats.drawn }} / {{ debugStats.total }}</b></div>
+          <div class="debug-row"><span>SPHERES</span><b>{{ debugStats.near }}</b></div>
+          <div class="debug-row"><span>POINTS</span><b>{{ debugStats.points }}</b></div>
+          <div class="debug-row"><span>CULL FRUSTUM</span><b>{{ debugStats.frustum }}</b></div>
+          <div class="debug-row"><span>CULL LIMB</span><b>{{ debugStats.limb }}</b></div>
+        </div>
+        <!-- Catalog Drawer (U3) -->
+        <CatalogDrawer
+          :open="sidebarOpen"
+          :satellites="satPositions"
+          :user="user"
+          :user-favorites="userFavorites"
+          @close="sidebarOpen = false"
+          @select="focusSatellite"
+          @focus-catalog-number="focusByCatalogNumber"
+          @toggle-favorite="toggleFavorite"
+          @set-filter="applyFilter"
+        />
+
+        <!-- Layer toggles (D2) -->
+        <LayerToggles :inspector-open="!!selectedSatellite" />
+
+        <!-- Globe Container -->
+        <div v-show="webglSupported" ref="globeContainer" class="globe-container"></div>
+
+        <!-- WebGL Fallback (если WebGL недоступен или отключён) -->
+        <div v-if="!webglSupported" class="webgl-fallback">
+          <div class="webgl-card">
+            <div class="webgl-badge">
+              <span class="warning-dot"></span>
+              HARDWARE ACCELERATION UNAVAILABLE
+            </div>
+            <h2 class="webgl-title">3D-режим отключён (WebGL недоступен)</h2>
+            <p class="webgl-desc">
+              Ваш браузер или видеокарта не поддерживает аппаратное ускорение WebGL либо оно отключено в настройках.
+              Интерфейс переведён в 2D-режим телеметрии — каталог спутников и расчёт орбит продолжают работать в реальном времени.
+            </p>
+
+            <div class="webgl-stats-grid">
+              <div class="stat-card">
+                <span class="stat-name">Спутников в каталоге</span>
+                <span class="stat-num mono">{{ filteredSatellites.length.toLocaleString() }}</span>
+              </div>
+              <div class="stat-card">
+                <span class="stat-name">Системное время UTC</span>
+                <span class="stat-num mono">{{ utcTime }}</span>
+              </div>
+              <div class="stat-card">
+                <span class="stat-name">Активная группировка</span>
+                <span class="stat-num">{{ filtersStore.activeFilter }}</span>
+              </div>
+            </div>
+
+            <div class="fallback-telemetry" v-if="filteredSatellites.length > 0">
+              <div class="telemetry-header">Оперативная телеметрия (Top 5)</div>
+              <div class="telemetry-table">
+                <div class="t-row t-head">
+                  <span>Имя</span>
+                  <span>Категория</span>
+                  <span>Широта</span>
+                  <span>Долгота</span>
+                  <span>Высота</span>
+                </div>
+                <div v-for="s in filteredSatellites.slice(0, 5)" :key="s.id || s.name" class="t-row">
+                  <span class="t-name font-mono">{{ s.name }}</span>
+                  <span class="t-cat">{{ s.category }}</span>
+                  <span class="t-num font-mono">{{ s.lat != null ? s.lat.toFixed(2) + '°' : '—' }}</span>
+                  <span class="t-num font-mono">{{ s.lng != null ? s.lng.toFixed(2) + '°' : '—' }}</span>
+                  <span class="t-num font-mono">{{ s.altKm != null ? Math.round(s.altKm) + ' км' : '—' }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="webgl-actions">
+              <button class="retry-btn" @click="retryInitGlobe">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Повторить попытку инициализации WebGL
               </button>
             </div>
           </div>
         </div>
-      </template>
-    </aside>
 
-    <!-- Globe Container -->
-    <div ref="globeContainer" class="globe-container"></div>
+        <!-- Floating Glass Satellite Card -->
+        <transition name="sat-card-transition">
+          <div
+            v-if="selectedSatellite"
+            class="satellite-card-container"
+          >
+            <SatelliteCard
+              :satellite="selectedSatellite"
+              :is-favorite="isFavorite(selectedSatellite)"
+              @close="clearFocus"
+              @toggle-favorite="toggleFavorite(selectedSatellite)"
+            />
+          </div>
+        </transition>
+      </div>
+    </div>
+    </main>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import axios from 'axios';
-import Globe from 'globe.gl';
-import * as satellite from 'satellite.js';
-import * as THREE from 'three';
+import { TopBar, CategoryChips, SatelliteCard, CatalogDrawer } from '@/components/mission';
+import LayerToggles from '@/components/mission/LayerToggles.vue';
+import { useCatalogStore } from '@/stores/useCatalogStore';
+import { useSelectionStore } from '@/stores/useSelectionStore';
+import { useGlobeScene } from '@/composables/useGlobeScene';
+import { useFiltersStore } from '@/stores/useFiltersStore';
+import { matchesFilter, CHIPS } from '@/lib/categoryMeta';
 
 const page = usePage();
 const user = computed(() => page.props.auth.user);
 
-// -----------------------------------------------------------------------
-// Константы
-// -----------------------------------------------------------------------
-const CATEGORY_COLORS = {
-  ISS:        '#ef4444',
-  STARLINK:   '#3b82f6',
-  ONEWEB:     '#8b5cf6',
-  IRIDIUM:    '#f59e0b',
-  NAVIGATION: '#eab308',
-  WEATHER:    '#06b6d4',
-  OTHER:      '#10b981',
-};
+const filtersStore = useFiltersStore();
+const catalogStore = useCatalogStore();
+const selectionStore = useSelectionStore();
 
-const CATEGORIES_ORDER = ['ALL', 'ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGATION', 'WEATHER', 'OTHER'];
-
-const SAT_GEOMETRY  = new THREE.SphereGeometry(0.08, 8, 8);
-const ISS_GEOMETRY  = new THREE.SphereGeometry(0.20, 16, 16);
-
-const makeMaterial = (color) => new THREE.MeshBasicMaterial({ color });
-const MATERIALS = Object.fromEntries(
-  Object.entries(CATEGORY_COLORS).map(([k, v]) => [k, makeMaterial(v)])
-);
-
-function getCategoryColor(cat) {
-  return CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.OTHER;
+function hydrateCategoryCounts(counts) {
+  const payload = { ...(counts || {}) };
+  if (page.props.satelliteCount != null) {
+    payload.ALL = page.props.satelliteCount;
+  }
+  filtersStore.hydrate(payload);
 }
+
+// Первичное заполнение счётчиков из Inertia-пропсов (Шаг 1)
+hydrateCategoryCounts(page.props.categories);
+
+const CATEGORIES_ORDER = ['ALL', 'ISS', 'STARLINK', 'ONEWEB', 'IRIDIUM', 'NAVIGATION', 'WEATHER', 'TELESCOPE', 'OTHER'];
 
 // -----------------------------------------------------------------------
 // Реактивное состояние
 // -----------------------------------------------------------------------
 const globeContainer = ref(null);
 const loading        = ref(true);
-const sidebarOpen    = ref(true);
-const activeFilter   = ref('ALL');
+// На мобильных (<= 640px) каталог стартует закрытым: он занимает нижние 70vh
+const MOBILE_QUERY   = '(max-width: 640px)';
+const initialMobile  = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+  ? window.matchMedia(MOBILE_QUERY).matches
+  : false;
+const isMobile       = ref(initialMobile);
+const sidebarOpen    = ref(!initialMobile);
+const activeFilter   = ref(filtersStore.activeFilter);
 const satPositions   = ref([]);
-const utcTime        = ref('');
+const focusTarget    = ref(null);
+const selectedSatellite = ref(null);
 const availableCategories = ref(['ALL']);
 const userFavorites  = ref([]);
 
-// Внутренние переменные
-let allSatellites    = [];
-let activeSats       = [];
-let globeInstance    = null;
-let animationFrame   = null;
-let clockInterval    = null;
-let resizeObserver   = null;
+const {
+  utcTime,
+  webglSupported,
+  hoverSat,
+  debugStats,
+  retryInitGlobe,
+  setFilter: sceneSetFilter,
+  focusSatellite,
+  focusByCatalogNumber,
+  clearFocus,
+} = useGlobeScene({
+  globeContainer,
+  loading,
+  activeFilter,
+  satPositions,
+  focusTarget,
+  selectedSatellite,
+});
 
-// -----------------------------------------------------------------------
-// Загрузка данных о спутниках
-// -----------------------------------------------------------------------
-async function fetchData() {
-  loading.value = true;
-  try {
-    let url = '/api/satellites';
-    let data = [];
-
-    if (activeFilter.value === 'FAVORITES') {
-      const res = await axios.get('/api/user/favorites');
-      data = res.data.favorites;
-    } else {
-      if (activeFilter.value !== 'ALL') {
-          url = `/api/satellites?category=${activeFilter.value}`;
-      }
-      const res = await axios.get(url);
-      data = res.data;
-    }
-
-    // Парсинг TLE с помощью satellite.js
-    allSatellites = data
-      .map(sat => {
-        try {
-          const satrec = satellite.twoline2satrec(sat.tle1, sat.tle2);
-          return { id: sat.id, name: sat.name, category: sat.category, satrec };
-        } catch { return null; }
-      })
-      .filter(Boolean);
-
-  } catch (e) {
-    console.error('Failed to fetch satellites:', e);
-  }
-  loading.value = false;
-  startAnimation();
+function applyFilter(catId) {
+  filtersStore.setFilter(catId);
+  sceneSetFilter(catId);
 }
+
+watch(
+  () => filtersStore.activeFilter,
+  (newFilter) => {
+    if (newFilter && newFilter !== activeFilter.value) {
+      sceneSetFilter(newFilter);
+    }
+  }
+);
+
+// Взаимоисключение двух bottom-sheet на мобильных: одновременно открыт только один,
+// иначе каталог и карточка аппарата накрывают друг друга снизу экрана.
+watch(sidebarOpen, (open) => {
+  if (typeof document !== 'undefined') {
+    document.body.classList.toggle('catalog-open', !!open);
+  }
+  if (open && isMobile.value && selectedSatellite.value) {
+    selectedSatellite.value = null;
+  }
+}, { immediate: true });
+
+watch(selectedSatellite, (sat) => {
+  if (typeof document !== 'undefined') {
+    document.body.classList.toggle('inspector-open', !!sat);
+  }
+  if (sat) {
+    selectionStore.select(sat);
+    if (isMobile.value && sidebarOpen.value) {
+      sidebarOpen.value = false;
+    }
+  } else {
+    selectionStore.clear();
+  }
+}, { immediate: true });
+
+watch(satPositions, (newSats) => {
+  if (Array.isArray(newSats) && newSats.length > 0) {
+    catalogStore.hydrate(newSats);
+  }
+}, { immediate: true });
+
+const filteredSatellites = computed(() => {
+  const current = filtersStore.activeFilter;
+  if (!current || current === 'ALL') {
+    return satPositions.value;
+  }
+  return satPositions.value.filter((sat) => matchesFilter(sat, current));
+});
 
 async function fetchCategories() {
   try {
     const res  = await axios.get('/api/satellite-categories');
     const data = res.data;
+    if (data && typeof data === 'object') {
+      hydrateCategoryCounts(data);
+    }
 
     // Определяем доступные фильтры на основе полученных данных
     const found = CATEGORIES_ORDER.filter(c => c === 'ALL' || data[c] !== undefined);
@@ -211,9 +280,9 @@ async function fetchCategories() {
     
     availableCategories.value = found.length > 1 ? found : ['ALL'];
 
-    // Если выбранного фильтра нет в списке, сбрасываем на ALL
-    if (!availableCategories.value.includes(activeFilter.value)) {
-        activeFilter.value = 'ALL';
+    // Если выбранного фильтра нет в списке, сбрасываем на ALL только если он не валидный чип
+    if (!availableCategories.value.includes(activeFilter.value) && !CHIPS.some(c => c.id === activeFilter.value)) {
+      applyFilter('ALL');
     }
   } catch {}
 }
@@ -253,408 +322,501 @@ async function toggleFavorite(sat) {
   }
 }
 
-// -----------------------------------------------------------------------
-// Анимация и расчет координат (satellite.js)
-// -----------------------------------------------------------------------
-function startAnimation() {
-  if (animationFrame) clearInterval(animationFrame);
+let mobileMq = null;
 
-  const tick = () => {
-    const now = new Date();
-    const positions = [];
-
-    for (const sat of allSatellites) {
-      try {
-        const pv   = satellite.propagate(sat.satrec, now);
-        const pos  = pv.position;
-        if (typeof pos === 'boolean') continue;
-
-        const gmst = satellite.gstime(now);
-        const gd   = satellite.eciToGeodetic(pos, gmst);
-
-        positions.push({
-          id:       sat.id,
-          name:     sat.name,
-          category: sat.category,
-          lat:  satellite.degreesLat(gd.latitude),
-          lng:  satellite.degreesLong(gd.longitude),
-          alt:  gd.height / 6371,
-        });
-      } catch {}
-    }
-
-    satPositions.value = positions;
-
-    if (globeInstance) {
-      globeInstance.objectsData(positions);
-    }
-  };
-
-  animationFrame = setInterval(tick, 1000);
-  tick();
+function onViewportChange(event) {
+  isMobile.value = event.matches;
 }
 
-// -----------------------------------------------------------------------
-// Инициализация глобуса
-// -----------------------------------------------------------------------
-function initGlobe() {
-  if (!globeContainer.value) return;
-
-  globeInstance = Globe()(globeContainer.value);
-
-  globeInstance
-    .globeImageUrl('//unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
-    .bumpImageUrl('//unpkg.com/three-globe/example/img/earth-topology.png')
-    .backgroundImageUrl('//unpkg.com/three-globe/example/img/night-sky.png')
-    .objectLat('lat')
-    .objectLng('lng')
-    .objectAltitude('alt')
-    .objectThreeObject(d => {
-      const isISS = d.category === 'ISS';
-      return new THREE.Mesh(
-        isISS ? ISS_GEOMETRY : SAT_GEOMETRY,
-        MATERIALS[d.category] ?? MATERIALS.OTHER
-      );
-    })
-    .objectLabel(d => `
-      <div style="background:rgba(0,0,0,0.85);color:#fff;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);font-family:monospace;font-size:12px;backdrop-filter:blur(8px)">
-        <div style="font-weight:700;font-size:13px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,0.1);color:${getCategoryColor(d.category)}">${d.name}</div>
-        <div style="display:grid;grid-template-columns:auto auto;gap:2px 16px">
-          <span style="color:#9ca3af">ALT:</span><span>${(d.alt * 6371).toFixed(1)} km</span>
-          <span style="color:#9ca3af">LAT:</span><span>${d.lat.toFixed(4)}°</span>
-          <span style="color:#9ca3af">LNG:</span><span>${d.lng.toFixed(4)}°</span>
-        </div>
-      </div>
-    `);
-
-  // Отслеживаем изменение размера окна
-  resizeObserver = new ResizeObserver(() => {
-    if (globeContainer.value && globeInstance) {
-      globeInstance.width(globeContainer.value.clientWidth)
-                   .height(globeContainer.value.clientHeight);
-    }
-  });
-  resizeObserver.observe(globeContainer.value);
-
-  // Начальный размер
-  globeInstance
-    .width(globeContainer.value.clientWidth)
-    .height(globeContainer.value.clientHeight);
-
-  // Отключаем авто-вращение, устанавливаем камеру
-  setTimeout(() => {
-    const controls = globeInstance.controls();
-    if (controls) controls.autoRotate = false;
-    globeInstance.pointOfView({ altitude: 2.5 });
-  }, 500);
-}
-
-// -----------------------------------------------------------------------
-// Фильтры и фокусировка
-// -----------------------------------------------------------------------
-function setFilter(cat) {
-  activeFilter.value = cat;
-  satPositions.value = [];
-  allSatellites = [];
-  fetchData();
-}
-
-function focusSatellite(sat) {
-  if (globeInstance) {
-    globeInstance.pointOfView(
-      { lat: sat.lat, lng: sat.lng, altitude: sat.alt + 0.8 },
-      1000
-    );
-  }
-}
-
-// -----------------------------------------------------------------------
-// Жизненный цикл компонента
-// -----------------------------------------------------------------------
 onMounted(async () => {
   document.body.style.overflow = 'hidden';
-  initGlobe();
 
-  clockInterval = setInterval(() => {
-    utcTime.value = new Date().toISOString().split('T')[1].split('.')[0] + ' UTC';
-  }, 1000);
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    mobileMq = window.matchMedia(MOBILE_QUERY);
+    isMobile.value = mobileMq.matches;
+    if (mobileMq.addEventListener) {
+      mobileMq.addEventListener('change', onViewportChange);
+    } else if (mobileMq.addListener) {
+      mobileMq.addListener(onViewportChange);
+    }
+    // Ни при возврате на десктоп, ни при уходе в мобильный режим не оставляем
+    // одновременно открытые каталог и карточку.
+    if (isMobile.value) {
+      sidebarOpen.value = false;
+    }
+  }
 
   await fetchCategories();
   if (user.value) {
     await fetchFavorites();
   }
-  await fetchData();
 });
 
 onBeforeUnmount(() => {
   document.body.style.overflow = '';
-  if (animationFrame) clearInterval(animationFrame);
-  if (clockInterval)  clearInterval(clockInterval);
-  if (resizeObserver) resizeObserver.disconnect();
-  if (globeInstance) {
-    if (typeof globeInstance._destructor === 'function') globeInstance._destructor();
-    if (globeContainer.value) globeContainer.value.innerHTML = '';
+  if (mobileMq) {
+    if (mobileMq.removeEventListener) {
+      mobileMq.removeEventListener('change', onViewportChange);
+    } else if (mobileMq.removeListener) {
+      mobileMq.removeListener(onViewportChange);
+    }
+    mobileMq = null;
+  }
+  if (typeof document !== 'undefined') {
+    document.body.classList.remove('catalog-open', 'inspector-open');
   }
 });
 </script>
 
 <style scoped>
 /* ---- Layout ---- */
-.globe-wrapper {
+.hero-main {
   position: relative;
-  width: 100vw;
-  height: 100vh;
-  background: #050505;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  background: transparent;
   overflow: hidden;
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 
+.globe-area {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* Канвас прозрачный (WebGL clearColor полностью прозрачен) и не создаёт слоя
+   выше точечной сетки body::before, поэтому бумага --paper читается за глобусом. */
 .globe-container {
   position: absolute;
   inset: 0;
+  z-index: 0;
 }
 
-/* ---- Floating button ---- */
-.floating-btn {
+/* ---- 1-bit satellite card container ---- */
+.satellite-card-container {
   position: absolute;
-  top: 24px;
-  left: 24px;
-  z-index: 20;
-  padding: 12px;
-  background: rgba(0,0,0,0.4);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 12px;
-  color: white;
-  cursor: pointer;
-  backdrop-filter: blur(10px);
-  transition: background 0.2s;
-}
-.floating-btn:hover { background: rgba(255,255,255,0.1); }
-
-/* ---- Sidebar ---- */
-.sidebar {
-  position: absolute;
-  top: 24px;
-  left: 24px;
-  bottom: 24px;
-  z-index: 30;
-  width: 320px;
-  background: rgba(0,0,0,0.4);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 20px;
-  backdrop-filter: blur(12px);
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  color: white;
-  box-shadow: 0 25px 50px rgba(0,0,0,0.5);
-  transform: translateX(-150%);
-  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none;
-}
-.sidebar.open {
-  transform: translateX(0);
-  pointer-events: all;
-}
-
-/* ---- Header ---- */
-.sidebar-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-  flex-shrink: 0;
-}
-.sidebar-header h1 {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-}
-.close-btn {
-  background: transparent;
-  border: none;
-  color: #9ca3af;
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 8px;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-}
-.close-btn:hover { background: rgba(255,255,255,0.1); color: white; }
-
-/* ---- Auth Nav ---- */
-.auth-nav {
-  padding-bottom: 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-  margin-bottom: 4px;
-  flex-shrink: 0;
-}
-.user-greeting {
-  font-size: 13px;
-  color: #d1d5db;
-  margin-bottom: 10px;
-}
-.auth-links {
-  display: flex;
-  gap: 8px;
-}
-.auth-btn {
-  flex: 1;
-  text-align: center;
-  padding: 8px 12px;
-  background: #34d399;
-  color: #050505;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  text-decoration: none;
-  transition: all 0.2s;
-}
-.auth-btn:hover {
-  background: #10b981;
-}
-.auth-btn.outline {
-  background: transparent;
-  color: #34d399;
-  border: 1px solid #34d399;
-}
-.auth-btn.outline:hover {
-  background: rgba(52,211,153,0.1);
-}
-
-/* ---- Loading ---- */
-.loading-state {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: #34d399;
-  margin-top: 20px;
-}
-.loading-state p { font-size: 13px; font-weight: 500; }
-.spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid #34d399;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  flex-shrink: 0;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ---- Stats ---- */
-.stats-block {
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-  flex-shrink: 0;
-  margin-top: 8px;
-}
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.mt-1 { margin-top: 6px; }
-.stat-label { font-size: 13px; color: #9ca3af; }
-.stat-value { font-weight: 700; }
-.stat-value.emerald { color: #34d399; font-family: monospace; }
-.stat-value.mono { font-size: 12px; color: #d1d5db; font-family: monospace; }
-
-/* ---- Category tags ---- */
-.filter-block { padding-top: 16px; flex-shrink: 0; }
-.block-label {
-  font-size: 11px;
-  color: #6b7280;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  display: block;
-  margin-bottom: 8px;
-}
-.category-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-.cat-tag {
-  padding: 6px 12px;
-  font-size: 11px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.05);
-  color: #9ca3af;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.cat-tag:hover { background: rgba(255,255,255,0.1); }
-.cat-tag.active {
-  background: rgba(52,211,153,0.15);
-  border-color: #34d399;
-  color: #34d399;
-}
-
-/* ---- Satellite list ---- */
-.sat-list-block {
-  padding-top: 16px;
-  margin-top: 16px;
-  border-top: 1px solid rgba(255,255,255,0.1);
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.sat-list {
-  flex: 1;
+  right: 16px;
+  top: 16px;
+  width: min(340px, calc(100vw - 32px));
+  max-height: calc(100vh - 80px);
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding-right: 4px;
-  padding-bottom: 8px;
+  z-index: 45;
+  pointer-events: auto;
+  border-radius: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-muted) transparent;
 }
-.sat-list::-webkit-scrollbar { width: 4px; }
-.sat-list::-webkit-scrollbar-track { background: transparent; }
-.sat-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
 
-.sat-row-container {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.satellite-card-container::-webkit-scrollbar {
+  width: 4px;
 }
-.sat-row {
-  flex: 1;
+
+.satellite-card-container::-webkit-scrollbar-thumb {
+  background: var(--ink-muted);
+  border-radius: 0;
+}
+
+.sat-card-transition-enter-active,
+.sat-card-transition-leave-active {
+  transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+}
+
+.sat-card-transition-enter-from,
+.sat-card-transition-leave-to {
+  opacity: 0;
+  transform: translateX(12px);
+}
+
+@media (max-width: 640px) {
+  /* Карточка аппарата — bottom-sheet снизу; рамка задаётся в SatelliteCard */
+  .satellite-card-container {
+    right: 0;
+    left: 0;
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    max-height: 70vh;
+    border-radius: 0;
+    z-index: 46;
+  }
+  .sat-card-transition-enter-from,
+  .sat-card-transition-leave-to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sat-card-transition-enter-active,
+  .sat-card-transition-leave-active {
+    transition: opacity 0.05s ease !important;
+    transform: none !important;
+  }
+}
+
+/* ---- Focus indicator (1-bit) ---- */
+.focus-indicator {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
   display: flex;
   align-items: center;
-  width: 100%;
-  text-align: left;
-  padding: 7px 10px;
-  border-radius: 8px;
-  border: none;
-  background: rgba(255,255,255,0.04);
-  color: #d1d5db;
+  gap: 8px;
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+  padding: 5px 6px 5px 10px;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
-  cursor: pointer;
-  transition: background 0.15s;
-  overflow: hidden;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  white-space: nowrap;
 }
-.sat-row:hover { background: rgba(255,255,255,0.09); }
-.fav-btn {
-  background: transparent;
-  border: none;
-  color: #4b5563;
-  cursor: pointer;
-  padding: 6px;
-  font-size: 16px;
-  transition: color 0.2s;
-}
-.fav-btn:hover { color: #9ca3af; }
-.fav-btn.isFav { color: #f59e0b; }
-.sat-dot {
+.focus-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  margin-right: 10px;
+  border-radius: 0;
+  background: var(--ink);
+  animation: focus-pulse 1.6s steps(2, end) infinite;
   flex-shrink: 0;
 }
-.sat-name {
+.focus-label {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.focus-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.focus-close:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+@keyframes focus-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ---- Hover HUD (пикинг спутников, 1-bit) ---- */
+.hover-label {
+  position: absolute;
+  z-index: 45;
+  pointer-events: none;
+  padding: 4px 8px;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* ---- Debug HUD (спутниковый слой, ?debug=1) ---- */
+.debug-hud {
+  position: absolute;
+  top: 56px;
+  left: 12px;
+  z-index: 46;
+  pointer-events: none;
+  padding: 6px 10px;
+  min-width: 168px;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+.debug-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  line-height: 1.6;
+}
+.debug-row b { color: var(--ink); font-weight: 700; }
+
+/* ---- Legacy glass-блоки (sidebar / auth / list) удалены: эти классы больше
+   не используются шаблоном, а их стили нарушали 1-бит правила. ---- */
+
+/* ---- WebGL Fallback Overlay (1-bit) ---- */
+.webgl-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: transparent;
+  z-index: 40;
+  overflow-y: auto;
+  /* Оверлей прозрачный: не перехватываем клики по ленте чипов и HUD. */
+  pointer-events: none;
+}
+.webgl-card {
+  max-width: 640px;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  padding: 24px;
+  box-shadow: 4px 4px 0 var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  pointer-events: auto;
+}
+.webgl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 0;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.warning-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--ink);
+}
+.webgl-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+}
+.webgl-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-muted);
+  margin: 0;
+}
+.webgl-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 4px;
+}
+.stat-card {
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.stat-name {
+  font-size: 11px;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.stat-num {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat-num.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
+
+.fallback-telemetry {
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  overflow: hidden;
+}
+.telemetry-header {
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--ink);
+}
+.telemetry-table {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  overflow-x: auto;
+}
+.t-row {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1fr 1fr 1fr;
+  padding: 6px 10px;
+  align-items: center;
+  border-bottom: 1px solid var(--ink-muted);
+  color: var(--ink);
+}
+.t-row:last-child {
+  border-bottom: none;
+}
+.t-head {
+  font-weight: 700;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  background: var(--surface);
+}
+.t-name {
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.t-cat {
+  color: var(--ink-muted);
+}
+.t-num {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.webgl-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--ink);
+  border: 2px solid var(--ink);
+  color: var(--paper);
+  padding: 8px 16px;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--ink);
+  transition: background 0.15s, color 0.15s;
+}
+.retry-btn:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* ---- Мобильная раскладка оверлеев (<= 640px) ---- */
+@media (max-width: 640px) {
+  /* Плашка фокуса — на всю доступную ширину, с отступом от ленты чипов */
+  .focus-indicator {
+    top: 60px;
+    left: 8px;
+    right: 8px;
+    transform: none;
+    max-width: none;
+    gap: 6px;
+    padding: 2px 4px 2px 8px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+  .focus-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Тач-цель закрытия >= 40px */
+  .focus-close {
+    width: 40px;
+    height: 40px;
+    border: 2px solid var(--ink);
+    font-size: 14px;
+  }
+  .hover-label {
+    font-size: 10px;
+    padding: 3px 6px;
+  }
+  .debug-hud {
+    top: 112px;
+    left: 8px;
+    right: 8px;
+    min-width: 0;
+    font-size: 9px;
+  }
+  .webgl-fallback {
+    padding: 12px;
+    align-items: flex-start;
+    padding-top: 60px;
+  }
+  .webgl-card {
+    padding: 16px;
+    gap: 12px;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  .webgl-stats-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .t-row {
+    grid-template-columns: 1.8fr 1.2fr 0.9fr 0.9fr 0.9fr;
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+  .retry-btn {
+    width: 100%;
+    min-height: 40px;
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+/* ---- Prefers-reduced-motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .focus-dot {
+    animation: none !important;
+  }
 }
 </style>

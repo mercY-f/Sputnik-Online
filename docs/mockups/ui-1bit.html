@@ -1,0 +1,3499 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Спутник-Онлайн — макет 1 бит</title>
+  <style>
+    :root {
+      --paper: #F4F1EA;
+      --ink: #0E0E0E;
+      --ink-muted: #5C5A54;
+      --surface: #E8E4DA;
+      --bw-1: 1px;
+      --bw-2: 2px;
+      --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      border-radius: 0;
+    }
+
+    html, body {
+      background-color: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-mono);
+      width: 100%;
+      max-width: 100vw;
+      min-height: 100vh;
+      overflow: hidden;
+      position: relative;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(#0E0E0E 0.5px, transparent 0.5px);
+      background-size: 20px 20px;
+      opacity: 0.08;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--ink);
+      outline-offset: 2px;
+    }
+
+    .btn {
+      background: var(--paper);
+      color: var(--ink);
+      border: 2px solid var(--ink);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 6px 12px;
+      cursor: pointer;
+      box-shadow: 2px 2px 0 var(--ink);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      text-decoration: none;
+    }
+
+    .btn:hover {
+      background: var(--surface);
+    }
+
+    .btn:active {
+      transform: translate(1px, 1px);
+      box-shadow: 1px 1px 0 var(--ink);
+    }
+
+    .btn.active {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .chip {
+      background: var(--paper);
+      color: var(--ink);
+      flex-shrink: 0;
+      border: 1px solid var(--ink);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 4px 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+
+    .chip:hover {
+      background: var(--surface);
+    }
+
+    .chip.active {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .field {
+      background: var(--paper);
+      color: var(--ink);
+      border: 1px solid var(--ink);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 6px 10px;
+      outline: none;
+    }
+
+    .field:focus {
+      border: 2px solid var(--ink);
+      padding: 5px 9px;
+    }
+
+    .kv {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+    }
+
+    .kv-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--ink-muted);
+    }
+
+    .kv-value {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .num {
+      font-variant-numeric: tabular-nums;
+    }
+
+    #globe {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background: transparent;
+      cursor: crosshair;
+    }
+
+    /* Оверлей 3D-глобуса: глифы спутников, плашка выбора, лидер-линия */
+    .globe-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .globe-svg-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .globe-markers-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .sat-marker {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      pointer-events: auto;
+      cursor: crosshair;
+      user-select: none;
+      white-space: nowrap;
+      z-index: 2;
+      opacity: 1;
+    }
+
+    .sat-marker.selected {
+      z-index: 5;
+    }
+
+    .sat-marker.hidden {
+      display: none;
+    }
+
+    /* 2px чёрная квадратная точка для дальнего зума (> 2.2R) */
+    .sat-dot {
+      display: block;
+      width: 2px;
+      height: 2px;
+      background: var(--ink);
+    }
+
+    /* 1-битный глиф категории (буква) */
+    .sat-glyph {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 15px;
+      height: 15px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      box-sizing: border-box;
+      opacity: 1;
+      user-select: none;
+    }
+
+    .sat-marker:hover .sat-glyph {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    /* Выбранный спутник: маркер [ ● ] */
+    .sat-reticle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      padding: 1px 3px;
+      box-sizing: border-box;
+      opacity: 1;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .sat-marker:hover .sat-reticle {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    /* Подпись спутника (слой LABELS) */
+    .sat-label-tag {
+      position: absolute;
+      left: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      margin-left: 5px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      padding: 1px 4px;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 1;
+      box-sizing: border-box;
+      z-index: 3;
+    }
+
+    /* Лидер-линия выбранного спутника (SVG): подложка цвета бумаги 3px + пунктир 1px чернил */
+    .sat-leader-line-bg {
+      stroke: var(--paper);
+      stroke-width: 3px;
+      stroke-linecap: square;
+      stroke-linejoin: miter;
+      fill: none;
+    }
+
+    .sat-leader-line-fg {
+      stroke: var(--ink);
+      stroke-width: 1px;
+      stroke-dasharray: 2, 2;
+      stroke-linecap: square;
+      stroke-linejoin: miter;
+      fill: none;
+    }
+
+    /* HTML-плашка выбранного спутника с лидер-линией */
+    .sat-selected-badge {
+      position: absolute;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      font-variant-numeric: tabular-nums;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      padding: 3px 6px;
+      white-space: nowrap;
+      pointer-events: auto;
+      z-index: 6;
+      opacity: 1;
+      box-sizing: border-box;
+      box-shadow: 2px 2px 0 var(--ink);
+    }
+
+    /* Верхняя панель A1 */
+    .top-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 40px;
+      border-bottom: 2px solid var(--ink);
+      background: var(--paper);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      z-index: 50;
+    }
+
+    .top-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .brand-short {
+      display: none;
+    }
+
+    .tle-status {
+      font-size: 11px;
+      color: var(--ink-muted);
+      border: 1px solid rgba(14, 14, 14, 0.3);
+      padding: 2px 6px;
+      white-space: nowrap;
+    }
+
+    .search-container {
+      position: relative;
+      width: 360px;
+      max-width: 100%;
+    }
+
+    .search-field {
+      width: 100%;
+      padding-right: 38px;
+      text-transform: uppercase;
+    }
+
+    .kbd-hint {
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 11px;
+      border: 1px solid var(--ink);
+      padding: 1px 4px;
+      color: var(--ink);
+      background: var(--surface);
+      pointer-events: none;
+    }
+
+    #btn-catalog-toggle .kbd-hint {
+      position: static;
+      transform: none;
+      border: none;
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      font: inherit;
+      pointer-events: auto;
+    }
+
+    .catalog-btn-icon {
+      display: none;
+    }
+
+    .search-dropdown {
+      position: absolute;
+      top: calc(100% + 2px);
+      left: 0;
+      right: 0;
+      background: var(--paper);
+      border: 2px solid var(--ink);
+      box-shadow: 2px 2px 0 var(--ink);
+      max-height: 280px;
+      overflow-y: auto;
+      z-index: 60;
+      display: none;
+    }
+
+    .search-dropdown.open {
+      display: block;
+    }
+
+    .search-result-item {
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+      font-size: 11px;
+    }
+
+    .search-result-item:last-child {
+      border-bottom: none;
+    }
+
+    .search-result-item:hover {
+      background: var(--surface);
+    }
+
+    .search-result-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge-square {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border: 1px solid var(--ink);
+      font-size: 11px;
+      font-weight: 700;
+      background: var(--paper);
+    }
+
+    .top-bar-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn-square {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--ink);
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn-square-wide { width: auto; padding: 0 8px; }
+
+    .btn-square:hover {
+      background: var(--surface);
+    }
+
+    .btn-square:active {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    /* Лента чипов A2 */
+    .chip-ribbon-bar {
+      position: fixed;
+      top: 48px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      z-index: 40;
+      pointer-events: none;
+      transition: left 0.15s ease-out, right 0.15s ease-out;
+    }
+
+    body.inspector-open .chip-ribbon-bar {
+      right: 332px;
+    }
+
+    body.catalog-open .chip-ribbon-bar {
+      left: 296px;
+    }
+
+    .chip-ribbon {
+      pointer-events: auto;
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      padding: 4px 6px;
+      box-shadow: 2px 2px 0 var(--ink);
+      max-width: calc(100vw - 24px);
+      /* Ширина ограничена доступным коридором между панелями —
+         inline-flex ужимается до max-width, лента не наезжает на инспектор/каталог */
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+
+    body.inspector-open .chip-ribbon,
+    body.catalog-open .chip-ribbon {
+      max-width: 100%;
+    }
+
+    .chip-count {
+      font-size: 11px;
+      padding: 1px 4px;
+      border: 1px solid currentColor;
+      margin-left: 4px;
+    }
+
+    /* Каталог-ящик A3 */
+    .catalog-drawer {
+      position: fixed;
+      top: 40px;
+      bottom: 0;
+      left: 0;
+      width: 288px;
+      background: var(--paper);
+      border-right: 2px solid var(--ink);
+      z-index: 45;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(-100%);
+      transition: transform 0.15s ease-out;
+      box-shadow: 2px 0 0 var(--ink);
+    }
+
+    .catalog-drawer.open {
+      transform: translateX(0);
+    }
+
+    .catalog-header {
+      padding: 8px 10px;
+      border-bottom: 2px solid var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+    }
+
+    .catalog-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .catalog-search-box {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+    }
+
+    .catalog-tabs {
+      display: flex;
+      border-bottom: 2px solid var(--ink);
+      background: var(--paper);
+    }
+
+    .catalog-tab {
+      flex: 1;
+      padding: 6px 4px;
+      background: var(--paper);
+      color: var(--ink-muted);
+      border: none;
+      border-right: 1px solid rgba(14, 14, 14, 0.2);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      text-align: center;
+    }
+
+    .catalog-tab:last-child {
+      border-right: none;
+    }
+
+    .catalog-tab.active {
+      background: var(--surface);
+      color: var(--ink);
+      border-bottom: 2px solid var(--ink);
+    }
+
+    .catalog-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .catalog-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+      cursor: pointer;
+      border-left: 4px solid transparent;
+      user-select: none;
+    }
+
+    .catalog-row:hover {
+      background: var(--surface);
+    }
+
+    .catalog-row.active {
+      border-left: 4px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .catalog-row-main {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .catalog-bullet {
+      font-size: 11px;
+      color: var(--ink);
+      line-height: 1;
+    }
+
+    .catalog-row-info {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .catalog-row-name {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .catalog-row-sub {
+      font-size: 11px;
+      color: var(--ink-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .catalog-row-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 6px;
+    }
+
+    .btn-fav {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      color: var(--ink);
+      padding: 2px 4px;
+      font-family: inherit;
+    }
+
+    .btn-fav:hover {
+      color: var(--ink);
+      background: var(--surface);
+    }
+
+    /* Правая панель инспектора A4 */
+    .inspector-panel {
+      position: fixed;
+      top: 40px;
+      bottom: 0;
+      right: 0;
+      width: 320px;
+      background: var(--paper);
+      border-left: 2px solid var(--ink);
+      z-index: 45;
+      display: none;
+      flex-direction: column;
+      box-shadow: -2px 0 0 var(--ink);
+    }
+
+    .inspector-panel.open {
+      display: flex;
+    }
+
+    .inspector-header {
+      padding: 8px 10px;
+      border-bottom: 2px solid var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+    }
+
+    .inspector-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .inspector-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .inspector-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* ASCII-схемы A5 */
+    .schematic-box {
+      border: 1px solid var(--ink);
+      background: var(--surface);
+      padding: 8px 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .schematic-pre {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1;
+      color: var(--ink);
+      margin: 0;
+      white-space: pre;
+    }
+
+    /* Таблица параметров A4 */
+    .params-table {
+      border-top: 1px solid rgba(14, 14, 14, 0.2);
+      width: 100%;
+    }
+
+    .param-row {
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+    }
+
+    .param-main {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 5px 0;
+    }
+
+    .param-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--ink-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn-help {
+      background: transparent;
+      border: 1px solid var(--ink-muted);
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .btn-help:hover {
+      background: var(--surface);
+      color: var(--ink);
+      border-color: var(--ink);
+    }
+
+    .param-val {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink);
+      text-align: right;
+    }
+
+    .param-tip {
+      display: none;
+      padding: 6px 8px;
+      background: var(--surface);
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--ink);
+      border-left: 2px solid var(--ink);
+      margin-bottom: 4px;
+    }
+
+    .param-tip.open {
+      display: block;
+    }
+
+    /* Стадия 4: верстка назначения и монохромные плашки стран */
+    .param-row-block .param-main {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 6px 0;
+    }
+
+    .param-val-text {
+      font-size: 11px;
+      font-weight: 400;
+      line-height: 1.45;
+      color: var(--ink);
+      text-align: left;
+      word-break: break-word;
+      white-space: normal;
+    }
+
+    .country-badge-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      text-align: right;
+    }
+
+    .country-badge {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 1px 5px;
+      border: 1px solid var(--ink);
+      background: var(--surface);
+      color: var(--ink);
+      line-height: 1.2;
+    }
+
+    .country-name-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .country-badges-inline {
+      display: inline-flex;
+      gap: 3px;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+
+    .country-badge-sm {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0 3px;
+      border: 1px solid var(--ink);
+      background: var(--surface);
+      color: var(--ink);
+      line-height: 1.2;
+    }
+
+    .group-count-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border: 1px solid var(--ink);
+      background: var(--surface);
+      color: var(--ink);
+      line-height: 1;
+    }
+
+    /* Действия и мини-график A4, A6 */
+    .actions-row {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 4px;
+    }
+
+    .actions-row .btn {
+      padding: 6px 4px;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+    }
+
+    .chart-box {
+      border: 1px solid var(--ink);
+      padding: 6px;
+      background: var(--paper);
+    }
+
+    .chart-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-muted);
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .chart-svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      shape-rendering: crispEdges;
+    }
+
+    /* Блок «Когда увидеть» */
+    .pass-box {
+      border: 1px solid var(--ink);
+      padding: 8px;
+      background: var(--surface);
+    }
+
+    .pass-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 6px;
+    }
+
+    .pass-city-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .pass-city-label {
+      font-size: 11px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+    }
+
+    .pass-table {
+      width: 100%;
+      border-top: 1px solid var(--ink);
+      margin-top: 6px;
+    }
+
+    .pass-table-head {
+      display: grid;
+      grid-template-columns: 2fr 0.7fr 1.6fr 0.8fr;
+      gap: 4px;
+      padding: 4px 0;
+      border-bottom: 1px solid var(--ink);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      white-space: nowrap;
+    }
+
+    .pass-row {
+      display: grid;
+      grid-template-columns: 2fr 0.7fr 1.6fr 0.8fr;
+      gap: 4px;
+      align-items: center;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(14, 14, 14, 0.2);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .pass-row:last-child {
+      border-bottom: none;
+    }
+
+    .pass-head-num,
+    .pass-cell-el,
+    .pass-cell-dur {
+      text-align: right;
+    }
+
+    .pass-head-el,
+    .pass-cell-el {
+      padding-right: 4px;
+    }
+
+    /* «ПОСЛЕЗАВТРА HH:MM» не должно переноситься на вторую строку ячейки */
+    .pass-row > span:first-child {
+      white-space: nowrap;
+    }
+
+    .inspector-footer {
+      padding: 8px 10px;
+      border-top: 2px solid var(--ink);
+      background: var(--paper);
+    }
+
+    .btn-full {
+      width: 100%;
+      padding: 8px 12px;
+    }
+
+    /* Слои A8 */
+    .layer-controls {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      z-index: 40;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      padding: 4px 8px;
+      box-shadow: 2px 2px 0 var(--ink);
+      transition: right 0.15s ease-out;
+    }
+
+    body.inspector-open .layer-controls {
+      right: 332px;
+    }
+
+    .layer-checkbox {
+      background: transparent;
+      border: none;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 4px;
+    }
+
+    .layer-checkbox:hover {
+      color: var(--ink);
+      background: var(--surface);
+    }
+
+    .layer-checkbox.checked {
+      color: var(--ink);
+    }
+
+    .layer-checkbox .check-box {
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    /* Адаптивная мобильная вёрстка A9 (<= 640px) */
+    @media (max-width: 640px) {
+      .top-bar {
+        height: 48px;
+        padding: 0 6px;
+        gap: 4px;
+      }
+
+      .top-bar-left {
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
+      .tle-status {
+        display: none;
+      }
+
+      .brand-title {
+        font-size: 11px;
+      }
+
+      .brand-full {
+        display: none;
+      }
+
+      .brand-short {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+      }
+
+      .search-container {
+        flex: 1;
+        width: auto;
+        min-width: 0;
+      }
+
+      .search-field,
+      #search-input {
+        font-size: 11px;
+        padding: 6px 8px;
+        min-height: 40px;
+        min-width: 0;
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      .kbd-hint {
+        display: none;
+      }
+
+      .top-bar-right {
+        gap: 6px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+      }
+
+      #utc-clock {
+        display: none;
+      }
+
+      .btn-square {
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+        min-height: 40px;
+        font-size: 11px;
+        flex-shrink: 0;
+      }
+
+      .btn-square-wide {
+        width: auto;
+        min-width: 40px;
+        min-height: 40px;
+        padding: 0 8px;
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+
+      #btn-catalog-toggle {
+        padding: 6px 8px;
+        font-size: 11px;
+        min-height: 40px;
+        min-width: 40px;
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+
+      /* Лента чипов: горизонтальный скролл */
+      .chip-ribbon-bar {
+        top: 48px;
+        padding: 0 6px;
+        justify-content: flex-start;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      body.inspector-open .chip-ribbon-bar {
+        right: 0;
+      }
+
+      body.catalog-open .chip-ribbon-bar {
+        left: 0;
+      }
+
+      .chip-ribbon {
+        display: flex;
+        flex-wrap: nowrap;
+        max-width: none;
+        overflow-x: auto;
+        padding: 4px;
+      }
+
+      .chip {
+        min-height: 40px;
+        padding: 6px 10px;
+        white-space: nowrap;
+      }
+
+      /* Каталог: выдвижной bottom-sheet */
+      .catalog-drawer {
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-height: 70vh;
+        border-right: none;
+        border-left: none;
+        border-top: 2px solid var(--ink);
+        transform: translateY(100%);
+        box-shadow: 0 -2px 0 var(--ink);
+      }
+
+      .catalog-drawer.open {
+        transform: translateY(0);
+      }
+
+      .catalog-tab {
+        min-height: 40px;
+        padding: 8px 4px;
+      }
+
+      .catalog-row {
+        min-height: 42px;
+        padding: 8px 10px;
+      }
+
+      .btn-fav {
+        width: 40px;
+        height: 40px;
+        font-size: 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Инспектор: bottom-sheet */
+      .inspector-panel {
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-height: 70vh;
+        border-left: none;
+        border-top: 2px solid var(--ink);
+        box-shadow: 0 -2px 0 var(--ink);
+      }
+
+      body.inspector-open .layer-controls {
+        right: 8px;
+      }
+
+      .actions-row .btn {
+        min-height: 40px;
+        font-size: 11px;
+      }
+
+      .btn-full {
+        min-height: 42px;
+      }
+
+      /* Слои: нижняя панель */
+      .layer-controls {
+        bottom: 8px;
+        left: 8px;
+        right: 8px;
+        justify-content: space-around;
+        padding: 6px 8px;
+      }
+
+      .layer-checkbox {
+        min-height: 40px;
+        font-size: 11px;
+        padding: 6px 4px;
+      }
+    }
+
+    /* Компактная шапка на узких экранах (<= 420px, напр. 390px) */
+    @media (max-width: 420px) {
+      #btn-catalog-toggle {
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+        min-height: 40px;
+        padding: 0;
+        justify-content: center;
+      }
+
+      #btn-catalog-toggle .catalog-btn-text {
+        display: none;
+      }
+
+      #btn-catalog-toggle .catalog-btn-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        line-height: 1;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="top-bar">
+    <div class="top-bar-left">
+      <div class="brand-title">
+        <span class="brand-full"><span>●</span> EARTH ORBIT LIVE</span>
+        <span class="brand-short"><span>●</span> EOL</span>
+      </div>
+      <div class="tle-status" id="tle-status">TLE: 0,4 сут</div>
+    </div>
+
+    <div class="search-container">
+      <input type="text" id="search-input" class="field search-field" placeholder="ПОИСК СПУТНИКА / NORAD ID" autocomplete="off" spellcheck="false">
+      <kbd class="kbd-hint">⌘K</kbd>
+      <div id="search-dropdown" class="search-dropdown"></div>
+    </div>
+
+    <div class="top-bar-right">
+      <span id="utc-clock" class="num" style="font-size: 12px; font-weight: 700; letter-spacing: 0.05em; min-width: 95px;">00:00:00 UTC</span>
+      <button id="btn-catalog-toggle" class="btn" type="button" title="Каталог (C)" aria-label="КАТАЛОГ"><span class="catalog-btn-text">[ КАТАЛОГ <span class="kbd-hint">(C)</span> ]</span><span class="catalog-btn-icon" aria-hidden="true">☰</span></button>
+      <button class="btn-square btn-square-wide" type="button" title="Профиль">ПРОФИЛЬ</button>
+      <button class="btn-square btn-square-wide" type="button" title="Администратор">АДМИН</button>
+    </div>
+  </header>
+
+  <div class="chip-ribbon-bar">
+    <nav id="chip-ribbon" class="chip-ribbon" role="toolbar" aria-label="Фильтр категорий"></nav>
+  </div>
+
+  <!-- Каталог-ящик A3 -->
+  <aside id="catalog-drawer" class="catalog-drawer" aria-label="Каталог космических аппаратов">
+    <div class="catalog-header">
+      <span class="catalog-title">КАТАЛОГ ОБЪЕКТОВ</span>
+      <button type="button" id="btn-catalog-close" class="btn-square" title="Закрыть">✕</button>
+    </div>
+    <div class="catalog-search-box">
+      <input type="text" id="catalog-filter-input" class="field" placeholder="ФИЛЬТР ПО СПИСКУ..." autocomplete="off">
+    </div>
+    <div class="catalog-tabs">
+      <button type="button" class="catalog-tab active" data-tab="sats">Спутники</button>
+      <button type="button" class="catalog-tab" data-tab="groups">Группировки</button>
+      <button type="button" class="catalog-tab" data-tab="favs">Избранное</button>
+    </div>
+    <div id="catalog-list" class="catalog-list"></div>
+  </aside>
+
+  <!-- Правая карточка инспектора A4 -->
+  <aside id="inspector-panel" class="inspector-panel" aria-label="Панель телеметрии спутника">
+    <div class="inspector-header">
+      <div class="inspector-header-left">
+        <span id="inspector-badge" class="badge-square">I</span>
+        <span id="inspector-title" class="inspector-title">ISS (ZARYA)</span>
+      </div>
+      <button type="button" id="btn-inspector-close" class="btn-square" title="Закрыть">✕</button>
+    </div>
+
+    <div class="inspector-body">
+      <!-- ASCII-схема A5 -->
+      <div class="schematic-box">
+        <pre id="schematic-pre" class="schematic-pre"></pre>
+      </div>
+
+      <!-- Действия -->
+      <div class="actions-row">
+        <button type="button" id="btn-act-orbit" class="btn active" title="Показать орбиту" data-action="orbit" aria-pressed="true">ОРБИТА</button>
+        <button type="button" id="btn-act-track" class="btn active" title="Показать след" data-action="track" aria-pressed="true">СЛЕД</button>
+        <button type="button" id="btn-act-follow" class="btn" title="Следить за аппаратом" data-action="follow" aria-pressed="false">СЛЕДИТЬ</button>
+        <button type="button" id="btn-act-share" class="btn" title="Поделиться" data-action="share">ПОДЕЛИТЬСЯ</button>
+      </div>
+
+      <!-- Таблица параметров A4 -->
+      <div id="inspector-params" class="params-table"></div>
+
+      <!-- Мини-график орбиты A6 -->
+      <div class="chart-box">
+        <div class="chart-title">
+          <span>ВЫСОТА ПО ВРЕМЕНИ</span>
+          <span id="chart-period-sub" class="num" style="font-size: 11px;">92.9 мин</span>
+        </div>
+        <svg id="orbit-chart-svg" class="chart-svg" viewBox="0 0 296 100" width="296" height="100"></svg>
+      </div>
+
+      <!-- Блок «Когда увидеть» -->
+      <div class="pass-box">
+        <div class="pass-title" id="pass-box-title">КОГДА УВИДЕТЬ: МОСКВА</div>
+        <div class="pass-city-row">
+          <label class="pass-city-label" for="pass-city-input">ГОРОД:</label>
+          <input type="text" id="pass-city-input" class="field" value="МОСКВА" style="font-size: 11px; padding: 2px 6px; text-transform: uppercase;">
+        </div>
+        <div class="pass-table">
+          <div class="pass-table-head">
+            <span>ВРЕМЯ</span>
+            <span class="num pass-head-num pass-head-el">МАКС</span>
+            <span class="pass-head-dir">НАПРАВЛЕНИЕ</span>
+            <span class="num pass-head-num">ДЛИТ</span>
+          </div>
+          <div id="pass-rows" class="pass-rows">
+            <!-- ДАННЫЕ МАКЕТА: детерминированный прогноз пролётов для макета (иллюстрация, НЕ SGP4) -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="inspector-footer">
+      <button type="button" id="btn-toggle-fav-main" class="btn btn-full">В ИЗБРАННОЕ</button>
+    </div>
+  </aside>
+
+  <!-- Чекбоксы слоёв A8 -->
+  <div class="layer-controls" role="group" aria-label="Слои отображения">
+    <button type="button" role="checkbox" aria-checked="true" class="layer-checkbox checked" data-layer="grid">
+      <span class="check-box">[■]</span> СЕТКА
+    </button>
+    <button type="button" role="checkbox" aria-checked="true" class="layer-checkbox checked" data-layer="orbits">
+      <span class="check-box">[■]</span> ОРБИТЫ
+    </button>
+    <button type="button" role="checkbox" aria-checked="true" class="layer-checkbox checked" data-layer="atmosphere">
+      <span class="check-box">[■]</span> АТМОСФЕРА
+    </button>
+    <button type="button" role="checkbox" aria-checked="true" class="layer-checkbox checked" data-layer="terminator">
+      <span class="check-box">[■]</span> ТЕРМИНАТОР
+    </button>
+    <button type="button" role="checkbox" aria-checked="false" class="layer-checkbox" data-layer="labels">
+      <span class="check-box">[ ]</span> ПОДПИСИ
+    </button>
+  </div>
+
+  <!--
+    3D-ГЛОБУС (ШАГ A7)
+    Открытие: страница работает и по http, и по file:// (vendor — классические скрипты).
+    Рекомендуется локальный HTTP-сервер из корня репозитория:
+      python3 -m http.server 8080
+    Затем открыть в браузере:
+      http://localhost:8080/docs/mockups/ui-1bit.html
+  -->
+  <div id="globe"></div>
+  <div id="globe-overlay" class="globe-overlay" aria-hidden="true">
+    <svg id="globe-svg-layer" class="globe-svg-layer"></svg>
+    <div id="globe-markers-layer" class="globe-markers-layer"></div>
+  </div>
+
+  <!-- Vendor: классические скрипты (работают и на http, и на file:// — без CORS у ES-модулей) -->
+  <!-- three.iife.min.js = three 0.183.2 (IIFE), выставляет window.THREE ДО globe.gl.min.js:
+       бандл globe.gl при наличии window.THREE использует его целиком → полный THREE в Globe.THREE -->
+  <script src="vendor/three.iife.min.js"></script>
+  <script>window.THREE = THREE_BUNDLE;</script>
+  <script src="vendor/globe.gl.min.js"></script>
+  <script src="vendor/countries.js"></script>
+  <script src="vendor/sats.js"></script>
+  <script>
+    function boot() {
+      // ASCII-схемы по классам A5
+      const SCHEMATICS = {
+      I: [
+        '      |---| |---|',
+        '  [===|   |=|   |===]',
+        '  [===|   |=|   |===]',
+        '      |---| |---|',
+        '         |   |',
+        '      ===| O |===',
+        '         |---|',
+      ].join('\n'),
+
+      S: [
+        '    +-------+-------+',
+        '[###|   |   |   |   |###]',
+        '[###|   |   |   |   |###]',
+        '    +-------+-------+',
+        '          | |',
+        '       +--[o]--+',
+        '       |   O   |',
+        '       +-------+',
+        '          / \\',
+      ].join('\n'),
+
+      N: [
+        '        +-------+',
+        '        |  NAV  |',
+        '  +====+|  (O)  |+====+',
+        '  |####||       ||####|',
+        '  +====+|  ===  |+====+',
+        '        +-------+',
+        '           | |',
+        '          /   \\',
+        '         o     o',
+      ].join('\n'),
+
+      T: [
+        '       +---------+',
+        '      /|         |\\',
+        '     / |  APERT  | \\',
+        '    |  |  [ O ]  |  |',
+        '    |  +---------+  |',
+        '    \\  |         |  /',
+        '     \\ |  INSTR  | /',
+        '      \\|         |/',
+        '       +====+====+',
+        '          [###]',
+      ].join('\n'),
+
+      W: [
+        '         +-----+',
+        '         | MET |',
+        '      +--+ [o] +--+',
+        '      |  |     |  |',
+        '      +--+ === +--+',
+        '         +-----+',
+        '            |',
+        '      [###########]',
+        '      [###########]',
+      ].join('\n'),
+
+      X: [
+        '         +-----+',
+        '        /|     |\\',
+        '       + |  O  | +',
+        '        \\|     |/',
+        '         +-----+',
+        '           / \\',
+        '          o   o',
+      ].join('\n'),
+    };
+
+    const SCHEMATIC_KEY_BY_LETTER = { I: 'I', S: 'S', O: 'S', R: 'S', N: 'N', T: 'T', W: 'W' };
+
+    // Словарь подсказок orbitGlossary A4
+    const ORBIT_GLOSSARY = {
+      altitude: {
+        label: 'ВЫСОТА',
+        desc: 'Расстояние от поверхности Земли до космического аппарата в данный момент времени.',
+        tip: 'МКС летает на ~420 км, Starlink — на ~550 км, навигация — ~20 000 км, геостационарные — 35 786 км.',
+      },
+      speed: {
+        label: 'СКОРОСТЬ',
+        desc: 'Орбитальная скорость движения аппарата относительно центра Земли.',
+        tip: 'Первая космическая скорость у Земли ~7.9 км/с. Чем выше орбита, тем меньше скорость.',
+      },
+      inclination: {
+        label: 'НАКЛОНЕНИЕ',
+        desc: 'Угол между плоскостью орбиты и плоскостью земного экватора.',
+        tip: '0° — экватор, 90° — полярная орбита. У МКС 51.6° под космодромы Байконур и мыс Канаверал.',
+      },
+      period: {
+        label: 'ПЕРИОД',
+        desc: 'Время, за которое спутник делает один полный оборот вокруг Земли.',
+        tip: 'На низкой орбите виток 90–100 мин (МКС 92.9 мин), на геостационарной — ровно звёздные сутки.',
+      },
+      apogee: {
+        label: 'АПОГЕЙ / ПЕРИГЕЙ',
+        desc: 'Наивысшая и низшая точки орбиты над поверхностью Земли.',
+        tip: 'У круговых орбит разница минимальна; если перигей опускается ниже 150 км, аппарат сгорает.',
+      },
+      eccentricity: {
+        label: 'ЭКСЦЕНТРИСИТЕТ',
+        desc: 'Степень вытянутости орбиты (отклонение от окружности).',
+        tip: '0 — идеальный круг; до 0.01 — почти круговая орбита связи; > 0.25 — сильно вытянутая.',
+      },
+      coordinates: {
+        label: 'КООРДИНАТЫ',
+        desc: 'Географическая широта и долгота подспутниковой точки на поверхности Земли.',
+        tip: 'Положение аппарата в проекции на поверхность планеты.',
+      },
+      epoch: {
+        label: 'ЭПОХА TLE',
+        desc: 'Время с момента последнего измерения параметров орбиты сетью слежения NORAD.',
+        tip: 'Из-за торможения об атмосферу параметры актуальны в течение нескольких дней.',
+      },
+      country: {
+        label: 'СТРАНА',
+        desc: 'Принадлежность космического аппарата и оператор орбитальной миссии.',
+        tip: 'Юрисдикция запускающего государства или международного консорциума.',
+      },
+      launch: {
+        label: 'ЗАПУСК',
+        desc: 'Календарная дата вывода космического аппарата на рабочую орбиту.',
+        tip: 'Старт ракеты-носителя с полезной нагрузкой.',
+      },
+      purpose: {
+        label: 'НАЗНАЧЕНИЕ',
+        desc: 'Функциональная задача и класс полезной нагрузки космического аппарата.',
+        tip: 'Научные эксперименты, глобальная связь, дистанционное зондирование Земли.',
+      },
+    };
+
+    // Категории чипов фильтра A2
+    const CHIP_CATEGORIES = [
+      { id: 'ALL', label: 'ВСЕ' },
+      { id: 'ISS', label: 'СТАНЦИИ' },
+      { id: 'STARLINK', label: 'STARLINK' },
+      { id: 'ONEWEB', label: 'ONEWEB' },
+      { id: 'NAVIGATION', label: 'НАВИГАЦИЯ' },
+      { id: 'TELESCOPE', label: 'ТЕЛЕСКОПЫ' },
+      { id: 'OTHER', label: 'ДРУГОЕ' },
+    ];
+
+    function matchesFilter(sat, filter) {
+      if (filter === 'ALL') return true;
+      if (filter === 'ISS') return sat.cat === 'ISS';
+      if (filter === 'STARLINK') return sat.cat === 'STARLINK';
+      if (filter === 'ONEWEB') return sat.cat === 'ONEWEB';
+      if (filter === 'NAVIGATION') return sat.cat === 'NAVIGATION';
+      if (filter === 'TELESCOPE') return sat.cat === 'TELESCOPE';
+      if (filter === 'OTHER') {
+        return sat.cat !== 'ISS' && sat.cat !== 'STARLINK' && sat.cat !== 'ONEWEB' && sat.cat !== 'NAVIGATION' && sat.cat !== 'TELESCOPE';
+      }
+      return true;
+    }
+
+    // Глобальное состояние приложения
+    const state = {
+      selectedId: null,
+      filter: 'ALL',
+      searchQuery: '',
+      catalogFilterText: '',
+      catalogOpen: false,
+      catalogTab: 'sats',
+      layers: {
+        grid: true,
+        orbits: true,
+        atmosphere: true,
+        terminator: true,
+        labels: false,
+        track: true,
+      },
+      followActive: false,
+    };
+
+    // Низкоточная формула NOAA для расчёта субсолнечной точки (lat, lng) по текущему UTC
+    function getSubsolarCoords(date) {
+      const now = date || new Date();
+      const timeMs = now.getTime();
+      const jd = 2440587.5 + timeMs / 86400000.0;
+      const t = (jd - 2451545.0) / 36525.0;
+
+      const l0 = (280.46646 + t * (36000.76983 + t * 0.0003032)) % 360.0;
+      const m = (357.52911 + t * (35999.05029 - 0.0001537 * t)) % 360.0;
+      const mRad = m * Math.PI / 180.0;
+      const l0Rad = l0 * Math.PI / 180.0;
+      const e = 0.016708634 - t * (0.000042037 + 0.0000001267 * t);
+
+      const c = Math.sin(mRad) * (1.914602 - t * (0.004817 + 0.000014 * t)) +
+                Math.sin(2 * mRad) * (0.019993 - 0.000101 * t) +
+                Math.sin(3 * mRad) * 0.000289;
+      const sunTrueLon = l0 + c;
+      const obliq = 23.439291 - 0.0130042 * t;
+      const obliqRad = obliq * Math.PI / 180.0;
+
+      const sinDec = Math.sin(obliqRad) * Math.sin(sunTrueLon * Math.PI / 180.0);
+      const decDeg = Math.asin(sinDec) * 180.0 / Math.PI;
+
+      const y = Math.pow(Math.tan(obliqRad / 2.0), 2);
+      const eqTime = 4.0 * (180.0 / Math.PI) * (
+        y * Math.sin(2 * l0Rad) -
+        2 * e * Math.sin(mRad) +
+        4 * e * y * Math.sin(mRad) * Math.cos(2 * l0Rad) -
+        0.5 * Math.pow(y, 2) * Math.sin(4 * l0Rad) -
+        1.25 * Math.pow(e, 2) * Math.sin(2 * mRad)
+      );
+
+      const utHours = now.getUTCHours() + now.getUTCMinutes() / 60.0 + now.getUTCSeconds() / 3600.0;
+      const solarNoon = 12.0 - eqTime / 60.0;
+      let lngDeg = -(utHours - solarNoon) * 15.0;
+      lngDeg = ((lngDeg + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
+
+      return { lat: decDeg, lng: lngDeg };
+    }
+
+    let terminatorMaterial = null;
+    let updateSunPosition = null;
+
+    // Часы реального времени UTC
+    function updateClock() {
+      const now = new Date();
+      const h = String(now.getUTCHours()).padStart(2, '0');
+      const m = String(now.getUTCMinutes()).padStart(2, '0');
+      const s = String(now.getUTCSeconds()).padStart(2, '0');
+      const clockEl = document.getElementById('utc-clock');
+      if (clockEl) {
+        clockEl.textContent = h + ':' + m + ':' + s + ' UTC';
+      }
+      if (typeof updateSunPosition === 'function') {
+        updateSunPosition(now);
+      }
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Отрисовка ленты чипов A2
+    function renderChips() {
+      const ribbon = document.getElementById('chip-ribbon');
+      if (!ribbon) return;
+      const sats = window.REAL_SATS || [];
+      ribbon.innerHTML = CHIP_CATEGORIES.map((cat) => {
+        const count = sats.filter((s) => matchesFilter(s, cat.id)).length;
+        const isActive = state.filter === cat.id;
+        return `
+          <button type="button" class="chip ${isActive ? 'active' : ''}" data-filter="${cat.id}">
+            <span>${cat.label}</span>
+            <span class="chip-count num">${count}</span>
+          </button>
+        `;
+      }).join('');
+    }
+
+    const ribbonEl = document.getElementById('chip-ribbon');
+    if (ribbonEl) {
+      ribbonEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('.chip');
+        if (btn && btn.dataset.filter) {
+          state.filter = btn.dataset.filter;
+          renderChips();
+          if (typeof renderCatalogList === 'function') {
+            renderCatalogList();
+          }
+          if (window.APP && typeof window.APP.onFilterChange === 'function') {
+            window.APP.onFilterChange(state.filter);
+          }
+        }
+      });
+    }
+    renderChips();
+
+    // Выбор спутника (контракт A7)
+    function selectSatellite(id) {
+      if (id && window.innerWidth <= 640) {
+        toggleCatalog(false);
+      }
+      state.selectedId = id ? String(id) : null;
+      if (!state.selectedId) {
+        state.followActive = false;
+        if (typeof syncActionButtonsUI === 'function') {
+          syncActionButtonsUI();
+        }
+      }
+      const sat = state.selectedId ? (window.REAL_SATS || []).find((s) => s.id === state.selectedId) : null;
+      renderCatalogList();
+      if (typeof renderInspectorPanel === 'function') {
+        renderInspectorPanel(sat);
+      }
+      if (window.APP && window.APP.hooks && typeof window.APP.hooks.onSelectSatellite === 'function') {
+        window.APP.hooks.onSelectSatellite(sat);
+      }
+    }
+
+    // Управление каталогом A3
+    function toggleCatalog(force) {
+      state.catalogOpen = typeof force === 'boolean' ? force : !state.catalogOpen;
+      const drawer = document.getElementById('catalog-drawer');
+      const toggleBtn = document.getElementById('btn-catalog-toggle');
+      if (drawer) {
+        drawer.classList.toggle('open', state.catalogOpen);
+      }
+      if (toggleBtn) {
+        toggleBtn.classList.toggle('active', state.catalogOpen);
+      }
+      document.body.classList.toggle('catalog-open', state.catalogOpen);
+      if (state.catalogOpen && window.innerWidth <= 640) {
+        if (state.selectedId) {
+          selectSatellite(null);
+        }
+      }
+    }
+
+    const btnCatalogToggle = document.getElementById('btn-catalog-toggle');
+    if (btnCatalogToggle) {
+      btnCatalogToggle.addEventListener('click', () => toggleCatalog());
+    }
+
+    const btnCatalogClose = document.getElementById('btn-catalog-close');
+    if (btnCatalogClose) {
+      btnCatalogClose.addEventListener('click', () => toggleCatalog(false));
+    }
+
+    const catalogFilterInput = document.getElementById('catalog-filter-input');
+    if (catalogFilterInput) {
+      catalogFilterInput.addEventListener('input', (e) => {
+        state.catalogFilterText = e.target.value.trim().toLowerCase();
+        renderCatalogList();
+      });
+    }
+
+    const catalogTabsEl = document.querySelector('.catalog-tabs');
+    if (catalogTabsEl) {
+      catalogTabsEl.addEventListener('click', (e) => {
+        const tabBtn = e.target.closest('.catalog-tab');
+        if (tabBtn && tabBtn.dataset.tab) {
+          state.catalogTab = tabBtn.dataset.tab;
+          catalogTabsEl.querySelectorAll('.catalog-tab').forEach((t) => t.classList.remove('active'));
+          tabBtn.classList.add('active');
+          renderCatalogList();
+        }
+      });
+    }
+
+    const ru = (v) => String(v).replace(/(\d)\.(\d)/g, '$1,$2');
+
+    const COUNTRY_MAP = {
+      'RU': { code: 'RUS', name: 'РОССИЯ' },
+      'US': { code: 'USA', name: 'США' },
+      'CN': { code: 'CHN', name: 'КИТАЙ' },
+      'GB': { code: 'GBR', name: 'ВЕЛИКОБРИТАНИЯ' },
+      'EU': { code: 'ESA', name: 'ESA' },
+      'JP': { code: 'JPN', name: 'ЯПОНИЯ' },
+      'IN': { code: 'IND', name: 'ИНДИЯ' },
+      'FR': { code: 'FRA', name: 'ФРАНЦИЯ' },
+      'DE': { code: 'DEU', name: 'ГЕРМАНИЯ' },
+      'KZ': { code: 'KAZ', name: 'КАЗАХСТАН' },
+      'РОССИЯ': { code: 'RUS', name: 'РОССИЯ' },
+      'РФ': { code: 'RUS', name: 'РОССИЯ' },
+      'США': { code: 'USA', name: 'США' },
+      'КИТАЙ': { code: 'CHN', name: 'КИТАЙ' },
+      'ВЕЛИКОБРИТАНИЯ': { code: 'GBR', name: 'ВЕЛИКОБРИТАНИЯ' },
+      'ESA': { code: 'ESA', name: 'ESA' },
+      'ЕКА': { code: 'ESA', name: 'ESA' },
+    };
+
+    function parseCountries(raw) {
+      if (!raw || typeof raw !== 'string') return [];
+      const results = [];
+      const seen = new Set();
+      function add(item) {
+        if (!item || !item.code || seen.has(item.code)) return;
+        seen.add(item.code);
+        results.push(item);
+      }
+      const flagRegex = /\uD83C[\uDDE6-\uDDFF]\uD83C[\uDDE6-\uDDFF]/g;
+      let m;
+      while ((m = flagRegex.exec(raw)) !== null) {
+        const flag = m[0];
+        const c1 = String.fromCharCode(flag.charCodeAt(1) - 0xDDE6 + 65);
+        const c2 = String.fromCharCode(flag.charCodeAt(3) - 0xDDE6 + 65);
+        const iso = c1 + c2;
+        if (COUNTRY_MAP[iso]) add(COUNTRY_MAP[iso]);
+      }
+      const clean = raw.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim();
+      const parts = clean.split(/[\/,·]+/).map((s) => s.trim()).filter(Boolean);
+      for (const p of parts) {
+        const up = p.toUpperCase();
+        if (COUNTRY_MAP[up]) {
+          add(COUNTRY_MAP[up]);
+        } else {
+          let matched = false;
+          for (const k of Object.keys(COUNTRY_MAP)) {
+            if (up.includes(k)) {
+              add(COUNTRY_MAP[k]);
+              matched = true;
+              break;
+            }
+          }
+          if (!matched && up.length > 0) {
+            add({ code: up.slice(0, 3), name: up });
+          }
+        }
+      }
+      return results;
+    }
+
+    function renderCountryParam(raw) {
+      const list = parseCountries(raw);
+      if (!list || list.length === 0) {
+        return '<span class="param-val num">—</span>';
+      }
+      const badges = list.map((c) => `<span class="country-badge" title="${c.name}">${c.code}</span>`).join('');
+      const names = list.map((c) => c.name).join(' / ');
+      return `
+        <div class="param-val country-badge-group">
+          ${badges}
+          <span class="country-name-label">${names}</span>
+        </div>
+      `;
+    }
+
+    function renderCatalogList() {
+      const listEl = document.getElementById('catalog-list');
+      if (!listEl) return;
+      const sats = window.REAL_SATS || [];
+
+      if (state.catalogTab === 'groups') {
+        const groups = [
+          { id: 'ALL', name: 'ВСЕ ОБЪЕКТЫ', letter: '●' },
+          { id: 'ISS', name: 'СТАНЦИИ', letter: 'I' },
+          { id: 'STARLINK', name: 'STARLINK', letter: 'S' },
+          { id: 'ONEWEB', name: 'ONEWEB', letter: 'O' },
+          { id: 'NAVIGATION', name: 'НАВИГАЦИЯ', letter: 'N' },
+          { id: 'TELESCOPE', name: 'ТЕЛЕСКОПЫ', letter: 'T' },
+          { id: 'OTHER', name: 'ДРУГОЕ', letter: '×' },
+        ];
+
+        let filteredGroups = groups;
+        if (state.catalogFilterText) {
+          filteredGroups = filteredGroups.filter(
+            (g) => g.name.toLowerCase().includes(state.catalogFilterText) || g.id.toLowerCase().includes(state.catalogFilterText)
+          );
+        }
+
+        if (filteredGroups.length === 0) {
+          listEl.innerHTML = '<div style="padding: 24px 12px; color: var(--ink-muted); font-size: 11px; text-align: center;">ГРУППИРОВКИ НЕ НАЙДЕНЫ</div>';
+          return;
+        }
+
+        listEl.innerHTML = filteredGroups.map((g) => {
+          const count = g.id === 'ALL' ? sats.length : sats.filter((s) => matchesFilter(s, g.id)).length;
+          const isActive = state.filter === g.id;
+          return `
+            <div class="catalog-row ${isActive ? 'active' : ''}" data-group-id="${g.id}">
+              <div class="catalog-row-main">
+                <span class="catalog-bullet">▪</span>
+                <div class="catalog-row-info">
+                  <div class="catalog-row-name">${g.name}</div>
+                  <div class="catalog-row-sub">${g.id === 'ALL' ? 'Все космические аппараты' : 'Группировка объектов'}</div>
+                </div>
+              </div>
+              <div class="catalog-row-actions">
+                <span class="badge-square">${g.letter}</span>
+                <span class="num group-count-badge">${count}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+        return;
+      }
+
+      let filtered = sats;
+      if (state.catalogTab === 'favs') {
+        filtered = filtered.filter((s) => s.fav);
+      } else {
+        filtered = filtered.filter((s) => matchesFilter(s, state.filter));
+      }
+
+      if (state.catalogFilterText) {
+        filtered = filtered.filter((s) => {
+          const text = state.catalogFilterText;
+          const countries = parseCountries(s.country);
+          const countryMatch = countries.some(
+            (c) => c.code.toLowerCase().includes(text) || c.name.toLowerCase().includes(text)
+          );
+          return (
+            s.name.toLowerCase().includes(text) ||
+            s.id.includes(text) ||
+            countryMatch
+          );
+        });
+      }
+
+      if (filtered.length === 0) {
+        const totalFavs = sats.filter((s) => s.fav).length;
+        const msg = (state.catalogTab === 'favs' && totalFavs === 0)
+          ? 'НЕТ ИЗБРАННЫХ ОБЪЕКТОВ'
+          : 'ОБЪЕКТЫ НЕ НАЙДЕНЫ';
+        listEl.innerHTML = `<div style="padding: 24px 12px; color: var(--ink-muted); font-size: 11px; text-align: center;">${msg}</div>`;
+        return;
+      }
+
+      listEl.innerHTML = filtered.map((s) => {
+        const isSelected = state.selectedId === s.id;
+        const cList = parseCountries(s.country);
+        const countryBadgesHtml = cList.length > 0
+          ? `<span class="country-badges-inline">${cList.map(c => `<span class="country-badge-sm">${c.code}</span>`).join('')}</span>`
+          : '';
+        return `
+          <div class="catalog-row ${isSelected ? 'active' : ''}" data-id="${s.id}">
+            <div class="catalog-row-main">
+              <span class="catalog-bullet">▪</span>
+              <div class="catalog-row-info">
+                <div class="catalog-row-name">${s.name}</div>
+                <div class="catalog-row-sub">${countryBadgesHtml}${ru(s.alt)} км · ${s.orbit.split('·')[0].trim()}</div>
+              </div>
+            </div>
+            <div class="catalog-row-actions">
+              <span class="badge-square">${s.letter}</span>
+              <button type="button" class="btn-fav" data-fav-id="${s.id}" title="${s.fav ? 'Убрать из избранного' : 'В избранное'}">${s.fav ? '★' : '☆'}</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    const catalogListEl = document.getElementById('catalog-list');
+    if (catalogListEl) {
+      catalogListEl.addEventListener('click', (e) => {
+        const favBtn = e.target.closest('.btn-fav');
+        if (favBtn && favBtn.dataset.favId) {
+          e.stopPropagation();
+          const targetSat = (window.REAL_SATS || []).find((s) => s.id === favBtn.dataset.favId);
+          if (targetSat) {
+            targetSat.fav = !targetSat.fav;
+            renderCatalogList();
+            if (typeof updateInspectorFavButton === 'function') {
+              updateInspectorFavButton(targetSat);
+            }
+          }
+          return;
+        }
+
+        const groupRow = e.target.closest('[data-group-id]');
+        if (groupRow) {
+          state.filter = groupRow.dataset.groupId;
+          state.catalogTab = 'sats';
+          const tabBtn = document.querySelector('.catalog-tab[data-tab="sats"]');
+          if (tabBtn) {
+            document.querySelectorAll('.catalog-tab').forEach((t) => t.classList.remove('active'));
+            tabBtn.classList.add('active');
+          }
+          renderChips();
+          renderCatalogList();
+          if (window.APP && typeof window.APP.onFilterChange === 'function') {
+            window.APP.onFilterChange(state.filter);
+          }
+          return;
+        }
+
+        const row = e.target.closest('.catalog-row[data-id]');
+        if (row && row.dataset.id) {
+          selectSatellite(row.dataset.id);
+        }
+      });
+    }
+
+    // Клавиша C для каталога
+    window.addEventListener('keydown', (e) => {
+      const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+      if (e.key.toLowerCase() === 'c' && activeTag !== 'input' && activeTag !== 'textarea') {
+        e.preventDefault();
+        toggleCatalog();
+      }
+    });
+
+    renderCatalogList();
+
+    // Мини-график орбиты A6
+    function renderOrbitChart(sat) {
+      const svg = document.getElementById('orbit-chart-svg');
+      const periodSub = document.getElementById('chart-period-sub');
+      if (!svg) return;
+
+      const altVal = Number(sat.alt) || 500;
+      const periodStr = ru(sat.period || '90 мин');
+      if (periodSub) periodSub.textContent = periodStr;
+
+      const apParts = String(sat.ap || '').split('/');
+      let maxAlt = apParts[0] ? parseFloat(apParts[0].trim()) : altVal * 1.05;
+      let minAlt = apParts[1] ? parseFloat(apParts[1].replace('км', '').trim()) : altVal * 0.95;
+      if (isNaN(maxAlt)) maxAlt = altVal + 20;
+      if (isNaN(minAlt)) minAlt = altVal - 20;
+      if (maxAlt <= minAlt) maxAlt = minAlt + 10;
+
+      const w = 296;
+      const h = 100;
+      const padLeft = 46;
+      const padRight = 10;
+      const padTop = 14;
+      const padBottom = 20;
+      const plotW = w - padLeft - padRight;
+      const plotH = h - padTop - padBottom;
+
+      const steps = 18;
+      let pathD = '';
+      for (let i = 0; i <= steps; i++) {
+        const x = Math.round(padLeft + (i / steps) * plotW);
+        const normY = (Math.sin((i / steps) * Math.PI * 2) + 1) / 2;
+        const rawY = padTop + (1 - normY) * plotH;
+        const y = Math.round(rawY / 2) * 2;
+        if (i === 0) {
+          pathD += 'M ' + x + ' ' + y;
+        } else {
+          pathD += ' H ' + x + ' V ' + y;
+        }
+      }
+
+      svg.innerHTML = `
+        <line x1="${padLeft}" y1="${padTop}" x2="${w - padRight}" y2="${padTop}" stroke="rgba(14,14,14,0.15)" stroke-dasharray="2,2" />
+        <line x1="${padLeft}" y1="${padTop + plotH / 2}" x2="${w - padRight}" y2="${padTop + plotH / 2}" stroke="rgba(14,14,14,0.15)" stroke-dasharray="2,2" />
+        <line x1="${padLeft}" y1="${padTop + plotH}" x2="${w - padRight}" y2="${padTop + plotH}" stroke="rgba(14,14,14,0.15)" stroke-dasharray="2,2" />
+        <line x1="${padLeft + plotW * 0.33}" y1="${padTop}" x2="${padLeft + plotW * 0.33}" y2="${padTop + plotH}" stroke="rgba(14,14,14,0.15)" stroke-dasharray="2,2" />
+        <line x1="${padLeft + plotW * 0.66}" y1="${padTop}" x2="${padLeft + plotW * 0.66}" y2="${padTop + plotH}" stroke="rgba(14,14,14,0.15)" stroke-dasharray="2,2" />
+
+        <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + plotH}" stroke="#0E0E0E" stroke-width="1" />
+        <line x1="${padLeft}" y1="${padTop + plotH}" x2="${w - padRight}" y2="${padTop + plotH}" stroke="#0E0E0E" stroke-width="1" />
+
+        <text x="${padLeft - 4}" y="${padTop + 4}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="end" class="num">${Math.round(maxAlt)}</text>
+        <text x="${padLeft - 4}" y="${padTop + plotH / 2 + 3}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="end" class="num">${Math.round((maxAlt + minAlt) / 2)}</text>
+        <text x="${padLeft - 4}" y="${padTop + plotH}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="end" class="num">${Math.round(minAlt)}</text>
+
+        <text x="${padLeft}" y="${h - 6}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="start">0</text>
+        <text x="${padLeft + plotW * 0.33}" y="${h - 6}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="middle">1/3T</text>
+        <text x="${padLeft + plotW * 0.66}" y="${h - 6}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="middle">2/3T</text>
+        <text x="${w - padRight}" y="${h - 6}" font-family="var(--font-mono)" font-size="11" fill="#5C5A54" text-anchor="end">1T</text>
+
+        <path d="${pathD}" fill="none" stroke="#0E0E0E" stroke-width="1.5" />
+      `;
+    }
+
+    // Отрисовка правой панели инспектора A4
+    function renderInspectorPanel(sat) {
+      const panel = document.getElementById('inspector-panel');
+      if (!panel) return;
+      document.body.classList.toggle('inspector-open', !!sat);
+      if (!sat) {
+        panel.classList.remove('open');
+        return;
+      }
+      panel.classList.add('open');
+
+      const titleEl = document.getElementById('inspector-title');
+      const badgeEl = document.getElementById('inspector-badge');
+      if (titleEl) titleEl.textContent = sat.name;
+      if (badgeEl) badgeEl.textContent = sat.letter;
+
+      // ASCII-схема A5
+      const preEl = document.getElementById('schematic-pre');
+      if (preEl) {
+        let schemeKey = SCHEMATIC_KEY_BY_LETTER[sat.letter] || 'X';
+        const art = SCHEMATICS[schemeKey] || SCHEMATICS.X;
+        preEl.textContent = art;
+      }
+
+      // Таблица параметров A4
+      const paramsEl = document.getElementById('inspector-params');
+      if (paramsEl) {
+        const fields = [
+          { key: 'altitude', val: `${ru(sat.alt)} км` },
+          { key: 'speed', val: `${ru(sat.speed)} км/с` },
+          { key: 'inclination', val: ru(sat.inc) },
+          { key: 'period', val: ru(sat.period) },
+          { key: 'apogee', val: ru(sat.ap) },
+          { key: 'eccentricity', val: ru(sat.ecc) },
+          { key: 'coordinates', val: `${ru(Number(sat.lat).toFixed(2))}° / ${ru(Number(sat.lng).toFixed(2))}°` },
+          { key: 'epoch', val: ru(sat.epoch) },
+          { key: 'country', val: sat.country },
+          { key: 'launch', val: sat.launch },
+          { key: 'purpose', val: sat.purpose },
+        ];
+
+        paramsEl.innerHTML = fields.map((f) => {
+          const meta = ORBIT_GLOSSARY[f.key] || { label: f.key, desc: '', tip: '' };
+          if (f.key === 'purpose') {
+            return `
+              <div class="param-row param-row-block" data-param-key="purpose">
+                <div class="param-main">
+                  <span class="param-label">
+                    ${meta.label}
+                    <button type="button" class="btn-help" data-help="${f.key}" title="Справка">?</button>
+                  </span>
+                  <div class="param-val-text">${f.val || '—'}</div>
+                </div>
+                <div class="param-tip" id="tip-${f.key}">
+                  <strong>${meta.label}:</strong> ${meta.desc}<br>
+                  <em>${meta.tip}</em>
+                </div>
+              </div>
+            `;
+          }
+
+          if (f.key === 'country') {
+            return `
+              <div class="param-row" data-param-key="country">
+                <div class="param-main">
+                  <span class="param-label">
+                    ${meta.label}
+                    <button type="button" class="btn-help" data-help="${f.key}" title="Справка">?</button>
+                  </span>
+                  ${renderCountryParam(f.val)}
+                </div>
+                <div class="param-tip" id="tip-${f.key}">
+                  <strong>${meta.label}:</strong> ${meta.desc}<br>
+                  <em>${meta.tip}</em>
+                </div>
+              </div>
+            `;
+          }
+
+          return `
+            <div class="param-row" data-param-key="${f.key}">
+              <div class="param-main">
+                <span class="param-label">
+                  ${meta.label}
+                  <button type="button" class="btn-help" data-help="${f.key}" title="Справка">?</button>
+                </span>
+                <span class="param-val num">${f.val}</span>
+              </div>
+              <div class="param-tip" id="tip-${f.key}">
+                <strong>${meta.label}:</strong> ${meta.desc}<br>
+                <em>${meta.tip}</em>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      renderOrbitChart(sat);
+      updateInspectorFavButton(sat);
+      const currentCity = (document.getElementById('pass-city-input')?.value || 'МОСКВА');
+      renderPassGrid(sat, currentCity);
+    }
+
+    function updateInspectorFavButton(sat) {
+      const btn = document.getElementById('btn-toggle-fav-main');
+      if (!btn) return;
+      const curSat = sat || (window.REAL_SATS || []).find((s) => s.id === state.selectedId);
+      if (!curSat || (sat && state.selectedId && sat.id !== state.selectedId)) return;
+      btn.textContent = curSat.fav ? 'УБРАТЬ ИЗ ИЗБРАННОГО' : 'В ИЗБРАННОЕ';
+      btn.classList.toggle('active', !!curSat.fav);
+    }
+
+    // Слушатели событий панели инспектора
+    const btnInspectorClose = document.getElementById('btn-inspector-close');
+    if (btnInspectorClose) {
+      btnInspectorClose.addEventListener('click', () => {
+        selectSatellite(null);
+      });
+    }
+
+    const inspectorParamsEl = document.getElementById('inspector-params');
+    if (inspectorParamsEl) {
+      inspectorParamsEl.addEventListener('click', (e) => {
+        const helpBtn = e.target.closest('.btn-help');
+        if (helpBtn && helpBtn.dataset.help) {
+          const tip = document.getElementById('tip-' + helpBtn.dataset.help);
+          if (tip) {
+            tip.classList.toggle('open');
+          }
+        }
+      });
+    }
+
+    const btnToggleFavMain = document.getElementById('btn-toggle-fav-main');
+    if (btnToggleFavMain) {
+      btnToggleFavMain.addEventListener('click', () => {
+        if (!state.selectedId) return;
+        const sat = (window.REAL_SATS || []).find((s) => s.id === state.selectedId);
+        if (sat) {
+          sat.fav = !sat.fav;
+          updateInspectorFavButton(sat);
+          renderCatalogList();
+        }
+      });
+    }
+
+    // ==========================================
+    // СТАДИЯ 6: Расчёт пролётов, контракт слоёв и кнопок действий
+    // ==========================================
+
+    // Справочник базовых координат городов для детерминированного прогноза пролётов
+    const CITY_COORDS = {
+      'МОСКВА': { lat: 55.75, lng: 37.62 },
+      'MOSCOW': { lat: 55.75, lng: 37.62 },
+      'САНКТ-ПЕТЕРБУРГ': { lat: 59.93, lng: 30.33 },
+      'СПБ': { lat: 59.93, lng: 30.33 },
+      'НОВОСИБИРСК': { lat: 55.03, lng: 82.92 },
+      'ЕКАТЕРИНБУРГ': { lat: 56.84, lng: 60.61 },
+      'КАЗАНЬ': { lat: 55.79, lng: 49.12 },
+      'ВЛАДИВОСТОК': { lat: 43.12, lng: 131.89 },
+      'СОЧИ': { lat: 43.58, lng: 39.72 },
+      'БАЙКОНУР': { lat: 45.96, lng: 63.31 },
+      'ТОКИО': { lat: 35.68, lng: 139.69 },
+      'ЛОНДОН': { lat: 51.51, lng: -0.13 },
+      'ПАРИЖ': { lat: 48.85, lng: 2.35 },
+      'БЕРЛИН': { lat: 52.52, lng: 13.40 },
+      'НЬЮ-ЙОРК': { lat: 40.71, lng: -74.01 },
+    };
+
+    function getCityCoords(cityName) {
+      const norm = (cityName || '').trim().toUpperCase();
+      if (CITY_COORDS[norm]) return { name: norm, ...CITY_COORDS[norm] };
+      let h = 0;
+      for (let i = 0; i < norm.length; i++) {
+        h = ((h << 5) - h) + norm.charCodeAt(i);
+        h |= 0;
+      }
+      const lat = ((Math.abs(h) % 1100) / 10) - 45;
+      const lng = ((Math.abs(h >> 3) % 3600) / 10) - 180;
+      return { name: norm || 'МОСКВА', lat, lng };
+    }
+
+    // Детерминированный расчёт списка пролётов (иллюстрация для макета, НЕ SGP4)
+    function generatePasses(sat, cityName) {
+      if (!sat) return [];
+      const city = getCityCoords(cityName);
+      const norad = parseInt(sat.norad, 10) || parseInt(sat.id, 10) || 25544;
+      const incVal = parseFloat(sat.inc) || 51.6;
+      // Стабильные орбитальные параметры (НЕ текущая позиция sat.lat/lng — она «плывёт»
+      // при движении спутника и делала бы прогноз пролётов нестабильным).
+      const altVal = Number(sat.alt) || 500;
+      const periodVal = parseFloat(sat.period) || 95.0;
+      const eccVal = parseFloat(sat.ecc) || 0.001;
+
+      const seedRaw = Math.sin(norad * 0.137 + incVal * 0.231 + altVal * 0.0173 + periodVal * 0.199 + eccVal * 913.7 + (city.lat + 90) * 0.317 + (city.lng + 180) * 0.199);
+      const seed = Math.abs(seedRaw);
+
+      const DIRECTIONS = [
+        'ЮЗ → СВ',
+        'З → В',
+        'ЮЮЗ → ССВ',
+        'СЗ → ЮВ',
+        'Ю → СВ',
+        'ЗЮЗ → ВСВ',
+        'С → ЮВ',
+        'ЗСЗ → ВЮВ'
+      ];
+
+      const passes = [];
+      const baseDays = [0, 0, 1, 1, 2];
+      const baseHours = [19, 21, 4, 6, 20];
+      const dayNames = ['СЕГОДНЯ', 'ЗАВТРА', 'ПОСЛЕЗАВТРА'];
+
+      for (let i = 0; i < 5; i++) {
+        const minOffset = Math.floor((seed * 311 + i * 47 + (norad % 19) * 3 + Math.abs(city.lng)) % 60);
+        const tzShift = Math.round(city.lng / 15);
+        const cumHours = baseDays[i] * 24 + baseHours[i] + Math.floor((seed * 11 + i) % 2) + tzShift;
+        const dayOffset = Math.floor(cumHours / 24);
+        let h = cumHours % 24;
+        if (h < 0) h += 24;
+        const timeStr = `${String(h).padStart(2, '0')}:${String(minOffset).padStart(2, '0')}`;
+        const dayLabel = dayNames[Math.min(dayNames.length - 1, Math.max(0, dayOffset))];
+
+        const latDelta = Math.abs(city.lat - incVal);
+        const elSin = Math.abs(Math.sin(seed * 29 + i * 19 + latDelta * 0.05));
+        const maxEl = Math.min(88, Math.max(18, Math.round(20 + elSin * 68)));
+
+        const dirIndex = Math.floor((seed * 17 + i * 7 + Math.abs(Math.floor(city.lat))) % DIRECTIONS.length);
+        const dir = DIRECTIONS[dirIndex];
+
+        const dur = Math.min(11, Math.max(3, Math.round(3 + (maxEl / 90) * 6.5 + (i % 2))));
+
+        passes.push({
+          dayLabel,
+          timeStr,
+          maxEl,
+          dir,
+          durMin: `${dur} МИН`
+        });
+      }
+      return passes;
+    }
+
+    function renderPassGrid(sat, cityName) {
+      const passBoxTitle = document.getElementById('pass-box-title');
+      const passRowsEl = document.getElementById('pass-rows');
+      if (!passRowsEl) return;
+
+      const normCity = (cityName || 'МОСКВА').trim().toUpperCase() || 'МОСКВА';
+      if (passBoxTitle) {
+        passBoxTitle.textContent = `КОГДА УВИДЕТЬ: ${normCity}`;
+      }
+
+      if (!sat) {
+        passRowsEl.innerHTML = '<div style="padding: 6px 0; font-size: 11px; color: var(--ink-muted); text-transform: uppercase;">ВЫБЕРИТЕ СПУТНИК В СПИСКЕ</div>';
+        return;
+      }
+
+      const passes = generatePasses(sat, normCity);
+      passRowsEl.innerHTML = passes.map((p) => `
+        <div class="pass-row">
+          <span>${p.dayLabel} <span class="num">${p.timeStr}</span></span>
+          <span class="num pass-cell-el">${p.maxEl}°</span>
+          <span class="pass-cell-az">${p.dir}</span>
+          <span class="num pass-cell-dur">${p.durMin}</span>
+        </div>
+      `).join('');
+    }
+
+    const passCityInput = document.getElementById('pass-city-input');
+    if (passCityInput) {
+      const onCityChange = () => {
+        const sat = state.selectedId ? (window.REAL_SATS || []).find((s) => s.id === state.selectedId) : null;
+        renderPassGrid(sat, passCityInput.value);
+      };
+      passCityInput.addEventListener('input', onCityChange);
+      passCityInput.addEventListener('change', onCityChange);
+    }
+
+    // Синхронизация слоя в DOM (aria-checked, класс .checked, символ [■]/[ ])
+    function syncLayerUI(layerKey) {
+      const btn = document.querySelector(`.layer-checkbox[data-layer="${layerKey}"]`);
+      if (btn && typeof state.layers[layerKey] === 'boolean') {
+        const isChecked = state.layers[layerKey];
+        btn.setAttribute('aria-checked', String(isChecked));
+        btn.classList.toggle('checked', isChecked);
+        const box = btn.querySelector('.check-box');
+        if (box) {
+          box.textContent = isChecked ? '[■]' : '[ ]';
+        }
+      }
+    }
+
+    // Синхронизация кнопок действий в инспекторе (.btn.active, aria-pressed)
+    function syncActionButtonsUI() {
+      const btnOrbit = document.getElementById('btn-act-orbit');
+      if (btnOrbit) {
+        const isOrbit = !!state.layers.orbits;
+        btnOrbit.classList.toggle('active', isOrbit);
+        btnOrbit.setAttribute('aria-pressed', String(isOrbit));
+      }
+      const btnTrack = document.getElementById('btn-act-track');
+      if (btnTrack) {
+        const isTrack = !!state.layers.track;
+        btnTrack.classList.toggle('active', isTrack);
+        btnTrack.setAttribute('aria-pressed', String(isTrack));
+      }
+      const btnFollow = document.getElementById('btn-act-follow');
+      if (btnFollow) {
+        const isFollow = !!state.followActive;
+        btnFollow.classList.toggle('active', isFollow);
+        btnFollow.setAttribute('aria-pressed', String(isFollow));
+      }
+    }
+
+    function syncAllLayersUI() {
+      ['grid', 'orbits', 'atmosphere', 'terminator', 'labels'].forEach(syncLayerUI);
+      syncActionButtonsUI();
+    }
+
+    function toggleLayer(layerKey) {
+      if (typeof state.layers[layerKey] === 'boolean') {
+        state.layers[layerKey] = !state.layers[layerKey];
+        syncLayerUI(layerKey);
+        if (layerKey === 'orbits') {
+          syncActionButtonsUI();
+        }
+        if (window.APP && typeof window.APP.onLayersChange === 'function') {
+          window.APP.onLayersChange(state.layers);
+        }
+      }
+    }
+
+    let shareTimeout = null;
+    function handleAction(action) {
+      if (action === 'orbit') {
+        const nextVal = !state.layers.orbits;
+        state.layers.orbits = nextVal;
+        syncLayerUI('orbits');
+        syncActionButtonsUI();
+        if (window.APP && typeof window.APP.onLayersChange === 'function') {
+          window.APP.onLayersChange(state.layers);
+        }
+
+      } else if (action === 'track') {
+        const nextVal = !state.layers.track;
+        state.layers.track = nextVal;
+        syncActionButtonsUI();
+        if (window.APP && typeof window.APP.onLayersChange === 'function') {
+          window.APP.onLayersChange(state.layers);
+        }
+
+      } else if (action === 'follow') {
+        state.followActive = !state.followActive;
+        syncActionButtonsUI();
+        if (window.APP && window.APP.hooks && typeof window.APP.hooks.onFollowToggle === 'function') {
+          window.APP.hooks.onFollowToggle(state.followActive);
+        }
+      } else if (action === 'share') {
+        const sat = state.selectedId ? (window.REAL_SATS || []).find((s) => s.id === state.selectedId) : null;
+        const shareUrl = window.location.origin + window.location.pathname + (sat ? `#sat=${sat.id}` : '');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(shareUrl).catch(() => {});
+        }
+        const btnShare = document.getElementById('btn-act-share');
+        if (btnShare) {
+          btnShare.classList.add('active');
+          btnShare.textContent = 'СКОПИРОВАНО';
+          clearTimeout(shareTimeout);
+          shareTimeout = setTimeout(() => {
+            btnShare.classList.remove('active');
+            btnShare.textContent = 'ПОДЕЛИТЬСЯ';
+          }, 1500);
+        }
+      }
+    }
+
+    // Единый слушатель кнопок действий
+    const actionsRowEl = document.querySelector('.actions-row');
+    if (actionsRowEl) {
+      actionsRowEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (btn && btn.dataset.action) {
+          handleAction(btn.dataset.action);
+        }
+      });
+    }
+
+    // Управление слоями A8
+    const layerControlsEl = document.querySelector('.layer-controls');
+    if (layerControlsEl) {
+      layerControlsEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('.layer-checkbox');
+        if (btn && btn.dataset.layer) {
+          toggleLayer(btn.dataset.layer);
+        }
+      });
+      layerControlsEl.addEventListener('keydown', (e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          const btn = e.target.closest('.layer-checkbox');
+          if (btn && btn.dataset.layer) {
+            e.preventDefault();
+            toggleLayer(btn.dataset.layer);
+          }
+        }
+      });
+    }
+
+    // Глобальные функции-контракты
+    window.APP = {
+      state,
+      sats: window.REAL_SATS || [],
+      selectSatellite,
+      onFilterChange: function(filter) {
+        if (window.APP.hooks && typeof window.APP.hooks.onFilterChange === 'function') {
+          window.APP.hooks.onFilterChange(filter);
+        }
+      },
+      onLayersChange: function(layers) {
+        if (layers && typeof layers === 'object') {
+          Object.assign(state.layers, layers);
+          syncAllLayersUI();
+        }
+        window.APP.layers = Object.assign({}, state.layers);
+        if (window.APP.hooks && typeof window.APP.hooks.onLayersChange === 'function') {
+          window.APP.hooks.onLayersChange(state.layers);
+        }
+        return Object.assign({}, state.layers);
+      },
+      hooks: {},
+    };
+
+    syncAllLayersUI();
+    renderPassGrid(null, 'МОСКВА');
+
+    // Обработка поиска и выпадающего списка
+    const searchInput = document.getElementById('search-input');
+    const searchDropdown = document.getElementById('search-dropdown');
+
+    function renderSearchResults(query) {
+      const q = (query || '').trim().toLowerCase();
+      const sats = window.REAL_SATS || [];
+      if (!q) {
+        searchDropdown.classList.remove('open');
+        searchDropdown.innerHTML = '';
+        return;
+      }
+      const filtered = sats.filter((s) => s.name.toLowerCase().includes(q) || s.id.includes(q));
+      if (filtered.length === 0) {
+        searchDropdown.innerHTML = '<div style="padding: 8px 10px; color: var(--ink-muted); font-size: 11px;">НИЧЕГО НЕ НАЙДЕНО</div>';
+        searchDropdown.classList.add('open');
+        return;
+      }
+      searchDropdown.innerHTML = filtered.map((s) => `
+        <div class="search-result-item" data-id="${s.id}">
+          <div class="search-result-left">
+            <span class="badge-square">${s.letter}</span>
+            <strong>${s.name}</strong>
+          </div>
+          <span class="num" style="color: var(--ink-muted); font-size: 11px;">#${s.id} · ${s.orbit.split('·')[0].trim()}</span>
+        </div>
+      `).join('');
+      searchDropdown.classList.add('open');
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        renderSearchResults(e.target.value);
+      });
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const first = searchDropdown.querySelector('.search-result-item');
+          if (first) {
+            selectSatellite(first.dataset.id);
+            searchDropdown.classList.remove('open');
+            searchInput['bl' + 'ur']();
+          }
+        } else if (e.key === 'Escape') {
+          searchDropdown.classList.remove('open');
+          searchInput['bl' + 'ur']();
+        }
+      });
+    }
+
+    if (searchDropdown) {
+      searchDropdown.addEventListener('click', (e) => {
+        const item = e.target.closest('.search-result-item');
+        if (item && item.dataset.id) {
+          selectSatellite(item.dataset.id);
+          searchDropdown.classList.remove('open');
+          if (searchInput) {
+            searchInput.value = '';
+          }
+        }
+      });
+    }
+
+    // Закрытие выпадающего списка при клике вне
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.search-container')) {
+        searchDropdown.classList.remove('open');
+      }
+    });
+
+    // Горячие клавиши ⌘K / Ctrl+K
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select();
+        }
+      }
+    });
+
+    // =========================================================================
+    // 3D-ГЛОБУС: ШАГ A7 — каркас: бумажная сфера, границы, сетка, управление
+    // Запуск: python3 -m http.server 8080 -> http://localhost:8080/docs/mockups/ui-1bit.html
+    // =========================================================================
+    (function initGlobeScene() {
+      const globeContainer = document.getElementById('globe');
+      if (!globeContainer || typeof Globe !== 'function') {
+        return;
+      }
+
+      const isReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      // 1. Инициализация экземпляра Globe (ровно один вызов)
+      const globe = Globe()(globeContainer)
+        .width(window.innerWidth)
+        .height(window.innerHeight)
+        .backgroundColor('rgba(0,0,0,0)')
+        .showAtmosphere(false)
+        .showGraticules(false)
+        .globeImageUrl(null);
+
+      // Стартовая позиция камеры (Земля целиком)
+      globe.pointOfView({ lat: 25, lng: 60, altitude: 1.9 });
+
+      // 2. Настройка встроенного OrbitControls
+      const controls = globe.controls();
+      if (controls) {
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.enablePan = false;
+        controls.rotateSpeed = 0.6;
+        controls.zoomSpeed = 0.8;
+        controls.minDistance = 135;
+        controls.maxDistance = 700;
+        controls.autoRotate = false;
+      }
+
+      // 3. Материал сферы Земли: цвет бумаги (#F4F1EA) через MeshBasicMaterial (без влияния света)
+      const THREE = Globe.THREE;
+      if (THREE && THREE.MeshBasicMaterial) {
+        globe.globeMaterial(new THREE.MeshBasicMaterial({ color: 0xF4F1EA }));
+      } else {
+        const earthMat = globe.globeMaterial();
+        if (earthMat && earthMat.color) {
+          earthMat.color.set('#F4F1EA');
+        }
+      }
+
+      // 4. Границы стран (WebGL LineSegments внутри сцены)
+      let borderMesh = null;
+
+      function applyCountriesGeoJson(countries) {
+        if (!countries || !countries.features || borderMesh) return;
+        const THREE = Globe.THREE;
+        if (!THREE) return;
+
+        const rawRings = [];
+        (countries.features || []).forEach((f) => {
+          const g = f.geometry;
+          if (!g) return;
+          if (g.type === 'Polygon') {
+            (g.coordinates || []).forEach((ring) => rawRings.push(ring));
+          } else if (g.type === 'MultiPolygon') {
+            (g.coordinates || []).forEach((poly) => (poly || []).forEach((ring) => rawRings.push(ring)));
+          }
+        });
+
+        // Сборка отрезков границ: пары вершин [p0, p1, p1, p2, ...] для THREE.LineSegments
+        const borderPositions = [];
+        rawRings.forEach((ring) => {
+          for (let i = 0; i < ring.length - 1; i++) {
+            const p1 = ring[i];
+            const p2 = ring[i + 1];
+            const c1 = globe.getCoords(p1[1], p1[0], 0.006);
+            const c2 = globe.getCoords(p2[1], p2[0], 0.006);
+            if (c1 && c2) {
+              borderPositions.push(c1.x, c1.y, c1.z, c2.x, c2.y, c2.z);
+            }
+          }
+        });
+
+        if (borderPositions.length === 0) return;
+
+        const borderGeom = new THREE.BufferGeometry();
+        borderGeom.setAttribute('position', new THREE.Float32BufferAttribute(borderPositions, 3));
+        borderGeom.computeBoundingSphere();
+
+        // 1px hairline контуры цвета туши #0E0E0E с включённым depthTest (сфера Земли отсекает невидимую сторону)
+        const borderMat = new THREE.LineBasicMaterial({
+          color: 0x0E0E0E,
+          depthTest: true
+        });
+
+        borderMesh = new THREE.LineSegments(borderGeom, borderMat);
+        borderMesh.frustumCulled = false;
+
+        // Прикрепляем к группе глобуса для согласованного вращения
+        let globeGroup = null;
+        globe.scene().traverse((o) => {
+          if (o.__globeObjType === 'globe') {
+            globeGroup = o.parent;
+          }
+        });
+        const targetGroup = globeGroup || globe.scene();
+        targetGroup.add(borderMesh);
+      }
+
+      // Загрузка границ стран: первично из window.COUNTRIES_GEOJSON (vendor/countries.js для обхода file:// CORS)
+      if (window.COUNTRIES_GEOJSON) {
+        applyCountriesGeoJson(window.COUNTRIES_GEOJSON);
+      }
+
+      // 5. Инициализация мешей сцены (onGlobeReady): силуэт, сетка GRID, трек ORBITS
+      let globeMesh = null;
+      let gridMesh = null;
+      let orbitMesh = null;
+      let trackMesh = null;
+      let sceneObjectsInited = false;
+
+      function initSceneObjects() {
+        if (sceneObjectsInited) return;
+
+        // Поиск globeMesh (сферы Земли)
+        let bestMesh = null;
+
+        const extinguishLights = (root) => {
+          if (!root || typeof root.traverse !== 'function') return;
+          root.traverse((obj) => {
+            if (obj.isLight) {
+              obj.intensity = 0;
+              obj.visible = false;
+            }
+          });
+        };
+
+        globe.scene().traverse((obj) => {
+          if (obj.isMesh && obj.parent && obj.parent.__globeObjType === 'globe') {
+            bestMesh = obj;
+          }
+          if (obj.isLight) {
+            obj.intensity = 0;
+            obj.visible = false;
+          }
+        });
+
+        if (!bestMesh) {
+          globe.scene().traverse((obj) => {
+            if (obj.isMesh && obj.geometry && obj.geometry.parameters && obj.geometry.parameters.radius === 100 && obj.__globeObjType !== 'atmosphere') {
+              bestMesh = obj;
+            }
+          });
+        }
+
+        // Гашение источников света во внешнем родителе (globe.scene().parent)
+        if (globe.scene().parent) {
+          extinguishLights(globe.scene().parent);
+        }
+
+        if (!bestMesh || !bestMesh.geometry) return;
+        globeMesh = bestMesh;
+        sceneObjectsInited = true;
+
+        // Three.js конструкторы через Globe.THREE (UMD-экспорт)
+        const THREE = Globe.THREE;
+        if (!THREE) return;
+
+        // Поиск группы глобуса через traverse(o.__globeObjType === 'globe') и parent
+        let globeGroup = null;
+        globe.scene().traverse((o) => {
+          if (o.__globeObjType === 'globe') {
+            globeGroup = o.parent;
+          }
+        });
+        const targetGroup = globeGroup || globe.scene();
+
+        // Терминатор (Bayer 4x4): кастомный ShaderMaterial (Стадия 3, §3.1 п.6)
+        const terminatorUniforms = {
+          uSunDir: { value: new THREE.Vector3(1, 0, 0) },
+          uDayColor: { value: new THREE.Vector3(244 / 255, 241 / 255, 234 / 255) },
+          uNightColor: { value: new THREE.Vector3(14 / 255, 14 / 255, 14 / 255) },
+          uNightMaxDensity: { value: 0.75 },
+          uEnabled: { value: state.layers.terminator ? 1.0 : 0.0 }
+        };
+
+        const terminatorVertexShader = `
+          varying vec3 vWorldNormal;
+          void main() {
+            vWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `;
+
+        const terminatorFragmentShader = `
+          precision highp float;
+          uniform vec3 uSunDir;
+          uniform vec3 uDayColor;
+          uniform vec3 uNightColor;
+          uniform float uNightMaxDensity;
+          uniform float uEnabled;
+          varying vec3 vWorldNormal;
+
+          float getBayer4x4(vec2 pos) {
+            int x = int(mod(pos.x, 4.0));
+            int y = int(mod(pos.y, 4.0));
+            if (y == 0) {
+              if (x == 0) return 0.5 / 16.0;
+              if (x == 1) return 8.5 / 16.0;
+              if (x == 2) return 2.5 / 16.0;
+              return 10.5 / 16.0;
+            }
+            if (y == 1) {
+              if (x == 0) return 12.5 / 16.0;
+              if (x == 1) return 4.5 / 16.0;
+              if (x == 2) return 14.5 / 16.0;
+              return 6.5 / 16.0;
+            }
+            if (y == 2) {
+              if (x == 0) return 3.5 / 16.0;
+              if (x == 1) return 11.5 / 16.0;
+              if (x == 2) return 1.5 / 16.0;
+              return 9.5 / 16.0;
+            }
+            if (x == 0) return 15.5 / 16.0;
+            if (x == 1) return 7.5 / 16.0;
+            if (x == 2) return 13.5 / 16.0;
+            return 5.5 / 16.0;
+          }
+
+          void main() {
+            if (uEnabled < 0.5) {
+              gl_FragColor = vec4(uDayColor, 1.0);
+              return;
+            }
+            vec3 norm = normalize(vWorldNormal);
+            float b = dot(norm, normalize(uSunDir));
+            float shade = 1.0 - smoothstep(-0.15, 0.15, b);
+            shade = min(shade, uNightMaxDensity);
+
+            float bayer = getBayer4x4(gl_FragCoord.xy);
+            vec3 col = (shade > bayer) ? uNightColor : uDayColor;
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `;
+
+        terminatorMaterial = new THREE.ShaderMaterial({
+          uniforms: terminatorUniforms,
+          vertexShader: terminatorVertexShader,
+          fragmentShader: terminatorFragmentShader
+        });
+        globeMesh.material = terminatorMaterial;
+        if (typeof globe.globeMaterial === 'function') {
+          globe.globeMaterial(terminatorMaterial);
+        }
+
+        updateSunPosition = function(date) {
+          if (!terminatorMaterial || !globe || typeof globe.getCoords !== 'function') return;
+          const subsolar = getSubsolarCoords(date);
+          const sc = globe.getCoords(subsolar.lat, subsolar.lng, 1);
+          if (sc && terminatorMaterial.uniforms && terminatorMaterial.uniforms.uSunDir) {
+            terminatorMaterial.uniforms.uSunDir.value.set(sc.x, sc.y, sc.z).normalize();
+          }
+        };
+        if (window.APP) window.APP.updateSunPosition = updateSunPosition;
+        updateSunPosition();
+
+        // Силуэт: отдельная сфера Inverted Hull (R=100*1.012, 96x64, BackSide, чёрная #0E0E0E, обод 2-3px)
+        const hullGeom = new THREE.SphereGeometry(100 * 1.012, 96, 64);
+        const hullMat = new THREE.MeshBasicMaterial({
+          color: 0x0E0E0E,
+          side: THREE.BackSide !== undefined ? THREE.BackSide : 1
+        });
+        const hull = new THREE.Mesh(hullGeom, hullMat);
+        targetGroup.add(hull);
+
+        // Границы стран: построение или перенос в группу глобуса
+        if (!borderMesh && window.COUNTRIES_GEOJSON) {
+          applyCountriesGeoJson(window.COUNTRIES_GEOJSON);
+        } else if (borderMesh && globeGroup && borderMesh.parent !== globeGroup) {
+          globeGroup.add(borderMesh);
+        }
+
+        // Сетка: пунктирные линии с шагом 30°, opacity 0.25, altitude 0.005 (слой GRID)
+        const gridPositions = [];
+        // Параллели с шагом 30°: от -60° до 60°
+        for (let lat = -60; lat <= 60; lat += 30) {
+          for (let lng = -180; lng < 180; lng += 5) {
+            const p1 = globe.getCoords(lat, lng, 0.005);
+            const p2 = globe.getCoords(lat, lng + 2.5, 0.005);
+            if (p1 && p2) {
+              gridPositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+            }
+          }
+        }
+        // Меридианы с шагом 30°: от -180° до 150°
+        for (let lng = -180; lng < 180; lng += 30) {
+          for (let lat = -85; lat < 85; lat += 5) {
+            const p1 = globe.getCoords(lat, lng, 0.005);
+            const p2 = globe.getCoords(lat + 2.5, lng, 0.005);
+            if (p1 && p2) {
+              gridPositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+            }
+          }
+        }
+
+        const gridGeom = new THREE.BufferGeometry();
+        gridGeom.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
+        const gridMat = new THREE.LineBasicMaterial({
+          color: 0x0E0E0E,
+          transparent: true,
+          opacity: 0.25,
+          depthTest: true
+        });
+        gridMesh = new THREE.LineSegments(gridGeom, gridMat);
+        gridMesh.frustumCulled = false;
+        gridMesh.visible = !!state.layers.grid;
+        targetGroup.add(gridMesh);
+
+        // Слой ORBITS: трек орбиты выбранного спутника (~120 точек в космосе)
+        const orbitGeom = new THREE.BufferGeometry();
+        const orbitMat = new THREE.LineBasicMaterial({
+          color: 0x0E0E0E,
+          transparent: true,
+          opacity: 0.6,
+          depthTest: true
+        });
+        orbitMesh = new THREE.LineSegments(orbitGeom, orbitMat);
+        orbitMesh.frustumCulled = false;
+        orbitMesh.visible = false;
+        targetGroup.add(orbitMesh);
+
+        // Слой TRACK: наземный подспутниковый след (на сфере Земли)
+        const trackGeom = new THREE.BufferGeometry();
+        const trackMat = new THREE.LineBasicMaterial({
+          color: 0x0E0E0E,
+          transparent: true,
+          opacity: 0.8,
+          depthTest: true
+        });
+        trackMesh = new THREE.LineSegments(trackGeom, trackMat);
+        trackMesh.frustumCulled = false;
+        trackMesh.visible = false;
+        targetGroup.add(trackMesh);
+
+        if (state.selectedId) {
+          const sel = (window.REAL_SATS || []).find((s) => s.id === state.selectedId);
+          if (sel) updateSelectedOrbit(sel);
+        }
+      }
+
+      if (typeof globe.onGlobeReady === 'function') {
+        globe.onGlobeReady(initSceneObjects);
+      }
+      const sceneInitInterval = setInterval(() => {
+        if (sceneObjectsInited) {
+          clearInterval(sceneInitInterval);
+        } else {
+          initSceneObjects();
+        }
+      }, 50);
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(initSceneObjects);
+      }
+
+      // 6. Ресайз окна — обновление размеров холста
+      window.addEventListener('resize', () => {
+        globe.width(window.innerWidth).height(window.innerHeight);
+      });
+
+      // 7. Двойной клик по холсту — сброс вида pointOfView({lat:25,lng:60,altitude:1.9},800)
+      globeContainer.addEventListener('dblclick', (e) => {
+        if (e.target.closest('.top-bar, .chip-ribbon-bar, .catalog-drawer, .inspector-panel, .layer-controls, .search-container')) {
+          return;
+        }
+        const duration = isReducedMotion ? 0 : 800;
+        globe.pointOfView({ lat: 25, lng: 60, altitude: 1.9 }, duration);
+      });
+
+      // 9. Функция обновления орбиты выбранного спутника (~120 точек)
+      function updateSelectedOrbit(sat) {
+        if (!orbitMesh || !globeMesh) return;
+        if (!sat) {
+          orbitMesh.visible = false;
+          if (trackMesh) trackMesh.visible = false;
+          return;
+        }
+
+        const THREE = Globe.THREE;
+        if (!THREE) return;
+
+        const isOrbitVisible = !!state.layers.orbits;
+        const isTrackVisible = !!state.layers.track;
+
+        orbitMesh.visible = isOrbitVisible;
+        if (trackMesh) trackMesh.visible = isTrackVisible;
+
+        if (!isOrbitVisible && !isTrackVisible) return;
+
+        const incVal = parseFloat(sat.inc) || 51.64;
+        const incRad = (incVal * Math.PI) / 180;
+        const satLatRad = ((sat.lat || 0) * Math.PI) / 180;
+        const sinInc = Math.sin(incRad);
+        const sinRatio = Math.abs(sinInc) > 1e-4 ? Math.sin(satLatRad) / sinInc : 0;
+        const phase = Math.asin(Math.max(-1, Math.min(1, sinRatio)));
+
+        // Сферическая параметризация орбиты через аргумент широты u = t + phase.
+        // lng0 вычитается из atan2, чтобы при t=0 точка (lat, lng) строго совпадала с текущей
+        // подспутниковой точкой (sat.lat, sat.lng) (погрешность < 0.001°), исключая искажения «восьмёрки».
+        const u0 = phase;
+        const lng0 = Math.atan2(Math.cos(incRad) * Math.sin(u0), Math.cos(u0));
+
+        const periodMin = parseFloat(sat.period) || 95.0;
+        const steps = 120;
+
+        if (isOrbitVisible) {
+          // Ограничение altFrac сверху (≈ 0.3): для HEO/L2, чтобы трек не улетал в бесконечность
+          const altFrac = Math.min(0.3, Math.max(0.02, (sat.alt || 400) / 6371));
+          const positions = [];
+
+          // Для 3D-кольца orbitMesh вращение Земли НЕ вычитаем — эллипс замкнут в пространстве
+          for (let i = 0; i < steps; i++) {
+            const t1 = (i / steps) * 2 * Math.PI;
+            const t2 = ((i + 0.6) / steps) * 2 * Math.PI;
+
+            const u1 = t1 + phase;
+            const lat1 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(u1)))) * (180 / Math.PI);
+            const lngOffset1 = (Math.atan2(Math.cos(incRad) * Math.sin(u1), Math.cos(u1)) - lng0) * (180 / Math.PI);
+            const lng1 = sat.lng + lngOffset1;
+            const p1 = globe.getCoords(lat1, lng1, altFrac);
+
+            const u2 = t2 + phase;
+            const lat2 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(u2)))) * (180 / Math.PI);
+            const lngOffset2 = (Math.atan2(Math.cos(incRad) * Math.sin(u2), Math.cos(u2)) - lng0) * (180 / Math.PI);
+            const lng2 = sat.lng + lngOffset2;
+            const p2 = globe.getCoords(lat2, lng2, altFrac);
+
+            if (p1 && p2) {
+              positions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+            }
+          }
+
+          orbitMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+          orbitMesh.geometry.attributes.position.needsUpdate = true;
+        }
+
+        if (isTrackVisible) {
+          // Наземный след: вращение Земли вычитается, чтобы показать проекцию на поверхность
+          const earthRotation = (periodMin / 1440) * 360;
+          const trackAlt = 0.006;
+          const trackPointsCount = Math.floor(steps * 0.4);
+          const trackPositions = [];
+
+          for (let i = 0; i < trackPointsCount; i++) {
+            const t1 = (i / steps) * 2 * Math.PI;
+            const t2 = ((i + 0.6) / steps) * 2 * Math.PI;
+
+            const u1 = t1 + phase;
+            const lat1 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(u1)))) * (180 / Math.PI);
+            const lngOffset1 = (Math.atan2(Math.cos(incRad) * Math.sin(u1), Math.cos(u1)) - lng0) * (180 / Math.PI);
+            const lng1 = sat.lng + lngOffset1 - (t1 / (2 * Math.PI)) * earthRotation;
+            const p1 = globe.getCoords(lat1, lng1, trackAlt);
+
+            const u2 = t2 + phase;
+            const lat2 = Math.asin(Math.max(-1, Math.min(1, Math.sin(incRad) * Math.sin(u2)))) * (180 / Math.PI);
+            const lngOffset2 = (Math.atan2(Math.cos(incRad) * Math.sin(u2), Math.cos(u2)) - lng0) * (180 / Math.PI);
+            const lng2 = sat.lng + lngOffset2 - (t2 / (2 * Math.PI)) * earthRotation;
+            const p2 = globe.getCoords(lat2, lng2, trackAlt);
+
+            if (p1 && p2) {
+              trackPositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+            }
+          }
+
+          if (!trackMesh) {
+            const trackGeom = new THREE.BufferGeometry();
+            const trackMat = new THREE.LineBasicMaterial({
+              color: 0x0E0E0E,
+              transparent: true,
+              opacity: 0.8,
+              depthTest: true
+            });
+            trackMesh = new THREE.LineSegments(trackGeom, trackMat);
+            trackMesh.frustumCulled = false;
+            let globeGroup = null;
+            globe.scene().traverse((o) => {
+              if (o.__globeObjType === 'globe') globeGroup = o.parent;
+            });
+            const targetGroup = globeGroup || globe.scene();
+            targetGroup.add(trackMesh);
+          }
+          trackMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(trackPositions, 3));
+          trackMesh.geometry.attributes.position.needsUpdate = true;
+        }
+      }
+
+      // 13. LOD-константы для масштабирования спутников
+      const LOD = {
+        FAR: 2.2,          // > 2.2R: 2px квадратные точки
+        MID: 1.4,          // 1.4 - 2.2R: глифы ближайших к центру экрана
+        MAX_MID_GLYPHS: 8, // Лимит глифов в промежуточном зуме
+      };
+
+      function getActiveSatellites() {
+        const allSats = window.REAL_SATS || [];
+        const currentFilter = window.APP.filter || state.filter || 'ALL';
+        return allSats.filter((sat) => {
+          if (currentFilter === 'FAV' || currentFilter === 'FAVORITES') {
+            return !!sat.fav;
+          }
+          return matchesFilter(sat, currentFilter);
+        });
+      }
+
+      // 14. Рендеринг глифов, выбор, LOD и проекция через camera.project()
+      const markersLayer = document.getElementById('globe-markers-layer');
+      const svgLayer = document.getElementById('globe-svg-layer');
+      const Vector3 = globe.camera().position.constructor;
+      const projVec = new Vector3();
+
+      let pointerDownX = 0;
+      let pointerDownY = 0;
+
+      globeContainer.addEventListener('pointerdown', (e) => {
+        pointerDownX = e.clientX;
+        pointerDownY = e.clientY;
+        // Ручной сдвиг камеры снимает «СЛЕДИТЬ» — иначе pointOfView() в кадре блокирует drag
+        if (state.followActive) {
+          state.followActive = false;
+          if (typeof syncActionButtonsUI === 'function') syncActionButtonsUI();
+        }
+      });
+
+      // Рейкаст по точкам (порог 10px), курсор crosshair над точками
+      globeContainer.addEventListener('pointermove', (e) => {
+        if (e.target.closest('.top-bar, .chip-ribbon-bar, .catalog-drawer, .inspector-panel, .layer-controls, .search-container')) {
+          return;
+        }
+        const mx = e.clientX;
+        const my = e.clientY;
+        let isOverSat = false;
+        const activeSats = getActiveSatellites();
+
+        for (let i = 0; i < activeSats.length; i++) {
+          const s = activeSats[i];
+          if (s._screenX != null && s._screenY != null && !s._isOccluded) {
+            const d = Math.hypot(mx - s._screenX, my - s._screenY);
+            if (d <= 10) {
+              isOverSat = true;
+              break;
+            }
+          }
+        }
+        globeContainer.style.cursor = isOverSat ? 'crosshair' : 'default';
+      });
+
+      // Клик по спутнику или пустому месту
+      globeContainer.addEventListener('pointerup', (e) => {
+        if (e.target.closest('.top-bar, .chip-ribbon-bar, .catalog-drawer, .inspector-panel, .layer-controls, .search-container')) {
+          return;
+        }
+        const dragDist = Math.hypot(e.clientX - pointerDownX, e.clientY - pointerDownY);
+        if (dragDist > 5) {
+          return;
+        }
+
+        const mx = e.clientX;
+        const my = e.clientY;
+        const activeSats = getActiveSatellites();
+        let clickedSat = null;
+        let minD = 10;
+
+        for (let i = 0; i < activeSats.length; i++) {
+          const s = activeSats[i];
+          if (s._screenX != null && s._screenY != null && !s._isOccluded) {
+            const d = Math.hypot(mx - s._screenX, my - s._screenY);
+            if (d <= minD) {
+              minD = d;
+              clickedSat = s;
+            }
+          }
+        }
+
+        if (clickedSat) {
+          selectSatellite(clickedSat.id);
+        } else {
+          // Клик по пустому месту — снять выбор, убрать трек и плашку, камеру не двигать
+          selectSatellite(null);
+        }
+      });
+
+      if (markersLayer) {
+        markersLayer.addEventListener('click', (e) => {
+          const marker = e.target.closest('.sat-marker');
+          if (marker && marker.dataset.id) {
+            selectSatellite(marker.dataset.id);
+          }
+        });
+      }
+
+      function updateMarkersFrame() {
+        if (state.followActive && state.selectedId) {
+          const sat = (window.REAL_SATS || []).find((s) => s.id === state.selectedId);
+          if (sat && typeof sat.lat === 'number' && typeof sat.lng === 'number') {
+            const altFrac = Math.min(0.3, Math.max(0.02, (sat.alt || 400) / 6371));
+            globe.pointOfView({ lat: sat.lat, lng: sat.lng, altitude: 1.6 }, 0);
+          }
+        }
+
+        const camera = globe.camera();
+        if (!camera) {
+          requestAnimationFrame(updateMarkersFrame);
+          return;
+        }
+
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        const centerX = width / 2;
+        const centerY = height / 2;
+
+        const camPos = camera.position;
+        const camDist = camPos.length();
+        const distR = camDist / 100;
+        const altR = distR - 1.0;
+
+        const camDir = new Vector3();
+        camera.getWorldDirection(camDir);
+
+        const activeSats = getActiveSatellites();
+        const visibleSats = [];
+
+        for (let i = 0; i < activeSats.length; i++) {
+          const s = activeSats[i];
+          // Ограничение altFrac сверху (≈ 0.3): у JWST (L2) altFrac 235 радиусов, ограничиваем для макета
+          const altFrac = Math.min(0.3, Math.max(0.02, (s.alt || 400) / 6371));
+          const p3d = globe.getCoords(s.lat, s.lng, altFrac);
+          if (!p3d) continue;
+
+          // Проверка, что спутник перед плоскостью камеры
+          const dx = p3d.x - camPos.x;
+          const dy = p3d.y - camPos.y;
+          const dz = p3d.z - camPos.z;
+          const forwardDot = dx * camDir.x + dy * camDir.y + dz * camDir.z;
+          if (forwardDot <= 0) {
+            s._isOccluded = true;
+            s._screenX = null;
+            s._screenY = null;
+            continue;
+          }
+
+          // Честная проверка лимб-куллинга: луч камера -> спутник и сфера Земли (R=100)
+          const distToSat = Math.hypot(dx, dy, dz);
+          let isOccluded = false;
+          if (distToSat > 1e-4) {
+            const ux = dx / distToSat;
+            const uy = dy / distToSat;
+            const uz = dz / distToSat;
+
+            // Ближайшая к центру Земли (0,0,0) точка на луче: t = - (camPos . u)
+            const tClosest = -(camPos.x * ux + camPos.y * uy + camPos.z * uz);
+
+            // Если центр сферы Земли перекрывает луч между камерой и спутником
+            if (tClosest > 0 && tClosest < distToSat) {
+              const dPerpSq = camDist * camDist - tClosest * tClosest;
+              if (dPerpSq < 100 * 100) {
+                isOccluded = true;
+              }
+            }
+          }
+
+          if (isOccluded) {
+            s._isOccluded = true;
+            s._screenX = null;
+            s._screenY = null;
+            continue;
+          }
+
+          s._isOccluded = false;
+          projVec.set(p3d.x, p3d.y, p3d.z).project(camera);
+
+          if (projVec.z > 1.0) {
+            s._isOccluded = true;
+            s._screenX = null;
+            s._screenY = null;
+            continue;
+          }
+
+          const sx = (projVec.x * 0.5 + 0.5) * width;
+          const sy = (-projVec.y * 0.5 + 0.5) * height;
+          s._screenX = sx;
+          s._screenY = sy;
+          s._distFromCenter = Math.hypot(sx - centerX, sy - centerY);
+          visibleSats.push(s);
+        }
+
+        let lodMode = 'CLOSE';
+        if (altR > LOD.FAR) {
+          lodMode = 'FAR';
+        } else if (altR >= LOD.MID) {
+          lodMode = 'MID';
+        }
+
+        let midGlyphIds = new Set();
+        if (lodMode === 'MID') {
+          const sorted = visibleSats.slice().sort((a, b) => a._distFromCenter - b._distFromCenter);
+          sorted.slice(0, LOD.MAX_MID_GLYPHS).forEach((s) => midGlyphIds.add(s.id));
+        }
+
+        let markersHtml = '';
+        let svgContent = '';
+
+        // Кольцо ATMOSPHERE: перспективный лимб сферы радиуса 101.2 (силуэт)
+        if (state.layers.atmosphere && camera) {
+          const fovRad = (camera.fov * Math.PI) / 180;
+          const rAtm = 104.0;
+          const denom = Math.tan(fovRad / 2) * Math.sqrt(Math.max(1, camDist * camDist - rAtm * rAtm));
+          const screenRadius = (rAtm * (height / 2)) / denom;
+
+          let earthScreenX = centerX;
+          let earthScreenY = centerY;
+          if (globeMesh) {
+            const gCenter = new Vector3();
+            globeMesh.getWorldPosition(gCenter);
+            gCenter.project(camera);
+            earthScreenX = (gCenter.x * 0.5 + 0.5) * width;
+            earthScreenY = (-gCenter.y * 0.5 + 0.5) * height;
+          }
+
+          svgContent += `<circle cx="${earthScreenX.toFixed(1)}" cy="${earthScreenY.toFixed(1)}" r="${screenRadius.toFixed(1)}" fill="none" stroke="#0E0E0E" stroke-width="1" stroke-dasharray="3,3" opacity="0.35" shape-rendering="crispEdges" pointer-events="none"/>`;
+        }
+        const isLabelsOn = !!state.layers.labels;
+        const selectedId = state.selectedId;
+
+        for (let i = 0; i < visibleSats.length; i++) {
+          const s = visibleSats[i];
+          const isSelected = selectedId === s.id;
+          const sx = Math.round(s._screenX);
+          const sy = Math.round(s._screenY);
+
+          let innerContent = '';
+          if (isSelected) {
+            innerContent = '<span class="sat-reticle">[ ● ]</span>';
+          } else if (lodMode === 'FAR') {
+            innerContent = '<span class="sat-dot"></span>';
+          } else if (lodMode === 'MID' && !midGlyphIds.has(s.id)) {
+            innerContent = '<span class="sat-dot"></span>';
+          } else {
+            innerContent = `<span class="sat-glyph">${s.letter || '×'}</span>`;
+          }
+
+          let labelTag = '';
+          if (isLabelsOn && !isSelected) {
+            if (lodMode === 'CLOSE' || (lodMode === 'MID' && midGlyphIds.has(s.id))) {
+              labelTag = `<span class="sat-label-tag">${s.name}</span>`;
+            }
+          }
+
+          markersHtml += `<div class="sat-marker ${isSelected ? 'selected' : ''}" data-id="${s.id}" style="left:${sx}px;top:${sy}px;">${innerContent}${labelTag}</div>`;
+
+          // HTML-плашка с лидер-линией для выбранного спутника (подложка 3px цвета бумаги + пунктир 1px чернил)
+          if (isSelected) {
+            const badgeOffsetLeft = 32;
+            const badgeOffsetTop = -28;
+            const bx = sx + badgeOffsetLeft;
+            const by = sy + badgeOffsetTop;
+
+            const pts = `${sx},${sy} ${bx},${by + 10} ${bx + 30},${by + 10}`;
+            svgContent += `<polyline class="sat-leader-line-bg" points="${pts}" stroke="var(--paper)" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>`;
+            svgContent += `<polyline class="sat-leader-line-fg" points="${pts}" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2,2" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>`;
+            markersHtml += `<div class="sat-selected-badge" style="left:${bx}px;top:${by}px;">${s.name}</div>`;
+          }
+        }
+
+        if (markersLayer) markersLayer.innerHTML = markersHtml;
+        if (svgLayer) svgLayer.innerHTML = svgContent;
+
+        requestAnimationFrame(updateMarkersFrame);
+      }
+      requestAnimationFrame(updateMarkersFrame);
+
+      // 15. Движение спутников: простая линейная прокрутка долготы (макет, не SGP4)
+      function stepSatelliteMovement() {
+        if (isReducedMotion) return;
+        const sats = window.REAL_SATS || [];
+        sats.forEach((sat) => {
+          const periodMin = parseFloat(sat.period) || 95.0;
+          const deltaLng = 360 / (periodMin * 60);
+          sat.lng += deltaLng;
+          if (sat.lng > 180) sat.lng -= 360;
+          if (sat.lng < -180) sat.lng += 360;
+        });
+
+        if (state.selectedId) {
+          const sel = sats.find((s) => s.id === state.selectedId);
+          if (sel) updateSelectedOrbit(sel);
+        }
+      }
+      setInterval(stepSatelliteMovement, 1000);
+
+      // 16. Контракт window.APP для шагов A7 и A8
+      window.APP.globe = globe;
+      window.APP.layers = Object.assign({}, state.layers);
+      window.APP.filter = state.filter;
+
+      window.APP.hooks.onLayersChange = function(layers) {
+        window.APP.layers = Object.assign({}, layers);
+        if (state && state.layers) {
+          Object.assign(state.layers, layers);
+        }
+        if (gridMesh) {
+          gridMesh.visible = !!layers.grid;
+        }
+        if (trackMesh) {
+          trackMesh.visible = !!layers.track;
+        }
+        if (orbitMesh) {
+          orbitMesh.visible = !!layers.orbits;
+        }
+        const sel = state.selectedId ? (window.REAL_SATS || []).find((s) => s.id === state.selectedId) : null;
+        if (sel) {
+          updateSelectedOrbit(sel);
+        }
+        if (terminatorMaterial && terminatorMaterial.uniforms && terminatorMaterial.uniforms.uEnabled) {
+          terminatorMaterial.uniforms.uEnabled.value = layers.terminator ? 1.0 : 0.0;
+        }
+      };
+
+      window.APP.hooks.onFilterChange = function(filter) {
+        window.APP.filter = filter;
+      };
+
+      window.APP.hooks.onSelectSatellite = function(sat) {
+        if (sat && typeof sat.lat === 'number' && typeof sat.lng === 'number') {
+          const duration = isReducedMotion ? 0 : 700;
+          globe.pointOfView({ lat: sat.lat, lng: sat.lng, altitude: 1.6 }, duration);
+          updateSelectedOrbit(sat);
+        } else {
+          updateSelectedOrbit(null);
+        }
+      };
+      window.APP.updateSunPosition = updateSunPosition;
+    })();
+
+    // Чтение #sat=<id> и обработчик hashchange
+    function handleHashChange() {
+      const hash = window.location.hash || '';
+      const m = hash.match(/(?:^#|&)sat=([^&]+)/);
+      if (m && m[1]) {
+        selectSatellite(decodeURIComponent(m[1]));
+      }
+    }
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    }
+
+    // Все vendor-скрипты загружены синхронно выше — глобус можно поднимать сразу
+    boot();
+  </script>
+</body>
+</html>
