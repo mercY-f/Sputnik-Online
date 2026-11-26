@@ -1,6 +1,7 @@
 # Ревизия проекта «Спутник-Онлайн» — отчёт после исправлений
 
 Ветка `refactor/modernization`, диапазон проверенных коммитов `c9078e1..505c1d1` (13 атомарных коммитов).
+Метрики ниже относятся к этому диапазону; перенос на 1-битный дизайн и вычистка F1 — §12.
 Верифицировано:
 - `php artisan test`: **39 passed (126 assertions)** за 2.74 c (`sqlite :memory:`).
 - `npm run build`: **OK** за 8.60 c (3994 модулей).
@@ -61,6 +62,27 @@
 - При отсутствии/сбое WebGL интерфейс не падает, а показывает полноценный Mission Control Fallback с оперативной таблицей телеметрии, активной группировкой, системным временем и кнопкой повтора инициализации.
 - Реализована поддержка `prefers-reduced-motion`: реактивное отслеживание системных настроек, моментальные перелёты камеры (`duration = 0`), пропуск вводного зум-интро и безопасные CSS-стили (`animation-duration: 0.001ms`).
 
+### 12. [F1 · 1-битная миграция] Сцена, UI и вычистка стеклянного наследия
+
+- Сцена вынесена из `resources/js/Pages/Globe/Index.vue` в `resources/js/composables/useGlobeScene.js`
+  (перенос verbatim, sha совпал) и `resources/js/lib/globe/*`:
+  `silhouette.js` (инвертированная оболочка), `borders.js` (Natural Earth 110m),
+  `terminator.js` (субсолярная точка NOAA по UTC + Bayer 4×4, обновление раз в 60 с),
+  `glyphAtlas.js` + `glyphLayer.js` (8 глифов, `THREE.Points`, 1 draw call, LOD FAR/MID/NEAR,
+  пикинг рейкастом 10 px, лимб/frustum-куллинг), `gridLayer.js` (сетка 30°),
+  `sceneOverlay.js` (ретикл, плашка с лидер-линией, подписи по LOD), `lod.js`,
+  `useGlobeDisposer.js` (детерминированный teardown).
+- Bloom/ACES/FXAA, текстуры, атмосфера и звёзды в 1-битной сцене не используются;
+  орбита и наземный след переведены с `Line2` на `THREE.Line` + `LineDashedMaterial`.
+- UI собран в `resources/js/components/mission/*` (TopBar, CategoryChips, CatalogDrawer,
+  SatelliteCard + AsciiSchematic/OrbitProfileChart, LayerToggles, NewsFeed/NewsCard)
+  поверх 5 pinia-сторов (`useCatalogStore`, `useSelectionStore`, `useFiltersStore`,
+  `useLayersStore`, `useViewStore`).
+- Вычистка F1 — `public/textures/*`, `resources/js/lib/postProcessing.js`, неиспользуемые
+  `resources/js/components/ui/*`; `MissionShell.vue` сохраняется для Breeze-страниц.
+  Статус шага ведётся в `docs/mockups/MIGRATE-STATUS.md`; метрики прогона после миграции
+  зафиксирует F2 (в шапке отчёта — цифры диапазона `c9078e1..505c1d1`).
+
 ---
 
 ## Что осталось (актуальный бэклог по ROADMAP)
@@ -69,5 +91,7 @@
    - Тесты `CheckSatelliteAlertsTest` гоняются на `sqlite :memory:`, поэтому проверяют Haversine-ветку, а не SQL-запрос PostGIS (`storeSubpoints` / `fetchZoneInfo`). Сам SQL-запрос валиден (проверен вручную на Postgres 18).
 
 2. **[Спринт 5 — дипломная упаковка]**
-   - Визуальный замер FPS и `DRAWN` в браузере с `?debug=1` на полном каталоге для таблиц в пояснительной записке.
+   - Финальный замер FPS и `DRAWN` в браузере с `?debug=1` на 1-битной сцене для таблиц
+     в пояснительной записке (стресс-тест схемы глифов D0 дал 144 FPS стабильно на Windows,
+     см. `docs/mockups/MIGRATE-STATUS.md`; это замер стресс-сцены, а не полного каталога).
    - Пояснительная записка.

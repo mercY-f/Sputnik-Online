@@ -6,13 +6,22 @@ CelesTrak, поиск и слежение за спутником, фильтр 
 
 ## Возможности
 
-- 3D-глобус на Three.js / globe.gl: InstancedMesh и Points, LOD, отсечение за лимбом,
-  пикинг (hover/клик), орбиты и наземный трек, терминатор день/ночь, атмосфера и звёзды.
+- 3D-глобус в 1-битной графике (бумага/чернила): матовая сфера без текстур и освещения,
+  силуэт инвертированной оболочки, границы Natural Earth 110m, сетка 30°, терминатор
+  день/ночь на Bayer-дизеринге по UTC, спутники — `THREE.Points` с процедурным атласом
+  8 глифов в одном draw call, ретикл/подписи/лидер-линии, пикинг, орбита и наземный след.
+- Палитра и типографика вынесены в токены (`--paper #F4F1EA`, `--ink #0E0E0E`,
+  `--ink-muted #5C5A54`, `--surface #E8E4DA`), моноширинный JetBrains Mono подключён
+  локально (`public/fonts/*.woff2`), скругления нулевые, тень жёсткая 2×2.
 - Каталог TLE из CelesTrak: `satellites:fetch` загружает группу `active`, раскладывает по
   категориям (ISS, STARLINK, ONEWEB, IRIDIUM, NAVIGATION, WEATHER, TELESCOPE, OTHER)
   и обновляет записи батчами через `upsert`.
 - Позиции считаются по SGP4 в Node.js (`scripts/satellite_position.cjs`, `satellite.js`),
-  батчем на один процесс; на фронте — Web Worker.
+  батчем на один процесс; на фронте — Web Worker (`sgp4Core.js` + `workers/sgp4.worker.js`,
+  отдельный канал для окон видимости).
+- Mission-UI: `TopBar` (UTC-часы, поиск ⌘K, новости в выпадающей панели), чипы категорий,
+  каталог-ящик с виртуальным списком, карточка спутника (ASCII-схема, профиль орбиты,
+  блок «Когда увидеть» на `computePasses` + геолокация), переключатели слоёв.
 - Регистрация, профиль, избранное, админка спутников.
 - Правила алертов (точка + радиус в км) и Telegram-бот: привязка аккаунта по токену,
   поиск спутника, уведомления через очередь.
@@ -22,8 +31,8 @@ CelesTrak, поиск и слежение за спутником, фильтр 
 | Слой | Технологии |
 |---|---|
 | Бэкенд | Laravel 11.48, PHP 8.2+ |
-| Фронтенд | Inertia 2, Vue 3.4, Vite 5, Tailwind CSS 3, shadcn-vue (reka-ui) |
-| 3D | Three.js 0.183, globe.gl, satellite.js 6 (SGP4) |
+| Фронтенд | Inertia 2, Vue 3.4, Vite 5, Tailwind CSS 3, pinia; собственный 1-битный mission-UI, reka-ui — только для Breeze-страниц (`MissionShell`) |
+| 3D | Three.js 0.183 (через globe.gl), satellite.js 6 (SGP4); без текстур и пост-обработки |
 | БД | PostgreSQL + PostGIS; cache, queue и sessions — в `database` |
 | Прочее | ziggy, laravel/breeze, irazasyed/telegram-bot-sdk |
 
@@ -275,34 +284,53 @@ php artisan test
 `CACHE_STORE=array`, `QUEUE_CONNECTION=sync`, поэтому dev-БД не затрагивается.
 Для запуска нужен `pdo_sqlite`.
 
-Текущее состояние на 2026-11-11 (PHP 8.5): 1 упавший тест — шаблонный
-`Tests\Feature\ExampleTest` обращается к `/` без миграций in-memory БД; остальные
-Breeze-тесты проходят с пометкой deprecated из-за `PDO::MYSQL_ATTR_SSL_CA`.
-Тестами покрыт только шаблон аутентификации; SGP4, `satellites:fetch`,
-`satellites:check-alerts` и `/api/satellites` не покрыты.
+Наборы: `tests/Unit` (`SatellitePositionCalculatorTest`, `SatelliteMetadataTest`),
+`tests/Feature` (`SatelliteApiTest`, `SatelliteCacheTest`, `CheckSatelliteAlertsTest`,
+`EnrichSatellitesTest`, `GlobePagePropsTest`, Breeze-тесты `Auth`/`ProfileTest`).
+JS-логика проверяется Node-тестами:
+
+```bash
+node --test tests/js/*.test.mjs
+```
+
+`orbit.test.mjs` — геометрия орбит/следа, `passes.test.mjs` — окна видимости
+(реальный пролёт МКС над Москвой, граничные случаи). Тесты алертов идут на sqlite и
+проверяют haversine-ветку; SQL-путь PostGIS проверен вручную на PostgreSQL.
+Метрики последнего прогона — в `REVIEW.md`; финальные цифры фиксируются по итогам F2.
 
 ## Отладка глобуса
 
 Добавьте к URL `?debug=1` — в углу появится HUD: `FPS`, `DRAWN / всего`,
-`SPHERES` (ближний LOD), `POINTS` (дальний LOD), `CULL FRUSTUM`, `CULL LIMB`.
-Удобно для замера производительности на полном каталоге.
+`SPHERES` (ближний LOD глифов), `POINTS` (дальний LOD), `CULL FRUSTUM`, `CULL LIMB`.
+Удобно для замера производительности на полном каталоге (стресс-тест схемы глифов дал
+144 FPS стабильно на Windows — `docs/mockups/MIGRATE-STATUS.md`).
 
 ## Структура
 
 ```
-app/Console/Commands/          satellites:fetch, satellites:check-alerts, telegram:poll
+app/Console/Commands/          satellites:fetch, enrich, check-alerts, telegram:poll
 app/Services/SatellitePositionCalculator.php   расчёт позиций через Node/satellite.js (--batch)
 app/Jobs/SendTelegramAlert.php очередь Telegram-уведомлений
 scripts/satellite_position.cjs SGP4 через satellite.js (одиночный и --batch режимы)
-resources/js/Pages/Globe/Index.vue             сцена, LOD, пикинг, орбиты, HUD
+resources/js/Pages/Globe/Index.vue             разметка 1-битного экрана, оверлеи, HUD ?debug=1
+resources/js/composables/useGlobeScene.js      сцена: камера, LOD, слои, синхронизация сторов
+resources/js/lib/globe/                        silhouette, borders, terminator, gridLayer,
+                                               glyphAtlas + glyphLayer, sceneOverlay, lod,
+                                               useGlobeDisposer (детерминированный teardown)
+resources/js/lib/{orbit,passes,sgp4Core,sgp4WorkerClient}.js  геометрия, витки, SGP4
+resources/js/workers/sgp4.worker.js            SGP4 вне главного потока (позиции + витки)
+resources/js/components/mission/               TopBar, CategoryChips, CatalogDrawer,
+                                               SatelliteCard (+AsciiSchematic, OrbitProfileChart),
+                                               LayerToggles, NewsFeed/NewsCard, MissionShell (Breeze)
+resources/js/stores/                           pinia: каталог, выбор, фильтры, слои, вид
+tests/js/*.test.mjs            node --test: orbit, passes
 routes/console.php             расписание (fetch 2 раза в сутки, алерты каждую минуту)
 ```
 
 ## Известные ограничения
 
-- `satellites:fetch` вызывает `Cache::flush()` и очищает весь кэш БД, а не только ключи
-  каталога; на database-драйвере это затрагивает и чужие ключи (сессии хранятся в
-  отдельной таблице и не страдают).
 - Без Node.js позиции не рассчитываются (возвращается null, ошибка пишется в
   `storage/logs/laravel.log`); для алертов наличие Node.js обязательно.
-- Лента новостей на главной использует демонстрационные данные (`resources/js/data/news.js`).
+- Лента новостей использует демонстрационные данные (`resources/js/data/news.js`).
+- SQL-путь PostGIS (`ST_DWithin`/`ST_Distance`) не покрыт тестами: `CheckSatelliteAlertsTest`
+  идёт на sqlite и проверяет haversine-ветку; запрос проверен вручную на PostgreSQL 18.

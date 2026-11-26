@@ -128,7 +128,6 @@
           >
             <SatelliteCard
               :satellite="selectedSatellite"
-              :category-color="getCategoryColor(selectedSatellite.category)"
               :is-favorite="isFavorite(selectedSatellite)"
               @close="clearFocus"
               @toggle-favorite="toggleFavorite(selectedSatellite)"
@@ -197,7 +196,6 @@ const {
   webglSupported,
   hoverSat,
   debugStats,
-  getCategoryColor,
   retryInitGlobe,
   setFilter: sceneSetFilter,
   focusSatellite,

@@ -34,29 +34,13 @@ export default defineConfig({
                 // Чанк страницы глобуса (three + globe.gl + гео-данные) > 2 MiB;
                 // без этого workbox отказывается его прекешировать и сборка падает.
                 maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-                runtimeCaching: [
-                    {
-                        urlPattern: /\/textures\/.*\.(?:png|jpg|jpeg|svg|webp|avif)$/i,
-                        handler: 'CacheFirst',
-                        options: {
-                            cacheName: 'globe-textures-cache',
-                            expiration: {
-                                maxEntries: 20,
-                                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
-                            },
-                            cacheableResponse: {
-                                statuses: [0, 200],
-                            },
-                        },
-                    },
-                ],
             },
             manifest: {
                 name: 'Earth Orbit Live',
                 short_name: 'OrbitLive',
                 description: 'Real-time satellite tracking application',
-                theme_color: '#050505',
-                background_color: '#050505',
+                theme_color: '#F4F1EA',
+                background_color: '#F4F1EA',
                 display: 'standalone',
                 icons: [
                     {

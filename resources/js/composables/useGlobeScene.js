@@ -29,22 +29,6 @@ export function useGlobeScene(options = {}) {
   // -----------------------------------------------------------------------
   // Константы
   // -----------------------------------------------------------------------
-  const CATEGORY_COLORS = {
-    ISS:        '#ef4444',
-    STARLINK:   '#3b82f6',
-    ONEWEB:     '#8b5cf6',
-    IRIDIUM:    '#f59e0b',
-    NAVIGATION: '#eab308',
-    WEATHER:    '#06b6d4',
-    TELESCOPE:  '#ec4899',
-    OTHER:      '#10b981',
-  };
-
-
-  function getCategoryColor(cat) {
-    return CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.OTHER;
-  }
-
   const GLOBE_RADIUS      = 100;   // радиус three-globe в мировых единицах
   const SAT_EARTH_LIMB_R2 = (GLOBE_RADIUS * 0.995) * (GLOBE_RADIUS * 0.995);
 
@@ -1855,7 +1839,6 @@ export function useGlobeScene(options = {}) {
     webglSupported,
     hoverSat,
     debugStats,
-    getCategoryColor,
     retryInitGlobe,
     setFilter,
     focusSatellite,

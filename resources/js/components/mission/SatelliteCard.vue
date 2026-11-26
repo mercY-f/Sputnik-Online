@@ -207,10 +207,6 @@ const props = defineProps({
     type: Object,
     default: null,
   },
-  categoryColor: {
-    type: String,
-    default: '#0E0E0E',
-  },
   isFavorite: {
     type: Boolean,
     default: false,

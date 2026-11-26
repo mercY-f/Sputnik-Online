@@ -11,7 +11,7 @@
 | UI-примитивы | **shadcn-vue** (reka-ui) + **lucide-vue-next** + tailwind-variants |
 | State | **pinia** · тосты: vue-sonner · анимации: **motion-v** · утилиты: @vueuse/core |
 | Таблицы / графика | @tanstack/vue-table · vue-echarts (телеметрия) |
-| Дизайн | **Mission Control UI** — единый тёмный shell (стекло, моно-цифры, HUD-панели) |
+| Дизайн | ~~**Mission Control UI** — единый тёмный shell (стекло, моно-цифры, HUD-панели)~~ → с 2026-11-23 **1-бит** (бумага/чернила, см. раздел «Пост-Спринт 5») |
 
 ## Спринты
 
@@ -65,6 +65,33 @@
 - [x] базовый CI workflow (`.github/workflows/ci.yml`: сборка фронтенда `npm ci && npm run build`, запуск тестов `composer install && php artisan test`)
 - [x] reduced-motion (matchMedia + моментальные перелёты + CSS safe) · WebGL-fallback (телеметрия без 3D-GPU) · PWA-офлайн (Workbox cache текстур) ✅
 - пояснительная записка (СУБД, архитектура расчётов, обоснование оптимизаций)
+
+### Пост-Спринт 5 — перенос на 1-битный дизайн ⬜ (в работе)
+
+План: `docs/mockups/PLAN-MIGRATE-1BIT.md` · контракт: `docs/mockups/CONTRACT-1BIT.md` ·
+журнал шагов: `docs/mockups/MIGRATE-STATUS.md`. Откатный якорь — ветка `legacy/design-glass`,
+тег `legacy-glass-v1`. БД и миграции перенос не трогает (откат чисто кодовый).
+
+- [x] токены 1-бита: `--paper #F4F1EA`, `--ink #0E0E0E`, `--ink-muted #5C5A54`,
+      `--surface #E8E4DA`, `--radius: 0`, жёсткая тень 2×2; JetBrains Mono woff2 локально
+- [x] сцена вынесена из `Pages/Globe/Index.vue` в `composables/useGlobeScene.js` (перенос verbatim)
+- [x] `lib/globe/*`: бумажная сфера + силуэт инвертированной оболочки, границы NE 110m,
+      терминатор Bayer 4×4 по UTC, сетка 30°, ретикл/плашка/лидер-линия/подписи, `lod.js`,
+      детерминированный teardown `useGlobeDisposer.js`
+- [x] спутники: `THREE.Points` + процедурный атлас 8 глифов (S O N T I R W ×), 1 draw call;
+      замер D0 — 144 FPS стабильно на Windows → InstancedMesh не нужен
+- [x] mission-UI: `TopBar` (новости в дропдауне), `CategoryChips`, `CatalogDrawer` (виртуальный
+      список), `SatelliteCard` (+ ASCII-схема, профиль орбиты, «Когда увидеть» на `computePasses`),
+      `LayerToggles`, `NewsFeed`; 5 pinia-сторов
+- [x] JS-тесты: `tests/js/orbit.test.mjs`, `tests/js/passes.test.mjs` (пролёт МКС, граничные случаи)
+- [x] F1 — вычистка стеклянного наследия: `public/textures/*`, `lib/postProcessing.js`,
+      неиспользуемые `components/ui/*` (файлы удалены в рабочем дереве); `MissionShell.vue`
+      остаётся для Breeze-страниц
+- [ ] F2 — финальные метрики (FPS/DRAWN, размер бандла, прогон тестов) и чистота дерева
+      для пояснительной записки; журнал шагов — `docs/mockups/MIGRATE-STATUS.md`
+
+> Спринты 0–5 выше сохранены как историческая запись (каждый закрыт на своём коммите).
+> Актуальные стек, структура и ограничения — в `README.md`.
 
 ---
 
